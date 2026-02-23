@@ -1,5 +1,6 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Pool } from 'pg';
 import Redis from 'ioredis';
 
 /**
@@ -60,9 +61,10 @@ export interface IdentifierResolution {
  * with SessionService and CentralizedAuthService.
  */
 @Injectable()
-export class SessionIdentifierService {
+export class SessionIdentifierService implements OnModuleInit {
   private readonly logger = new Logger(SessionIdentifierService.name);
   private readonly redis: Redis;
+  private pool: Pool;
 
   constructor(
     private configService: ConfigService,
@@ -75,7 +77,40 @@ export class SessionIdentifierService {
     };
 
     this.redis = new Redis(redisConfig);
-    this.logger.log('✅ Session Identifier Service initialized');
+
+    const pgUrl = this.configService.get('DATABASE_URL') ||
+      'postgresql://mangwale_config:config_secure_pass_2024@localhost:5432/headless_mangwale?schema=public';
+    this.pool = new Pool({
+      connectionString: pgUrl,
+      max: 5,
+      idleTimeoutMillis: 30000,
+    });
+
+    this.logger.log('Session Identifier Service initialized');
+  }
+
+  async onModuleInit() {
+    try {
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS bsuid_mapping (
+          bsuid UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          phone VARCHAR(50),
+          wa_username VARCHAR(100),
+          device_fingerprint VARCHAR(255),
+          channel VARCHAR(20),
+          user_id INTEGER,
+          verified BOOLEAN DEFAULT false,
+          created_at TIMESTAMP DEFAULT NOW(),
+          last_seen_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_bsuid_phone ON bsuid_mapping(phone) WHERE phone IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_bsuid_wa_username ON bsuid_mapping(wa_username) WHERE wa_username IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_bsuid_user ON bsuid_mapping(user_id);
+      `);
+      this.logger.log('BSUID mapping table ready');
+    } catch (error) {
+      this.logger.error(`Failed to initialize BSUID table: ${error.message}`);
+    }
   }
 
   /**

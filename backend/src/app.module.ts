@@ -70,6 +70,7 @@ import { ActionEngineModule } from './action-engine/action-engine.module'; // �
 import { SchedulerModule } from './scheduler/scheduler.module'; // ✨ mOS Scheduler (Cron Jobs & Auto-Actions)
 import { InstagramModule } from './instagram/instagram.module'; // ✨ Instagram DM Channel
 import { McpModule } from './mcp/mcp.module'; // ✨ MCP Server (AI Agent Commerce Discovery)
+import { PaymentModule } from './payment/payment.module'; // ✨ Payment Webhooks (Razorpay + UPI)
 // import { ClientLogsController } from './logging/controllers/client-logs.controller'; // ✨ Frontend Logging (FILE MISSING)
 
 @Module({
@@ -170,6 +171,7 @@ FlowManagementModule, // ✨ Visual Flow Builder & Execution
     ActionEngineModule, // ✨ mOS Action Engine (Campaigns, Cart Recovery)
     SchedulerModule, // ✨ mOS Scheduler (Cron Jobs & Auto-Actions)
     McpModule, // ✨ MCP Server (AI Agent Commerce Discovery)
+    PaymentModule, // ✨ Payment Webhooks (Razorpay + UPI)
 
     // Channel implementation modules
     WhatsAppModule, // WhatsApp channel

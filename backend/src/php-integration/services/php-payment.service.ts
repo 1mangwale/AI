@@ -426,4 +426,34 @@ export class PhpPaymentService extends PhpApiService {
       return { success: false, message: error.message };
     }
   }
+
+  /**
+   * Generate UPI deep link for in-chat payment
+   * Creates a `upi://pay` URI that opens UPI apps (GPay, PhonePe, Paytm)
+   */
+  generateUpiLink(params: {
+    orderId: string | number;
+    amount: number;
+    merchantVpa?: string;
+    merchantName?: string;
+  }): string {
+    const vpa = params.merchantVpa || this.configService.get('MERCHANT_UPI_VPA') || '';
+    const name = params.merchantName || 'Mangwale';
+    const txnRef = `MNG${params.orderId}`;
+
+    if (!vpa) {
+      this.logger.warn('MERCHANT_UPI_VPA not configured — UPI link will not work');
+    }
+
+    const upiParams = new URLSearchParams({
+      pa: vpa,
+      pn: name,
+      am: String(params.amount),
+      tr: txnRef,
+      tn: `Order ${params.orderId}`,
+      cu: 'INR',
+    });
+
+    return `upi://pay?${upiParams.toString()}`;
+  }
 }

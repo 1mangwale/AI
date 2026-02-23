@@ -50,6 +50,9 @@ import { AdExecutionExecutor } from './executors/ad-execution.executor';
 import { ApprovalGateExecutor } from './executors/approval-gate.executor';
 import { WhatsAppNotifyExecutor } from './executors/whatsapp-notify.executor';
 import { BroadcastExecutor } from './executors/broadcast.executor';
+// Phase 7: Voice & RAG
+import { VoiceExecutor } from './executors/voice.executor';
+import { QueryRewriterService } from './services/query-rewriter.service';
 // Game executors disabled - Prisma schema mismatch
 // import { GameScorerExecutor } from './executors/game-scorer.executor';
 // import { RewardPointsExecutor } from './executors/reward-points.executor';
@@ -169,6 +172,9 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     ApprovalGateExecutor,
     WhatsAppNotifyExecutor,
     BroadcastExecutor,
+    // Phase 7: Voice & RAG
+    VoiceExecutor,
+    QueryRewriterService,
   ],
   exports: [
     FlowEngineService,
@@ -229,6 +235,8 @@ export class FlowEngineModule {
     private readonly approvalGateExecutor: ApprovalGateExecutor,
     private readonly whatsAppNotifyExecutor: WhatsAppNotifyExecutor,
     private readonly broadcastExecutor: BroadcastExecutor,
+    // Phase 7: Voice
+    private readonly voiceExecutor: VoiceExecutor,
   ) {
     // Register all executors
     this.executorRegistry.register(llmExecutor);
@@ -274,5 +282,7 @@ export class FlowEngineModule {
     this.executorRegistry.register(approvalGateExecutor);
     this.executorRegistry.register(whatsAppNotifyExecutor);
     this.executorRegistry.register(broadcastExecutor);
+    // Phase 7: Voice
+    this.executorRegistry.register(voiceExecutor);
   }
 }
