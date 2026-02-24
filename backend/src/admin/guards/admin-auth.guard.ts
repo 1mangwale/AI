@@ -15,10 +15,19 @@ export class AdminAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
 
-    // Try JWT first
+    // Try JWT from Bearer header first, then HttpOnly cookie
     const authHeader = request.headers['authorization'];
+    let token: string | undefined;
+
     if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.slice(7);
+      token = authHeader.slice(7);
+    } else if (request.cookies?.mangwale_admin_token) {
+      token = request.cookies.mangwale_admin_token;
+    } else if (request.cookies?.mangwale_token) {
+      token = request.cookies.mangwale_token;
+    }
+
+    if (token) {
       const adminUser = this.adminRoleService.verifyToken(token);
       if (adminUser) {
         (request as any).adminUser = adminUser;

@@ -90,6 +90,7 @@ class AdminBackendClient {
     const response = await fetch(url, {
       ...options,
       headers,
+      credentials: 'include',
     })
 
     if (response.status === 401) {
@@ -118,6 +119,7 @@ class AdminBackendClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
+      credentials: 'include',
     })
     return response.json()
   }
@@ -128,6 +130,7 @@ class AdminBackendClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
+      credentials: 'include',
     })
     return response.json()
   }
@@ -138,6 +141,7 @@ class AdminBackendClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, otp }),
+      credentials: 'include',
     })
     return response.json()
   }
@@ -148,6 +152,17 @@ class AdminBackendClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resetToken, newPassword }),
+      credentials: 'include',
+    })
+    return response.json()
+  }
+
+  async logout(): Promise<{ success: boolean; message: string }> {
+    const url = `${this.baseUrl}/admin/auth/logout`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
     })
     return response.json()
   }
@@ -362,6 +377,7 @@ class AdminBackendClient {
       method: 'POST',
       headers,
       body: formData,
+      credentials: 'include',
     })
 
     if (!response.ok) {
@@ -815,6 +831,7 @@ class AdminBackendClient {
       method: 'POST',
       headers,
       body: formData,
+      credentials: 'include',
     })
 
     if (!response.ok) {
@@ -948,6 +965,7 @@ class AdminBackendClient {
       method: 'POST',
       headers,
       body: formData,
+      credentials: 'include',
     })
 
     if (response.status === 401) {

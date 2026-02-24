@@ -5,13 +5,14 @@ import {
   Get,
   Body,
   Req,
+  Res,
   UseGuards,
   Logger,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import * as crypto from 'crypto';
 import { Inject } from '@nestjs/common';
 import Redis from 'ioredis';
@@ -40,7 +41,11 @@ export class AdminAuthController {
   @Post('login')
   @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
-  async login(@Body() dto: LoginDto, @Req() req: Request) {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const ip = req.ip;
     const ua = req.headers['user-agent'];
 
@@ -48,6 +53,15 @@ export class AdminAuthController {
       const { user, token } = await this.adminRoleService.authenticate(dto.email, dto.password);
 
       await this.activityLog.log(user.id, 'login', 'auth', { email: dto.email }, ip, ua);
+
+      // Set HttpOnly cookie for persistent admin sessions
+      res.cookie('mangwale_admin_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000, // 24h — matches JWT expiry
+        path: '/',
+      });
 
       return {
         success: true,
@@ -233,6 +247,24 @@ export class AdminAuthController {
         message: error.message || 'Failed to change password.',
       };
     }
+  }
+
+  /**
+   * POST /api/admin/auth/logout
+   * Clear admin auth cookie
+   */
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const adminUser = (req as any).adminUser;
+
+    res.clearCookie('mangwale_admin_token', { path: '/' });
+
+    if (adminUser?.id) {
+      await this.activityLog.log(adminUser.id, 'logout', 'auth', {}, req.ip, req.headers['user-agent'] as string);
+    }
+
+    return { success: true, message: 'Logged out successfully.' };
   }
 
   /**

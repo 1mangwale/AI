@@ -4,6 +4,7 @@ import { PrismaService } from '../../database/prisma.service';
 export type AdminAction =
   | 'login'
   | 'login_failed'
+  | 'logout'
   | 'forgot_password'
   | 'otp_verified'
   | 'password_reset'

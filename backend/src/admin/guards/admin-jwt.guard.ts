@@ -8,13 +8,23 @@ export class AdminJwtGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
-    const authHeader = request.headers['authorization'];
 
-    if (!authHeader?.startsWith('Bearer ')) {
+    // Try Bearer header first, then fall back to HttpOnly cookie
+    const authHeader = request.headers['authorization'];
+    let token: string | undefined;
+
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    } else if (request.cookies?.mangwale_admin_token) {
+      token = request.cookies.mangwale_admin_token;
+    } else if (request.cookies?.mangwale_token) {
+      token = request.cookies.mangwale_token;
+    }
+
+    if (!token) {
       throw new UnauthorizedException('Missing or invalid Authorization header');
     }
 
-    const token = authHeader.slice(7);
     const adminUser = this.adminRoleService.verifyToken(token);
 
     if (!adminUser) {
