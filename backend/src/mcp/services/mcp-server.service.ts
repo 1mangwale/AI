@@ -5,6 +5,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { McpToolsService } from './mcp-tools.service';
+import { McpCacheService } from './mcp-cache.service';
 
 /**
  * MCP Server Service
@@ -12,27 +13,37 @@ import { McpToolsService } from './mcp-tools.service';
  * Wraps the @modelcontextprotocol/sdk Server and registers all Mangwale
  * commerce tools. The controller handles HTTP transport (SSE + POST).
  *
- * Tools exposed:
- * - search_restaurants — Find restaurants by location/query
- * - get_restaurant_menu — Get a restaurant's full menu
- * - search_items — Search food or e-commerce products
- * - check_serviceability — Check if a location is served by Mangwale
- * - get_coupons — List available coupons
- * - add_to_cart — Add items to shopping cart (auth required)
- * - place_order — Place a food order (auth required)
- * - get_addresses — Get user's saved delivery addresses (auth required)
- * - get_wallet_balance — Check wallet balance (auth required)
- * - send_otp — Send OTP for phone authentication
- * - verify_otp — Verify OTP and get auth token
+ * Tools exposed (17 total):
+ * Discovery (no auth):
+ * - search_restaurants, get_restaurant_menu, search_items
+ * - check_serviceability, get_coupons, get_payment_methods, get_categories
+ * Auth:
+ * - send_otp, verify_otp
+ * Transactional (auth required):
+ * - add_to_cart, place_order, get_addresses, add_address
+ * - get_wallet_balance, get_order_status, get_order_history, cancel_order
  */
 @Injectable()
 export class McpServerService implements OnModuleInit {
   private readonly logger = new Logger(McpServerService.name);
 
-  constructor(private readonly tools: McpToolsService) {}
+  // TTLs for cacheable discovery tools (seconds)
+  private readonly CACHE_TTLS: Record<string, number> = {
+    search_restaurants: 300,   // 5 min
+    get_restaurant_menu: 180,  // 3 min
+    search_items: 300,         // 5 min
+    get_coupons: 600,          // 10 min
+    get_payment_methods: 600,  // 10 min
+    get_categories: 600,       // 10 min
+  };
+
+  constructor(
+    private readonly tools: McpToolsService,
+    private readonly cache: McpCacheService,
+  ) {}
 
   onModuleInit() {
-    this.logger.log('MCP Server Service initialized — 11 tools registered');
+    this.logger.log('MCP Server Service initialized — 17 tools registered');
   }
 
   /**
@@ -228,6 +239,89 @@ export class McpServerService implements OnModuleInit {
             required: ['phone', 'otp'],
           },
         },
+        {
+          name: 'get_order_status',
+          description:
+            'Get the current status and details of a specific order. Returns status, payment info, and amounts. Requires auth_token — use send_otp + verify_otp first.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              auth_token: { type: 'string', description: 'Bearer token from verify_otp' },
+              order_id: { type: 'number', description: 'Order ID to check' },
+            },
+            required: ['auth_token', 'order_id'],
+          },
+        },
+        {
+          name: 'get_order_history',
+          description:
+            'Get the user\'s past orders. Returns order IDs, amounts, statuses, and dates. Filter by module (food, ecommerce, parcel). Requires auth_token.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              auth_token: { type: 'string', description: 'Bearer token from verify_otp' },
+              limit: { type: 'number', description: 'Max number of orders to return (default: 10)' },
+              module: { type: 'string', enum: ['food', 'ecommerce', 'parcel'], description: 'Filter by service type (default: all)' },
+            },
+            required: ['auth_token'],
+          },
+        },
+        {
+          name: 'cancel_order',
+          description:
+            'Cancel an order. Checks eligibility first — only pending/failed orders can be cancelled. Requires auth_token.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              auth_token: { type: 'string', description: 'Bearer token from verify_otp' },
+              order_id: { type: 'number', description: 'Order ID to cancel' },
+              reason: { type: 'string', description: 'Cancellation reason (optional)' },
+            },
+            required: ['auth_token', 'order_id'],
+          },
+        },
+        {
+          name: 'add_address',
+          description:
+            'Add a new delivery address for the user. Returns the address ID which can be used with place_order. Requires auth_token.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              auth_token: { type: 'string', description: 'Bearer token from verify_otp' },
+              address: { type: 'string', description: 'Full address text (e.g., "123 Main St, Nashik")' },
+              lat: { type: 'number', description: 'Latitude of the address' },
+              lng: { type: 'number', description: 'Longitude of the address' },
+              type: { type: 'string', enum: ['home', 'office', 'other'], description: 'Address type (default: other)' },
+              house: { type: 'string', description: 'House/flat number (optional)' },
+              road: { type: 'string', description: 'Road/street name (optional)' },
+              floor: { type: 'string', description: 'Floor number (optional)' },
+            },
+            required: ['auth_token', 'address', 'lat', 'lng'],
+          },
+        },
+        {
+          name: 'get_payment_methods',
+          description:
+            'Get available payment methods (COD, digital payment, wallet). No authentication required. Useful before placing an order.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              module: { type: 'string', enum: ['food', 'ecommerce', 'parcel'], description: 'Service module (default: food)' },
+            },
+          },
+        },
+        {
+          name: 'get_categories',
+          description:
+            'Get food or product categories. Optionally filter by a specific store to see its menu categories. No authentication required.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              module: { type: 'string', enum: ['food', 'ecommerce'], description: 'Module type (default: food)' },
+              store_id: { type: 'number', description: 'Store ID to get menu categories for (optional)' },
+            },
+          },
+        },
       ],
     }));
 
@@ -235,9 +329,22 @@ export class McpServerService implements OnModuleInit {
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
       this.logger.log(`MCP tool call: ${name} ${JSON.stringify(args || {}).slice(0, 200)}`);
+      const startTime = Date.now();
 
       try {
         let result: any;
+
+        // Check cache for cacheable discovery tools
+        const cacheTtl = this.CACHE_TTLS[name];
+        if (cacheTtl) {
+          const cacheKey = this.cache.buildKey(name, args as any);
+          const cached = await this.cache.get(cacheKey);
+          if (cached) {
+            this.logger.debug(`MCP cache hit: ${name}`);
+            await this.cache.logToolCall(name, args, Date.now() - startTime, true);
+            return { content: [{ type: 'text' as const, text: JSON.stringify(cached, null, 2) }] };
+          }
+        }
 
         switch (name) {
           case 'search_restaurants':
@@ -273,20 +380,57 @@ export class McpServerService implements OnModuleInit {
           case 'verify_otp':
             result = await this.tools.verifyOtp(args as any);
             break;
+          case 'get_order_status':
+            result = await this.tools.getOrderStatus(args as any);
+            break;
+          case 'get_order_history':
+            result = await this.tools.getOrderHistory(args as any);
+            break;
+          case 'cancel_order':
+            result = await this.tools.cancelOrder(args as any);
+            break;
+          case 'add_address':
+            result = await this.tools.addAddress(args as any);
+            break;
+          case 'get_payment_methods':
+            result = await this.tools.getPaymentMethods(args as any);
+            break;
+          case 'get_categories':
+            result = await this.tools.getCategories(args as any);
+            break;
           default:
             return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ error: `Unknown tool: ${name}` }) }],
+              content: [{ type: 'text' as const, text: JSON.stringify({ error: `Unknown tool: ${name}. Use tools/list to see available tools.` }) }],
               isError: true,
             };
         }
+
+        // Cache cacheable results
+        if (cacheTtl && result && !result.error) {
+          const cacheKey = this.cache.buildKey(name, args as any);
+          await this.cache.set(cacheKey, result, cacheTtl);
+        }
+
+        await this.cache.logToolCall(name, args, Date.now() - startTime, true);
 
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
         };
       } catch (err) {
+        await this.cache.logToolCall(name, args, Date.now() - startTime, false);
         this.logger.error(`MCP tool ${name} failed: ${err.message}`, err.stack);
+
+        // Provide helpful hints based on error type
+        let hint = '';
+        const msg = err.message || '';
+        if (msg.includes('401') || msg.includes('Unauthenticated') || msg.includes('auth')) {
+          hint = ' Hint: Use send_otp + verify_otp to get an auth_token first.';
+        } else if (msg.includes('ECONNREFUSED') || msg.includes('ETIMEDOUT')) {
+          hint = ' Hint: The service may be temporarily unavailable. Try again in a moment.';
+        }
+
         return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ error: err.message }) }],
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: msg + hint }) }],
           isError: true,
         };
       }

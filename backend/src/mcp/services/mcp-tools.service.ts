@@ -7,6 +7,7 @@ import { PhpOrderService } from '../../php-integration/services/php-order.servic
 import { PhpAddressService } from '../../php-integration/services/php-address.service';
 import { PhpWalletService } from '../../php-integration/services/php-wallet.service';
 import { PhpCouponService } from '../../php-integration/services/php-coupon.service';
+import { PhpPaymentService } from '../../php-integration/services/php-payment.service';
 import { ZoneService } from '../../zones/services/zone.service';
 
 /**
@@ -16,8 +17,8 @@ import { ZoneService } from '../../zones/services/zone.service';
  * Each method corresponds to a single MCP tool callable by AI agents.
  *
  * Tools follow the convention:
- * - Discovery tools (no auth): search_restaurants, get_restaurant_menu, search_items, check_serviceability, get_coupons
- * - Transactional tools (auth required): add_to_cart, place_order, get_addresses, get_wallet_balance, send_otp, verify_otp
+ * - Discovery tools (no auth): search_restaurants, get_restaurant_menu, search_items, check_serviceability, get_coupons, get_payment_methods, get_categories
+ * - Transactional tools (auth required): add_to_cart, place_order, get_addresses, get_wallet_balance, get_order_status, get_order_history, cancel_order, add_address, send_otp, verify_otp
  */
 @Injectable()
 export class McpToolsService {
@@ -33,6 +34,7 @@ export class McpToolsService {
     private readonly addressService: PhpAddressService,
     private readonly walletService: PhpWalletService,
     private readonly couponService: PhpCouponService,
+    private readonly paymentService: PhpPaymentService,
     private readonly zoneService: ZoneService,
   ) {
     this.phpBaseUrl = this.config.get('PHP_API_BASE_URL') || 'https://new.mangwale.com';
@@ -394,6 +396,225 @@ export class McpToolsService {
     } catch (err) {
       this.logger.error(`verifyOtp failed: ${err.message}`);
       return { success: false, error: 'OTP verification failed' };
+    }
+  }
+
+  // ─── Order Management Tools ─────────────────────────────────
+
+  async getOrderStatus(params: {
+    auth_token: string;
+    order_id: number;
+  }): Promise<any> {
+    if (!params.auth_token) return { error: 'auth_token is required. Use send_otp + verify_otp to get an auth_token first.' };
+    if (!params.order_id) return { error: 'order_id is required.' };
+
+    try {
+      const order = await this.orderService.getOrderDetails(params.auth_token, params.order_id);
+      if (!order) {
+        return { error: `Order #${params.order_id} not found` };
+      }
+
+      return {
+        order_id: order.id,
+        status: order.orderStatus,
+        payment_method: order.paymentMethod,
+        payment_status: order.paymentStatus,
+        order_amount: order.orderAmount,
+        delivery_charge: order.deliveryCharge,
+        order_note: order.orderNote || '',
+        created_at: order.createdAt?.toISOString() || null,
+      };
+    } catch (err) {
+      this.logger.error(`getOrderStatus failed: ${err.message}`);
+      return { error: 'Failed to fetch order status' };
+    }
+  }
+
+  async getOrderHistory(params: {
+    auth_token: string;
+    limit?: number;
+    module?: 'food' | 'ecommerce' | 'parcel';
+  }): Promise<any> {
+    if (!params.auth_token) return { error: 'auth_token is required. Use send_otp + verify_otp to get an auth_token first.' };
+
+    const moduleMap = { food: '4', ecommerce: '5', parcel: '3' };
+    const moduleId = params.module ? moduleMap[params.module] : undefined;
+
+    try {
+      const orders = await this.orderService.getOrders(
+        params.auth_token,
+        params.limit || 10,
+        1,
+        moduleId,
+      );
+
+      return {
+        orders: orders.map((o: any) => ({
+          id: o.id,
+          status: o.orderStatus,
+          amount: o.orderAmount,
+          delivery_charge: o.deliveryCharge,
+          payment_method: o.paymentMethod,
+          payment_status: o.paymentStatus,
+          created_at: o.createdAt?.toISOString() || null,
+        })),
+        total: orders.length,
+      };
+    } catch (err) {
+      this.logger.error(`getOrderHistory failed: ${err.message}`);
+      return { orders: [], total: 0, error: 'Failed to fetch order history' };
+    }
+  }
+
+  async cancelOrder(params: {
+    auth_token: string;
+    order_id: number;
+    reason?: string;
+  }): Promise<any> {
+    if (!params.auth_token) return { error: 'auth_token is required. Use send_otp + verify_otp to get an auth_token first.' };
+    if (!params.order_id) return { error: 'order_id is required.' };
+
+    try {
+      // Check eligibility first
+      const eligibility = await this.orderService.checkCancelEligibility(
+        params.auth_token,
+        params.order_id,
+      );
+
+      if (!eligibility.can_cancel) {
+        return {
+          success: false,
+          message: eligibility.cancel_reason || 'Order cannot be cancelled at this stage.',
+        };
+      }
+
+      // Proceed with cancellation
+      const result = await this.orderService.cancelOrder(
+        params.auth_token,
+        params.order_id,
+        params.reason || 'Customer requested cancellation',
+      );
+
+      return {
+        success: result.success,
+        message: result.success
+          ? `Order #${params.order_id} cancelled successfully.`
+          : (result.message || 'Cancellation failed'),
+      };
+    } catch (err) {
+      this.logger.error(`cancelOrder failed: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  }
+
+  async addAddress(params: {
+    auth_token: string;
+    address: string;
+    lat: number;
+    lng: number;
+    type?: 'home' | 'office' | 'other';
+    house?: string;
+    road?: string;
+    floor?: string;
+  }): Promise<any> {
+    if (!params.auth_token) return { error: 'auth_token is required. Use send_otp + verify_otp to get an auth_token first.' };
+    if (!params.address) return { error: 'address is required.' };
+    if (!params.lat || !params.lng) return { error: 'lat and lng are required.' };
+
+    try {
+      const result = await this.addressService.addAddress(params.auth_token, {
+        contactPersonName: 'User',
+        contactPersonNumber: '',
+        addressType: params.type || 'other',
+        address: params.address,
+        latitude: String(params.lat),
+        longitude: String(params.lng),
+        house: params.house || '',
+        road: params.road || '',
+        floor: params.floor || '',
+      });
+
+      return {
+        success: result.success,
+        address_id: result.addressId || null,
+        message: result.success
+          ? 'Address added successfully. Use get_addresses to see all saved addresses.'
+          : (result.message || 'Failed to add address'),
+      };
+    } catch (err) {
+      this.logger.error(`addAddress failed: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  }
+
+  // ─── Discovery Tools (cont.) ────────────────────────────────
+
+  async getPaymentMethods(params: {
+    module?: 'food' | 'ecommerce' | 'parcel';
+  }): Promise<any> {
+    const moduleMap = { food: 4, ecommerce: 5, parcel: 3 };
+    const moduleId = params.module ? moduleMap[params.module] : 4;
+
+    try {
+      const result = await this.paymentService.getPaymentMethods(moduleId);
+
+      if (!result.success) {
+        return { methods: [], error: result.message || 'Failed to fetch payment methods' };
+      }
+
+      return {
+        methods: (result.methods || []).map((m: any) => ({
+          id: m.id,
+          name: m.name,
+          type: m.type,
+        })),
+        partial_payment_enabled: result.partialPaymentEnabled || false,
+      };
+    } catch (err) {
+      this.logger.error(`getPaymentMethods failed: ${err.message}`);
+      return { methods: [], error: 'Failed to fetch payment methods' };
+    }
+  }
+
+  async getCategories(params: {
+    module?: 'food' | 'ecommerce';
+    store_id?: number;
+  }): Promise<any> {
+    const module = params.module || 'food';
+    const moduleId = module === 'food' ? 4 : 5;
+
+    try {
+      if (params.store_id) {
+        // Get categories from a specific store's menu
+        const menu = await this.storeService.getStoreMenu(params.store_id);
+        const categories = (menu?.categories || menu || []).map((cat: any) => ({
+          name: cat.name || cat.category_name,
+          item_count: (cat.items || cat.products || []).length,
+        }));
+        return { store_id: params.store_id, categories, total: categories.length };
+      }
+
+      // Get top-level categories from search API
+      const response = await firstValueFrom(
+        this.httpService.get(`${this.searchApiUrl}/v2/search/items`, {
+          params: { module_ids: String(moduleId), size: '0' },
+        }),
+      );
+
+      const categories = response.data?.categories || response.data?.aggregations?.categories || [];
+      return {
+        categories: Array.isArray(categories)
+          ? categories.map((c: any) => ({
+              id: c.id || c.key,
+              name: c.name || c.key,
+              item_count: c.doc_count || c.count || 0,
+            }))
+          : [],
+        module,
+      };
+    } catch (err) {
+      this.logger.error(`getCategories failed: ${err.message}`);
+      return { categories: [], error: 'Failed to fetch categories' };
     }
   }
 }
