@@ -594,22 +594,27 @@ export class McpToolsService {
         return { store_id: params.store_id, categories, total: categories.length };
       }
 
-      // Get top-level categories from search API
+      // Get categories from Search API admin endpoint
       const response = await firstValueFrom(
-        this.httpService.get(`${this.searchApiUrl}/v2/search/items`, {
-          params: { module_ids: String(moduleId), size: '0' },
+        this.httpService.get(`${this.searchApiUrl}/admin/categories`, {
+          params: { module_id: String(moduleId), size: '100' },
         }),
       );
 
-      const categories = response.data?.categories || response.data?.aggregations?.categories || [];
+      const data = response.data?.data || response.data || [];
+      // Return top-level categories (parent_id=0) for cleaner results
+      const allCategories = Array.isArray(data) ? data : [];
+      const topLevel = allCategories.filter((c: any) => c.parent_id === 0 || c.parent_id === null);
+      const result = (topLevel.length > 0 ? topLevel : allCategories).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        slug: c.slug || '',
+        image: c.image || '',
+      }));
+
       return {
-        categories: Array.isArray(categories)
-          ? categories.map((c: any) => ({
-              id: c.id || c.key,
-              name: c.name || c.key,
-              item_count: c.doc_count || c.count || 0,
-            }))
-          : [],
+        categories: result,
+        total: response.data?.meta?.total || result.length,
         module,
       };
     } catch (err) {
