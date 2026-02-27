@@ -108,30 +108,55 @@ export class McpToolsService {
     lng?: number;
   }): Promise<any> {
     try {
-      const menu = await this.storeService.getStoreMenu(params.store_id, params.lat, params.lng);
-      if (!menu) {
+      // Use Search API which has all items indexed with categories
+      const searchParams: Record<string, string> = {
+        q: '*',
+        module_ids: '4',
+        store_id: String(params.store_id),
+        size: '100',
+        zone_id: '4',
+      };
+      if (params.lat) searchParams.lat = String(params.lat);
+      if (params.lng) searchParams.lon = String(params.lng);
+
+      const response = await firstValueFrom(
+        this.httpService.get(`${this.searchApiUrl}/v2/search/items`, { params: searchParams }),
+      );
+
+      const items = response.data?.items || [];
+      const storeInfo = response.data?.resolved_store || {};
+
+      if (items.length === 0) {
         return { error: 'Restaurant not found or menu unavailable' };
       }
 
-      // Format menu categories and items
-      const categories = (menu.categories || menu || []).map((cat: any) => ({
-        name: cat.name || cat.category_name,
-        items: (cat.items || cat.products || []).map((item: any) => ({
+      // Group items by category
+      const categoryMap = new Map<string, any[]>();
+      for (const item of items) {
+        const catName = item.category_path || item.category_name || 'Other';
+        if (!categoryMap.has(catName)) categoryMap.set(catName, []);
+        categoryMap.get(catName).push({
           id: item.id,
           name: item.name,
           description: item.description || '',
           price: item.price,
-          image: item.image || item.image_url || '',
+          image: item.image || '',
           veg: item.veg === 1 || item.veg === true,
-          rating: item.avg_rating || item.rating || 0,
-          available: item.in_stock !== false,
-        })),
+          available: item.status === 1,
+        });
+      }
+
+      const categories = Array.from(categoryMap.entries()).map(([name, catItems]) => ({
+        name,
+        items: catItems,
       }));
 
       return {
         store_id: params.store_id,
+        store_name: storeInfo.name || '',
+        delivery_time: storeInfo.delivery_time || '',
         categories,
-        total_items: categories.reduce((sum: number, c: any) => sum + (c.items?.length || 0), 0),
+        total_items: items.length,
       };
     } catch (err) {
       this.logger.error(`getRestaurantMenu failed: ${err.message}`);
