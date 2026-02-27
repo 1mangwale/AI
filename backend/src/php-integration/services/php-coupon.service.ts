@@ -34,6 +34,8 @@ export interface CouponApplyResult {
   discount_type: string;
   code: string;
   is_valid: boolean;
+  max_discount?: number;
+  min_purchase?: number;
   message?: string;
 }
 
@@ -48,14 +50,20 @@ export class PhpCouponService extends PhpApiService {
    * @param token Optional user authentication token (shows user-specific coupons if provided)
    * @returns List of available coupons
    */
-  async getCoupons(token?: string): Promise<{
+  async getCoupons(token?: string, zoneId?: number): Promise<{
     success: boolean;
     coupons?: Coupon[];
     message?: string;
   }> {
     try {
       this.logger.log('Getting available coupons');
-      
+
+      // PHP CouponController requires zoneId header ($request->hasHeader('zoneId'))
+      const headers: Record<string, string> = {};
+      if (zoneId) {
+        headers.zoneId = JSON.stringify([zoneId]);
+      }
+
       let response;
       if (token) {
         // Authenticated request - shows user-specific coupons
@@ -63,10 +71,12 @@ export class PhpCouponService extends PhpApiService {
           'get',
           '/api/v1/coupon/list',
           token,
+          {},
+          headers,
         );
       } else {
         // Public request - shows all active coupons
-        response = await this.get('/api/v1/coupon/list/all');
+        response = await this.get('/api/v1/coupon/list/all', {}, headers);
       }
 
       if (response && Array.isArray(response)) {
@@ -117,7 +127,7 @@ export class PhpCouponService extends PhpApiService {
     token: string,
     code: string,
     orderAmount: number,
-    storeId?: number,
+    storeId: number,
   ): Promise<{
     success: boolean;
     result?: CouponApplyResult;
@@ -125,15 +135,13 @@ export class PhpCouponService extends PhpApiService {
   }> {
     try {
       this.logger.log(`Applying coupon code: ${code}`);
-      
+
+      // PHP validator requires store_id ('store_id' => 'required')
       const params: any = {
         code,
         order_amount: orderAmount,
+        store_id: storeId,
       };
-
-      if (storeId) {
-        params.store_id = storeId;
-      }
 
       const response = await this.authenticatedRequest(
         'get',
@@ -142,15 +150,20 @@ export class PhpCouponService extends PhpApiService {
         params,
       );
 
-      if (response && response.coupon_id) {
+      // PHP CouponController::apply() returns the full Coupon model on success.
+      // The coupon ID is in `response.id` (not `response.coupon_id`).
+      // Discount fields come from the Coupon model directly.
+      if (response && response.id) {
         return {
           success: true,
           result: {
-            coupon_id: response.coupon_id,
-            discount_amount: parseFloat(response.discount_amount || 0),
+            coupon_id: response.id,
+            discount_amount: parseFloat(response.discount || 0),
             discount_type: response.discount_type,
             code: response.code || code,
             is_valid: true,
+            max_discount: parseFloat(response.max_discount || 0),
+            min_purchase: parseFloat(response.min_purchase || 0),
           },
         };
       }

@@ -398,7 +398,7 @@ export class PhpPaymentService extends PhpApiService {
     title?: string;
     customerNote?: string;
     price?: number;
-    priceType?: 'fixed' | 'percent';
+    priceType?: 'amount' | 'percent';
     message?: string;
   }> {
     try {

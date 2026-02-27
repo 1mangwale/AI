@@ -716,8 +716,8 @@ export class PhpOrderService extends PhpApiService {
 
       const status = order.orderStatus;
       
-      // Orders can only be cancelled in these early statuses
-      const cancellableStatuses = ['pending', 'accepted', 'confirmed'];
+      // PHP OrderController::cancel_order() only allows cancellation for these statuses
+      const cancellableStatuses = ['pending', 'failed'];
       const canCancel = cancellableStatuses.includes(status);
 
       return {
@@ -756,6 +756,30 @@ export class PhpOrderService extends PhpApiService {
       return { success: false, message: 'No cancellation reasons found' };
     } catch (error) {
       this.logger.error(`Failed to get cancellation reasons: ${error.message}`);
+      return { success: false, message: error.message };
+    }
+  }
+
+  /**
+   * Get available refund reasons
+   * PHP route: GET /api/v1/customer/order/refund-reasons
+   */
+  async getRefundReasons(): Promise<{
+    success: boolean;
+    reasons?: Array<{ id: number; reason: string }>;
+    message?: string;
+  }> {
+    try {
+      const response: any = await this.get('/api/v1/customer/order/refund-reasons');
+      if (response && Array.isArray(response)) {
+        return {
+          success: true,
+          reasons: response.map((r: any) => ({ id: r.id, reason: r.reason })),
+        };
+      }
+      return { success: false, message: 'No refund reasons found' };
+    } catch (error) {
+      this.logger.error(`Failed to get refund reasons: ${error.message}`);
       return { success: false, message: error.message };
     }
   }

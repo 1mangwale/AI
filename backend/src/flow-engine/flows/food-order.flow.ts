@@ -1992,8 +1992,24 @@ export const foodOrderFlow: FlowDefinition = {
         }
       ],
       transitions: {
-        user_message: 'understand_request',
+        user_message: 'check_store_click',
         item_selected: 'handle_store_selection',
+        default: 'check_store_click',
+      },
+    },
+
+    // Check if user clicked a store card or typed something else
+    check_store_click: {
+      type: 'decision',
+      description: 'Route store card clicks vs free text',
+      conditions: [
+        {
+          expression: '/^store_\\d+$/i.test(context._user_message?.trim() || "")',
+          event: 'store_clicked',
+        },
+      ],
+      transitions: {
+        store_clicked: 'handle_store_selection',
         default: 'understand_request',
       },
     },
@@ -2018,20 +2034,31 @@ export const foodOrderFlow: FlowDefinition = {
       },
     },
 
-    // Handle store selection
+    // Handle store selection — extract store_id from button value (e.g. "store_123")
     handle_store_selection: {
       type: 'action',
-      description: 'User selected a store, search for their items',
+      description: 'User selected a store, search for their menu items',
       actions: [
+        {
+          id: 'extract_store_id',
+          executor: 'response',
+          config: {
+            saveToContext: {
+              _selected_store_id: '{{_user_message}}',
+            },
+          },
+          output: '_extract_result',
+        },
         {
           id: 'search_store_items',
           executor: 'search',
           config: {
             index: 'food_items',
-            query: '{{_user_message}}',
-            size: 10,
+            query: '*',
+            size: 15,
             lat: '{{location.lat}}',
             lng: '{{location.lng}}',
+            filters: [{ field: 'store_id', operator: 'equals', value: '{{_selected_store_id}}' }],
             fields: ['name', 'store_name', 'category', 'price'],
             formatForUi: true,
           },
@@ -2757,7 +2784,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
             buttons: [
               { id: 'btn_view_cart', label: '📋 View Cart', value: 'show cart' },
               { id: 'btn_browse', label: '📋 Browse Categories', value: 'browse_menu' },
-              { id: 'btn_describe', label: '📖 Tell me more about #1', value: 'describe_first_item' },
+              { id: 'btn_describe', label: '📖 About {{search_results.cards.0.name}}', value: 'describe_first_item' },
             ],
             // WhatsApp Business API: max 3 quick reply buttons, no dynamic filter chips
             channelResponses: {
@@ -3024,6 +3051,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
         view_cart: 'show_current_cart',  // 🆕 Show cart when user asks
         ask_distance: 'show_distance_info',  // 🆕 User asked about distance
         needs_variation: 'prompt_variation_selection',  // 📦 Item has size/weight variations
+        needs_addon: 'prompt_addon_selection',          // 🍟 Item has add-ons available
         unclear: 'clarify_selection',
         error: 'show_results',
       },
@@ -3122,7 +3150,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
           id: 'show_addons',
           executor: 'response',
           config: {
-            message: '🍟 **Add-ons available:**\n\n{{#each selection_result.addonOptions}}• {{this.name}} — ₹{{this.price}}\n{{/each}}\n\nSelect add-ons (or skip):',
+            message: '🍟 **Add-ons available:**\n\n{{#each selection_result.addonOptions}}• {{this.name}} — ₹{{this.price}}\n{{/each}}\n\nType add-on names/numbers to select, or skip:',
             buttons: [
               { id: 'btn_skip_addon', label: '⏭️ No add-ons', value: 'skip_addon' },
             ],
@@ -3132,16 +3160,16 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
       ],
       actions: [],
       transitions: {
-        skip_addon: 'process_selection',
+        skip_addon: 'add_to_cart',
         user_message: 'save_addon_selection',
-        default: 'process_selection',
+        default: 'add_to_cart',
       },
     },
 
-    // 🍟 Save add-on selection to pending item context
+    // 🍟 Parse and save add-on selection, then add to cart
     save_addon_selection: {
       type: 'action',
-      description: 'Save add-on selection to pending item context',
+      description: 'Parse add-on selection and build add_on_ids/add_on_qtys for cart',
       actions: [
         {
           id: 'save_addons',
@@ -3156,7 +3184,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
         },
       ],
       transitions: {
-        default: 'process_selection',
+        default: 'add_to_cart',
       },
     },
 
@@ -5260,6 +5288,7 @@ Reply "confirm" to book the rider.`,
             action: 'apply_coupon',
             code: '{{_user_message}}',
             order_amount: '{{pricing.total}}',
+            store_id: '{{cart_store_id}}',
           },
           output: 'coupon_result',
         },

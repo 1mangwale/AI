@@ -30,7 +30,7 @@ interface SelectionResult {
     variation?: Array<{ type: string; price: string }>;
     variationLabel?: string;
   }>;
-  action: 'add_to_cart' | 'needs_variation' | 'search_more' | 'checkout' | 'cancel' | 'search_items' | 'view_cart' | 'ask_distance' | 'unknown';
+  action: 'add_to_cart' | 'needs_variation' | 'needs_addon' | 'search_more' | 'checkout' | 'cancel' | 'search_items' | 'view_cart' | 'ask_distance' | 'unknown';
   totalPrice: number;
   searchSuggestion?: string; // Items that weren't found - used to trigger re-search
   followUpResponse?: string; // Response for follow-up questions about results
@@ -127,6 +127,9 @@ export class SelectionExecutor implements ActionExecutor {
       } else if (result.action === 'needs_variation') {
         // Item has variations (sizes/weights) - prompt user to choose
         event = 'needs_variation';
+      } else if (result.action === 'needs_addon') {
+        // Item has add-ons available - prompt user to choose
+        event = 'needs_addon';
       } else {
         event = 'unclear';
       }
@@ -204,6 +207,21 @@ export class SelectionExecutor implements ActionExecutor {
             }\n\nWhich size would you like?`;
             return result;
           }
+        }
+
+        // Check if item has add-ons before going to cart
+        const addOns = card.add_ons || card.addons || [];
+        if (addOns.length > 0) {
+          this.logger.log(`🍟 Item "${matchedItem.itemName}" has ${addOns.length} add-ons — asking user to choose`);
+          result.selectedItems.push(matchedItem);
+          result.action = 'needs_addon';
+          result.totalPrice = matchedItem.price * matchedItem.quantity;
+          (result as any).addonOptions = addOns.map((a: any) => ({
+            id: a.id,
+            name: a.name || a.title,
+            price: parseFloat(a.price || 0),
+          }));
+          return result;
         }
 
         result.selectedItems.push(matchedItem);

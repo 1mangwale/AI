@@ -95,11 +95,13 @@ export class PhpLoyaltyService extends PhpApiService {
     try {
       this.logger.log(`Getting loyalty transactions (limit: ${limit})`);
       
+      // PHP route: GET /api/v1/customer/loyalty-point/transactions (separate controller)
+      // NOT /api/v1/customer/wallet/transactions (which returns wallet transactions)
       const response = await this.authenticatedRequest(
         'get',
-        '/api/v1/customer/wallet/transactions',
+        '/api/v1/customer/loyalty-point/transactions',
         token,
-        { limit, transaction_type: 'loyalty_point' },
+        { limit, offset: 1 },
       );
 
       if (response && response.data) {
@@ -149,11 +151,13 @@ export class PhpLoyaltyService extends PhpApiService {
     try {
       this.logger.log(`Converting ${points} loyalty points to wallet`);
       
+      // PHP route: POST /api/v1/customer/loyalty-point/point-transfer
+      // PHP param: 'point' (singular), not 'points'
       const response = await this.authenticatedRequest(
         'post',
-        '/api/v1/customer/wallet/loyalty-point-to-wallet',
+        '/api/v1/customer/loyalty-point/point-transfer',
         token,
-        { points },
+        { point: points },
       );
 
       if (response && response.message === 'Converted successfully') {

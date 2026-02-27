@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, Inject, forwardRef, Optional } from '@nestjs/common';
 import Redis from 'ioredis';
 import { ConfigService } from '@nestjs/config';
+import { REDIS_CLIENT, REDIS_SUBSCRIBER } from '../../redis/redis.module';
 import { SessionService } from '../../session/session.service';
 import { SessionSyncService } from '../../session/services/session-sync.service';
 import { CommandHandlerService, IntentClassification } from './command-handler.service';
@@ -19,6 +20,8 @@ import { SearchAnalyticsService } from '../../search/services/search-analytics.s
 import { PhpOrderService } from '../../php-integration/services/php-order.service';
 import { PhpWishlistService } from '../../php-integration/services/php-wishlist.service';
 import { PhpLoyaltyService } from '../../php-integration/services/php-loyalty.service';
+import { PhpReviewService } from '../../php-integration/services/php-review.service';
+import { PhpCouponService } from '../../php-integration/services/php-coupon.service';
 import { UserPreferenceService } from '../../personalization/user-preference.service';
 
 /**
@@ -52,8 +55,6 @@ export interface RouterResponse {
 @Injectable()
 export class ContextRouterService implements OnModuleInit {
   private readonly logger = new Logger(ContextRouterService.name);
-  private readonly redis: Redis;
-  private readonly redisDedup: Redis; // Separate client for dedup ops (subscriber client can't run commands)
   private readonly MESSAGE_CHANNEL = 'mangwale:messages';
   private readonly ROUTE_DEDUP_TTL = 10; // seconds - prevent duplicate processing of same messageId
   private readonly ROUTE_DEDUP_PREFIX = 'route_lock:';
@@ -69,6 +70,8 @@ export class ContextRouterService implements OnModuleInit {
     private readonly agentOrchestrator: AgentOrchestratorService,
     private readonly messagingService: MessagingService,
     private readonly intentRouter: IntentRouterService,
+    @Inject(REDIS_SUBSCRIBER) private readonly redis: Redis,
+    @Inject(REDIS_CLIENT) private readonly redisDedup: Redis,
     @Optional() private readonly whatsappService?: WhatsAppCloudService,
     @Optional() private readonly metricsService?: MetricsService,
     @Optional() private readonly indicBertService?: IndicBERTService,
@@ -77,17 +80,11 @@ export class ContextRouterService implements OnModuleInit {
     @Optional() private readonly phpOrderService?: PhpOrderService,
     @Optional() private readonly phpWishlistService?: PhpWishlistService,
     @Optional() private readonly phpLoyaltyService?: PhpLoyaltyService,
+    @Optional() private readonly phpReviewService?: PhpReviewService,
+    @Optional() private readonly phpCouponService?: PhpCouponService,
     @Optional() private readonly userPreferenceService?: UserPreferenceService,
   ) {
-    // Initialize Redis subscriber
-    const redisConfig = {
-      host: this.configService.get('REDIS_HOST', 'redis'),
-      port: this.configService.get('REDIS_PORT', 6379),
-      password: this.configService.get('REDIS_PASSWORD'),
-    };
-
-    this.redis = new Redis(redisConfig);
-    this.redisDedup = new Redis(redisConfig); // Separate connection for SET NX (subscriber can't run commands)
+    this.logger.log('✅ ContextRouter initialized with shared Redis');
   }
 
   /**
@@ -265,6 +262,45 @@ export class ContextRouterService implements OnModuleInit {
       session = await this.sessionService.getSession(event.identifier);
     }
 
+    // 2B: Check for pending refund — user was asked to type a reason
+    const pendingRefundOrderId = session.data?.pendingRefundOrderId;
+    const hasActiveFlow = activeFlowInfo?.flowId || session.data?.activeFlow || session.data?.flowContext?.flowId;
+    if (pendingRefundOrderId && !hasActiveFlow && event.message && event.message.length > 2) {
+      const authToken = session.data?.auth_token;
+      if (authToken && this.phpOrderService) {
+        // Clear pending state immediately
+        await this.sessionService.updateSession(event.identifier, { pendingRefundOrderId: null });
+        try {
+          const reason = event.message;
+          const result = await this.phpOrderService.requestRefund(authToken, pendingRefundOrderId, reason, reason, 'wallet');
+          if (result?.success) {
+            return {
+              message: `✅ **Refund request submitted!**\n\nOrder #${pendingRefundOrderId}\nReason: ${reason}\n\nWe'll process your refund to your wallet soon.`,
+              buttons: [
+                { label: 'My Orders', value: 'my orders', action: 'track_order' },
+                ...this.getMainMenuButtons().slice(0, 2),
+              ],
+              routedTo: 'direct',
+              intent: { intent: 'request_refund', confidence: 1.0 },
+              metadata: { handler: 'request_refund_executed', orderId: pendingRefundOrderId },
+            };
+          }
+          return {
+            message: `❌ Refund request failed: ${result?.message || 'Unknown error'}`,
+            buttons: this.getMainMenuButtons(),
+            routedTo: 'direct',
+          };
+        } catch (e) {
+          this.logger.warn(`Refund submission failed: ${e.message}`);
+          return {
+            message: `❌ Could not submit refund: ${e.message}`,
+            buttons: this.getMainMenuButtons(),
+            routedTo: 'direct',
+          };
+        }
+      }
+    }
+
     // STEP 2: Check if we should SKIP NLU for button clicks in active flows
     // Button actions like "razor_pay", "use_my_details", "confirm" should go directly to flow
     // 🔄 GAP 4: Use synced activeFlowInfo instead of raw session check
@@ -382,8 +418,151 @@ export class ContextRouterService implements OnModuleInit {
         return this.handleCommandSync(event, session, { intent: 'cancel', confidence: 1.0 });
       }
 
-      // Special case: Rating/review actions — show star buttons directly without NLU routing
+      // 2A: Handle cancel order confirmation (user clicked "Cancel #123" button)
+      const cancelMatch = (event.metadata?.value || '')?.match?.(/^cancel_order_(\d+)$/);
+      if (buttonAction === 'cancel_order' && cancelMatch) {
+        const orderId = parseInt(cancelMatch[1]);
+        const authToken = session.data?.auth_token;
+        if (!authToken) {
+          return { message: 'Please login first.', buttons: [{ label: 'Login', value: 'login', action: 'login' }], routedTo: 'direct' };
+        }
+        try {
+          // Fetch cancellation reasons from PHP
+          const reasonsResult = await this.phpOrderService?.getCancellationReasons();
+          const reasons = reasonsResult?.reasons || [
+            { id: 1, reason: 'Changed my mind' },
+            { id: 2, reason: 'Taking too long' },
+            { id: 3, reason: 'Ordered by mistake' },
+          ];
+
+          // Store pending cancel in session for follow-up
+          await this.sessionService.updateSession(event.identifier, {
+            pendingCancelOrderId: orderId,
+          });
+
+          const reasonButtons = reasons.slice(0, 3).map((r: any) => ({
+            label: r.reason,
+            value: `cancel_reason_${r.id}_${orderId}`,
+            action: 'cancel_reason',
+          }));
+
+          return {
+            message: `**Cancel Order #${orderId}**\n\nPlease select a reason:`,
+            buttons: [...reasonButtons, { label: 'Go Back', value: 'menu', action: 'menu' }],
+            routedTo: 'direct',
+            intent: { intent: 'cancel_order', confidence: 1.0 },
+            metadata: { handler: 'cancel_order_confirm', orderId },
+          };
+        } catch (e) {
+          this.logger.warn(`cancel_order execution failed: ${e.message}`);
+          return { message: 'Failed to cancel order. Please try again.', buttons: this.getMainMenuButtons(), routedTo: 'direct' };
+        }
+      }
+
+      // 2A continued: Handle cancel reason selection → execute cancellation
+      const cancelReasonMatch = (event.metadata?.value || '')?.match?.(/^cancel_reason_(\d+)_(\d+)$/);
+      if (buttonAction === 'cancel_reason' && cancelReasonMatch) {
+        const orderId = parseInt(cancelReasonMatch[2]);
+        const authToken = session.data?.auth_token;
+        if (!authToken) {
+          return { message: 'Please login first.', buttons: [{ label: 'Login', value: 'login', action: 'login' }], routedTo: 'direct' };
+        }
+        try {
+          const reason = event.message || 'Customer requested cancellation';
+          const result = await this.phpOrderService?.cancelOrder(authToken, orderId, reason);
+          if (result?.success) {
+            await this.sessionService.updateSession(event.identifier, { pendingCancelOrderId: null });
+            return {
+              message: `✅ **Order #${orderId} has been cancelled.**\n\nYour refund (if applicable) will be processed.`,
+              buttons: [
+                { label: 'My Orders', value: 'my orders', action: 'track_order' },
+                ...this.getMainMenuButtons().slice(0, 2),
+              ],
+              routedTo: 'direct',
+              intent: { intent: 'cancel_order', confidence: 1.0 },
+              metadata: { handler: 'cancel_order_executed', orderId },
+            };
+          }
+          return {
+            message: `❌ Could not cancel order #${orderId}: ${result?.message || 'Unknown error'}`,
+            buttons: this.getMainMenuButtons(),
+            routedTo: 'direct',
+          };
+        } catch (e) {
+          return { message: `Failed to cancel: ${e.message}`, buttons: this.getMainMenuButtons(), routedTo: 'direct' };
+        }
+      }
+
+      // 2D: Handle loyalty points conversion (user clicked "Convert All" button)
+      const convertMatch = (event.metadata?.value || '')?.match?.(/^convert_points_(\d+)$/);
+      if (buttonAction === 'convert_points' && convertMatch) {
+        const points = parseInt(convertMatch[1]);
+        const authToken = session.data?.auth_token;
+        if (!authToken) {
+          return { message: 'Please login first.', buttons: [{ label: 'Login', value: 'login', action: 'login' }], routedTo: 'direct' };
+        }
+        try {
+          const result = await this.phpLoyaltyService?.convertPointsToWallet(authToken, points);
+          if (result?.success) {
+            return {
+              message: `✅ **${points} points converted!**\n\n💰 ₹${result.amount_added?.toFixed(2) || '0'} added to wallet.\n💼 New balance: ₹${result.new_balance?.toFixed(2) || '0'}`,
+              buttons: [
+                { label: 'Check Wallet', value: 'check wallet', action: 'check_wallet' },
+                ...this.getMainMenuButtons().slice(0, 2),
+              ],
+              routedTo: 'direct',
+              intent: { intent: 'transfer_points', confidence: 1.0 },
+              metadata: { handler: 'transfer_points_executed', points },
+            };
+          }
+          return {
+            message: `❌ Could not convert points: ${result?.message || 'Unknown error'}`,
+            buttons: this.getMainMenuButtons(),
+            routedTo: 'direct',
+          };
+        } catch (e) {
+          return { message: `Failed to convert points: ${e.message}`, buttons: this.getMainMenuButtons(), routedTo: 'direct' };
+        }
+      }
+
+      // 2C: Handle star rating button click → submit review to PHP
       if (buttonAction === 'rate_order' || buttonAction === 'submit_review' || buttonAction === 'leave_review') {
+        const ratingMatch = (event.metadata?.value || event.message || '')?.match?.(/rating_(\d)/);
+        if (ratingMatch) {
+          const ratingValue = parseInt(ratingMatch[1]);
+          const authToken = session.data?.auth_token;
+          const stars = '⭐'.repeat(ratingValue) + '☆'.repeat(5 - ratingValue);
+
+          // Try to submit to PHP backend
+          if (authToken && this.phpReviewService && this.phpOrderService) {
+            try {
+              // Get the last delivered order to attach review to
+              const orders = await this.phpOrderService.getOrders(authToken, 3, 1);
+              const delivered = (orders || []).find((o: any) =>
+                o.orderStatus === 'delivered' || o.order_status === 'delivered',
+              );
+              if (delivered) {
+                await this.phpReviewService.submitItemReview(authToken, 0, delivered.id, ratingValue, '');
+                this.logger.log(`✅ Review submitted: ${ratingValue} stars for order #${delivered.id}`);
+              }
+            } catch (e) {
+              this.logger.warn(`Review submit failed (non-blocking): ${e.message}`);
+            }
+          }
+
+          return {
+            message: `${stars} **Thank you for your ${ratingValue}-star rating!**\n\nYour feedback helps us improve.`,
+            buttons: [
+              { label: 'Order Again', value: 'order food', action: 'order_food' },
+              ...this.getMainMenuButtons().slice(0, 2),
+            ],
+            routedTo: 'direct',
+            intent: { intent: 'rate_order', confidence: 1.0 },
+            metadata: { handler: 'submit_review_executed', ratingValue },
+          };
+        }
+
+        // No rating value matched → show star buttons
         return {
           message: `⭐ **How was your order?**\n\nTap a star to rate:`,
           buttons: [
@@ -662,7 +841,7 @@ export class ContextRouterService implements OnModuleInit {
       };
     }
 
-    // STEP 4a-5: Review / rate order - simple direct response
+    // STEP 4a-5: Review / rate order — submit to PHP backend
     if (intent.intent === 'submit_review' || intent.intent === 'rate_order' || intent.intent === 'leave_review' || intent.intent === 'feedback') {
       // Check for inline rating value like "rating_4" or "rate 4 stars"
       const ratingMatch = event.message?.match(/(?:rating_|rate\s+)?(\d)(?:\s*(?:star|stars)?)/i);
@@ -670,15 +849,33 @@ export class ContextRouterService implements OnModuleInit {
 
       if (ratingValue && ratingValue >= 1 && ratingValue <= 5) {
         const stars = '⭐'.repeat(ratingValue) + '☆'.repeat(5 - ratingValue);
+        const authToken = session.data?.auth_token;
+
+        // Submit review to PHP backend (non-blocking)
+        if (authToken && this.phpReviewService && this.phpOrderService) {
+          try {
+            const orders = await this.phpOrderService.getOrders(authToken, 3, 1);
+            const delivered = (orders || []).find((o: any) =>
+              o.orderStatus === 'delivered' || o.order_status === 'delivered',
+            );
+            if (delivered) {
+              await this.phpReviewService.submitItemReview(authToken, 0, delivered.id, ratingValue, '');
+              this.logger.log(`Review submitted: ${ratingValue} stars for order #${delivered.id}`);
+            }
+          } catch (e) {
+            this.logger.warn(`Review submit failed (non-blocking): ${e.message}`);
+          }
+        }
+
         return {
-          message: `${stars} **Thank you for your ${ratingValue}-star rating!**\n\nYour feedback helps us improve. 🙏`,
+          message: `${stars} **Thank you for your ${ratingValue}-star rating!**\n\nYour feedback helps us improve.`,
           buttons: [
-            { label: '🍔 Order Again', value: 'order food', action: 'order_food' },
+            { label: 'Order Again', value: 'order food', action: 'order_food' },
             ...this.getMainMenuButtons().slice(0, 2),
           ],
           routedTo: 'direct',
           intent,
-          metadata: { handler: 'submit_review', ratingValue },
+          metadata: { handler: 'submit_review_executed', ratingValue },
         };
       }
 
@@ -794,6 +991,11 @@ export class ContextRouterService implements OnModuleInit {
             intent,
           };
         }
+
+        // Store pending refund orderId in session so the next text message can submit it
+        await this.sessionService.updateSession(event.identifier, {
+          pendingRefundOrderId: delivered.id,
+        });
 
         return {
           message: `💸 **Request a Refund**\n\nOrder **#${delivered.id}** — ₹${delivered.orderAmount}\n\nPlease type your reason for the refund (e.g., "food was cold", "wrong item delivered"):`,
@@ -2072,12 +2274,11 @@ export class ContextRouterService implements OnModuleInit {
   }
 
   /**
-   * Graceful shutdown
+   * Graceful shutdown - unsubscribe from message channel
+   * Redis connection cleanup handled by RedisModule
    */
   async onModuleDestroy() {
     await this.redis.unsubscribe(this.MESSAGE_CHANNEL);
-    await this.redis.quit();
-    await this.redisDedup.quit();
-    this.logger.log('🔴 ContextRouter shut down');
+    this.logger.log('🔴 ContextRouter unsubscribed from message channel');
   }
 }

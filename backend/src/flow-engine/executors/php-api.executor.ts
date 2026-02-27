@@ -416,7 +416,11 @@ export class PhpApiExecutor implements ActionExecutor {
           return { success: false, message: 'Coupon service unavailable' };
         }
         const orderAmount = parseFloat(config.order_amount ?? config.orderAmount ?? 0);
-        return this.couponService.applyCoupon(token, config.code, orderAmount, config.store_id);
+        const storeId = parseInt(config.store_id || config.storeId || 0);
+        if (!storeId) {
+          return { success: false, message: 'Store ID required to apply coupon' };
+        }
+        return this.couponService.applyCoupon(token, config.code, orderAmount, storeId);
       }
 
       case 'get_coupons': {
@@ -560,7 +564,13 @@ export class PhpApiExecutor implements ActionExecutor {
         const moduleId = config.module_id ? Number(config.module_id) : 4;
         // Auth token is required by PHP — auto-pick from context if not in config
         const surgeToken = config.token || context.data.auth_token;
-        return this.paymentService.getSurgePrice(zoneId, moduleId, surgeToken);
+        const surgeResult = await this.paymentService.getSurgePrice(zoneId, moduleId, surgeToken);
+        // If price_type is 'percent', compute actual surge amount from delivery fee
+        if (surgeResult.hasSurge && surgeResult.priceType === 'percent') {
+          const deliveryFee = parseFloat(context.data.pricing?.delivery_fee || 0);
+          surgeResult.price = Math.round((deliveryFee * (surgeResult.price || 0)) / 100);
+        }
+        return surgeResult;
       }
 
       case 'get_wallet_balance':
