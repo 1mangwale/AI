@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../../redis/redis.module';
 
 /**
  * Performance Alerting Service
@@ -37,7 +38,6 @@ export interface AlertThresholds {
 @Injectable()
 export class AlertingService {
   private readonly logger = new Logger(AlertingService.name);
-  private readonly redis: Redis;
   private readonly ALERTS_KEY = 'analytics:alerts';
   
   // Alert thresholds
@@ -52,14 +52,11 @@ export class AlertingService {
   // In-memory alert state
   private activeAlerts: Map<string, Alert> = new Map();
 
-  constructor(private readonly configService: ConfigService) {
-    this.redis = new Redis({
-      host: this.configService.get('redis.host'),
-      port: this.configService.get('redis.port'),
-      password: this.configService.get('redis.password') || undefined,
-      db: this.configService.get('redis.db'),
-    });
-    this.logger.log('✅ AlertingService initialized');
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly configService: ConfigService,
+  ) {
+    this.logger.log('✅ AlertingService initialized with shared Redis');
   }
 
   /**

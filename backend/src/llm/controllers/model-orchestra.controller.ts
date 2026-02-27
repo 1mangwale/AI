@@ -2,7 +2,7 @@ import { Controller, Get, Post, Body } from '@nestjs/common';
 import { SmartModelRouterService } from '../services/smart-model-router.service';
 import { CloudLlmService } from '../services/cloud-llm.service';
 
-@Controller('api/mos/models')
+@Controller('mos/models')
 export class ModelOrchestraController {
   constructor(
     private readonly router: SmartModelRouterService,

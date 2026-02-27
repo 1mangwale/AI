@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as mysql from 'mysql2/promise';
 import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../../redis/redis.module';
 
 /**
  * Order Status Cache Entry
@@ -37,15 +38,17 @@ interface OrderCache {
 export class OrderDatabaseService {
   private readonly logger = new Logger(OrderDatabaseService.name);
   private pool: mysql.Pool | null = null;
-  private redis: Redis | null = null;
   private readonly CACHE_TTL = 300; // 5 minutes cache
   private readonly CACHE_PREFIX = 'order:status:';
 
-  constructor(private configService: ConfigService) {
-    this.initializeConnections();
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private configService: ConfigService,
+  ) {
+    this.initializeMysql();
   }
 
-  private async initializeConnections() {
+  private async initializeMysql() {
     // Initialize MySQL Read-Only Connection
     try {
       const host = process.env.PHP_DB_HOST || this.configService.get('php.database.host') || '127.0.0.1';
@@ -53,7 +56,7 @@ export class OrderDatabaseService {
       const user = process.env.PHP_DB_READ_USER || process.env.PHP_DB_USER || 'mangwale_user';
       const password = process.env.PHP_DB_READ_PASSWORD || process.env.PHP_DB_PASSWORD;
       const database = process.env.PHP_DB_NAME || 'mangwale_db';
-      
+
       if (!password) {
         throw new Error('PHP_DB_PASSWORD or PHP_DB_READ_PASSWORD environment variable is required');
       }
@@ -74,23 +77,7 @@ export class OrderDatabaseService {
       this.logger.warn(`⚠️ MySQL connection failed - order fallback disabled: ${error.message}`);
     }
 
-    // Initialize Redis Cache
-    try {
-      const redisHost = this.configService.get('redis.host') || 'localhost';
-      const redisPort = this.configService.get('redis.port') || 6379;
-      const redisPassword = this.configService.get('redis.password');
-
-      this.redis = new Redis({
-        host: redisHost,
-        port: redisPort,
-        password: redisPassword || undefined,
-        db: 2, // Use different DB for order cache
-      });
-
-      this.logger.log(`✅ OrderDatabaseService Redis initialized: ${redisHost}:${redisPort}/db2`);
-    } catch (error) {
-      this.logger.warn(`⚠️ Redis connection failed - order caching disabled: ${error.message}`);
-    }
+    this.logger.log('✅ OrderDatabaseService initialized with shared Redis');
   }
 
   /**
@@ -377,6 +364,6 @@ export class OrderDatabaseService {
 
   async onModuleDestroy() {
     if (this.pool) await this.pool.end();
-    if (this.redis) await this.redis.quit();
+    // Redis cleanup handled by RedisModule
   }
 }

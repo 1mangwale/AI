@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject, forwardRef, OnModuleInit } from '@nestjs/co
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../redis/redis.module';
 
 /**
  * Session Identifier Types
@@ -63,21 +64,12 @@ export interface IdentifierResolution {
 @Injectable()
 export class SessionIdentifierService implements OnModuleInit {
   private readonly logger = new Logger(SessionIdentifierService.name);
-  private readonly redis: Redis;
   private pool: Pool;
 
   constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private configService: ConfigService,
   ) {
-    const redisConfig = {
-      host: this.configService.get('redis.host'),
-      port: this.configService.get('redis.port'),
-      password: this.configService.get('redis.password') || undefined,
-      db: this.configService.get('redis.db'),
-    };
-
-    this.redis = new Redis(redisConfig);
-
     const pgUrl = this.configService.get('DATABASE_URL') ||
       'postgresql://mangwale_config:config_secure_pass_2024@localhost:5432/headless_mangwale?schema=public';
     this.pool = new Pool({
@@ -86,7 +78,7 @@ export class SessionIdentifierService implements OnModuleInit {
       idleTimeoutMillis: 30000,
     });
 
-    this.logger.log('Session Identifier Service initialized');
+    this.logger.log('✅ Session Identifier Service initialized with shared Redis');
   }
 
   async onModuleInit() {

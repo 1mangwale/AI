@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
 import { ApprovalService, CreateApprovalDto } from '../services/approval.service';
 
-@Controller('api/approvals')
+@Controller('approvals')
 export class ApprovalController {
   constructor(private readonly approvalService: ApprovalService) {}
 

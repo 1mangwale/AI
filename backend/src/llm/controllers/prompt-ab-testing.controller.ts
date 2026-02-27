@@ -21,7 +21,7 @@ import { PromptAbTestingService, ExperimentResultInput } from '../services/promp
  * - View experiment statistics
  * - Record results (called internally by LLM service)
  */
-@Controller('api/ai/experiments')
+@Controller('ai/experiments')
 export class PromptAbTestingController {
   private readonly logger = new Logger(PromptAbTestingController.name);
 

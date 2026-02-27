@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
 import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../../redis/redis.module';
 
 /**
  * Conversion Funnel Service
@@ -48,23 +49,17 @@ export interface SessionFunnel {
 @Injectable()
 export class ConversionFunnelService {
   private readonly logger = new Logger(ConversionFunnelService.name);
-  private readonly redis: Redis;
-  
+
   // In-memory tracking for real-time (Redis for persistence)
   private readonly FUNNEL_KEY = 'analytics:funnel';
   private readonly STAGE_ORDER = ['browse', 'consider', 'decide', 'checkout', 'purchase'];
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly configService: ConfigService,
   ) {
-    this.redis = new Redis({
-      host: this.configService.get('redis.host'),
-      port: this.configService.get('redis.port'),
-      password: this.configService.get('redis.password') || undefined,
-      db: this.configService.get('redis.db'),
-    });
-    this.logger.log('✅ ConversionFunnelService initialized with Redis');
+    this.logger.log('✅ ConversionFunnelService initialized with shared Redis');
   }
 
   /**

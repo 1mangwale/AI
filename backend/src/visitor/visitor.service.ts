@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import { v4 as uuidv4 } from 'uuid';
 import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../redis/redis.module';
 
 /**
  * Universal Visitor Identification Service
@@ -54,32 +55,27 @@ export interface VisitorSession {
 export class VisitorService {
   private readonly logger = new Logger(VisitorService.name);
   private pgPool: Pool;
-  private redis: Redis;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private configService: ConfigService,
+  ) {
     this.initializeConnections();
   }
 
   private async initializeConnections() {
     // PostgreSQL for persistent storage
-    const pgUrl = process.env.DATABASE_URL || 
+    const pgUrl = process.env.DATABASE_URL ||
       'postgresql://mangwale_config:config_secure_pass_2024@172.17.0.2:5432/headless_mangwale';
-    
+
     this.pgPool = new Pool({
       connectionString: pgUrl,
       max: 10,
       idleTimeoutMillis: 30000,
     });
 
-    // Redis for fast lookups
-    this.redis = new Redis({
-      host: this.configService.get('redis.host') || 'localhost',
-      port: this.configService.get('redis.port') || 6379,
-      password: this.configService.get('redis.password') || undefined,
-    });
-
     await this.ensureTablesExist();
-    this.logger.log('✅ Visitor Service initialized');
+    this.logger.log('✅ Visitor Service initialized with shared Redis');
   }
 
   private async ensureTablesExist() {

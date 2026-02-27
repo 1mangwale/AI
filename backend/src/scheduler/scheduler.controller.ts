@@ -11,7 +11,7 @@ import {
 import { SchedulerService } from './scheduler.service';
 import { AutoActionService } from './services/auto-action.service';
 
-@Controller('api/mos/scheduler')
+@Controller('mos/scheduler')
 export class SchedulerController {
   private readonly logger = new Logger(SchedulerController.name);
 

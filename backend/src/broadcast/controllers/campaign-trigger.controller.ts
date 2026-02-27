@@ -3,7 +3,7 @@ import { WeatherCampaignTriggerService } from '../services/weather-campaign-trig
 import { FestivalCampaignService } from '../services/festival-campaign.service';
 import { EventTriggerService } from '../services/event-trigger.service';
 
-@Controller('api/mos/campaigns')
+@Controller('mos/campaigns')
 export class CampaignTriggerController {
   constructor(
     private readonly weather: WeatherCampaignTriggerService,

@@ -1,6 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import Redis from 'ioredis';
+import { REDIS_CLIENT, REDIS_SUBSCRIBER } from '../redis/redis.module';
 
 /**
  * Dynamic Config Service
@@ -37,23 +38,17 @@ export interface BotConfig {
 @Injectable()
 export class DynamicConfigService implements OnModuleInit {
   private readonly logger = new Logger(DynamicConfigService.name);
-  private redis: Redis;
-  private subscriber: Redis;
   private cache = new Map<string, string>();
-  
+
   private readonly CACHE_PREFIX = 'config:';
   private readonly CACHE_TTL = 3600; // 1 hour in Redis
 
-  constructor(private readonly prisma: PrismaService) {
-    // Initialize Redis connections
-    // Use REDIS_HOST/PORT env vars, fallback to redis:6379 for Docker
-    const redisHost = process.env.REDIS_HOST || 'redis';
-    const redisPort = parseInt(process.env.REDIS_PORT || '6379', 10);
-    const redisDb = parseInt(process.env.REDIS_DB || '1', 10);
-    
-    const redisConfig = { host: redisHost, port: redisPort, db: redisDb };
-    this.redis = new Redis(redisConfig);
-    this.subscriber = new Redis(redisConfig);
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    @Inject(REDIS_SUBSCRIBER) private readonly subscriber: Redis,
+  ) {
+    this.logger.log('✅ DynamicConfigService initialized with shared Redis');
   }
 
   async onModuleInit() {

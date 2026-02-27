@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../../redis/redis.module';
 
 /**
  * Response Time Monitoring Service
@@ -54,23 +55,17 @@ export interface ResponseTimeReport {
 @Injectable()
 export class ResponseTimeService {
   private readonly logger = new Logger(ResponseTimeService.name);
-  private readonly redis: Redis;
   private readonly METRICS_KEY = 'analytics:latency';
-  
+
   // Thresholds for health status
   private readonly P95_THRESHOLD_HEALTHY = 3000; // 3s
   private readonly P95_THRESHOLD_DEGRADED = 5000; // 5s
 
   constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly configService: ConfigService,
   ) {
-    this.redis = new Redis({
-      host: this.configService.get('redis.host'),
-      port: this.configService.get('redis.port'),
-      password: this.configService.get('redis.password') || undefined,
-      db: this.configService.get('redis.db'),
-    });
-    this.logger.log('✅ ResponseTimeService initialized with Redis');
+    this.logger.log('✅ ResponseTimeService initialized with shared Redis');
   }
 
   /**

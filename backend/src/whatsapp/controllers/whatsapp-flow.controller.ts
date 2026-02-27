@@ -18,7 +18,7 @@ import { SessionService } from '../../session/session.service';
  *
  * Endpoint must respond within 10 seconds or WhatsApp shows an error.
  */
-@Controller('api/whatsapp/flows')
+@Controller('whatsapp/flows')
 export class WhatsAppFlowController {
   private readonly logger = new Logger(WhatsAppFlowController.name);
 

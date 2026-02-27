@@ -9,13 +9,12 @@ import { EventTriggerService } from './services/event-trigger.service';
 import { BroadcastController } from './controllers/broadcast.controller';
 import { CampaignTriggerController } from './controllers/campaign-trigger.controller';
 import { SessionModule } from '../session/session.module';
-import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
 @Module({
   imports: [
     HttpModule,
     SessionModule,
-    forwardRef(() => WhatsAppModule),
+    forwardRef(() => require('../whatsapp/whatsapp.module').WhatsAppModule),
   ],
   controllers: [BroadcastController, CampaignTriggerController],
   providers: [

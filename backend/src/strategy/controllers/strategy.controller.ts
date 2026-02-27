@@ -2,7 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Query, Param, Body } from '@nestj
 import { StrategyLedgerService } from '../services/strategy-ledger.service';
 import { InstitutionalMemoryService } from '../services/institutional-memory.service';
 
-@Controller('api/mos/strategy')
+@Controller('mos/strategy')
 export class StrategyController {
   constructor(
     private readonly strategyLedger: StrategyLedgerService,

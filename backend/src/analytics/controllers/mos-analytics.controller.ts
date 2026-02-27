@@ -2,7 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { OrderDissectionService } from '../services/order-dissection.service';
 import { UnitEconomicsService } from '../services/unit-economics.service';
 
-@Controller('api/mos')
+@Controller('mos')
 export class MosAnalyticsController {
   constructor(
     private readonly orderDissection: OrderDissectionService,

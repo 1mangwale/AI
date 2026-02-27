@@ -6,7 +6,7 @@ import { AdExecutionService } from '../services/ad-execution.service';
 import { ApprovalService } from '../../approval/services/approval.service';
 import { AutoActionService } from '../../scheduler/services/auto-action.service';
 
-@Controller('api/mos/action-engine')
+@Controller('mos/action-engine')
 export class ActionEngineController {
   private readonly logger = new Logger(ActionEngineController.name);
   private pool: Pool;

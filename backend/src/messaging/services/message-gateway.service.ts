@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject, forwardRef, Optional } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
+import { REDIS_CLIENT, REDIS_PUBLISHER } from '../../redis/redis.module';
 import { SessionService } from '../../session/session.service';
 import { ConversationLoggerService } from '../../database/conversation-logger.service';
 import { MetricsService } from '../../metrics/metrics.service';
@@ -72,12 +73,10 @@ export interface MessageEvent {
 @Injectable()
 export class MessageGatewayService {
   private readonly logger = new Logger(MessageGatewayService.name);
-  private readonly redis: Redis;
-  private readonly redisPublisher: Redis;
   private readonly MESSAGE_CHANNEL = 'mangwale:messages';
   private readonly DEDUP_TTL = 2; // seconds - reduced from 5s for faster conversation flow
   private readonly DEDUP_PREFIX = 'dedup:';
-  
+
   // Lazy-loaded ContextRouter to avoid circular dependency
   private contextRouter: any = null;
 
@@ -85,25 +84,13 @@ export class MessageGatewayService {
     private readonly sessionService: SessionService,
     private readonly conversationLogger: ConversationLoggerService,
     private readonly configService: ConfigService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    @Inject(REDIS_PUBLISHER) private readonly redisPublisher: Redis,
     @Optional() private readonly metricsService?: MetricsService,
     @Optional() private readonly phpAuthService?: PhpAuthService,
     @Optional() private readonly orderSyncService?: OrderSyncService,
   ) {
-    // Initialize Redis clients
-    const redisConfig = {
-      host: this.configService.get('REDIS_HOST', 'redis'),
-      port: this.configService.get('REDIS_PORT', 6379),
-      password: this.configService.get('REDIS_PASSWORD'),
-      retryStrategy: (times: number) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
-      },
-    };
-
-    this.redis = new Redis(redisConfig);
-    this.redisPublisher = new Redis(redisConfig);
-
-    this.logger.log('✅ MessageGateway initialized');
+    this.logger.log('✅ MessageGateway initialized with shared Redis');
   }
 
   /**
@@ -828,12 +815,5 @@ export class MessageGatewayService {
     }
   }
 
-  /**
-   * Graceful shutdown - close Redis connections
-   */
-  async onModuleDestroy() {
-    await this.redis.quit();
-    await this.redisPublisher.quit();
-    this.logger.log('🔴 MessageGateway shut down');
-  }
+  // Redis cleanup handled by RedisModule
 }

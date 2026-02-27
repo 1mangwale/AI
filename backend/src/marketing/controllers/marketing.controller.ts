@@ -2,7 +2,7 @@ import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common
 import { SocialTrendService } from '../services/social-trend.service';
 import { AdAttributionService } from '../services/ad-attribution.service';
 
-@Controller('api/mos/marketing')
+@Controller('mos/marketing')
 export class MarketingController {
   constructor(
     private readonly trends: SocialTrendService,

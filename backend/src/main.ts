@@ -8,6 +8,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { join } from 'path';
 import axios from 'axios';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { Response } from 'express';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
@@ -21,6 +22,9 @@ async function bootstrap() {
 
   // Enable WebSocket support with Socket.IO adapter
   app.useWebSocketAdapter(new IoAdapter(app));
+
+  // 🍪 Cookie parser — for HttpOnly JWT cookies
+  app.use(cookieParser());
 
   // 🔒 Security: HTTP security headers with CSP
   app.use(helmet({

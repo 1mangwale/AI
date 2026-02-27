@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import * as crypto from 'crypto';
+import { REDIS_CLIENT } from '../../redis/redis.module';
 
 /**
  * 🗄️ LLM Response Cache
@@ -40,9 +41,8 @@ export interface CacheKey {
 }
 
 @Injectable()
-export class LlmCacheService implements OnModuleInit {
+export class LlmCacheService {
   private readonly logger = new Logger(LlmCacheService.name);
-  private redis: Redis;
   private memoryCache: Map<string, { data: CachedResponse; expiry: Date }> = new Map();
 
   // Configuration
@@ -51,29 +51,11 @@ export class LlmCacheService implements OnModuleInit {
   private readonly MAX_MEMORY_ENTRIES = 100;
   private readonly SIMILARITY_THRESHOLD = 0.95; // For semantic cache
 
-  constructor(private readonly configService: ConfigService) {
-    this.logger.log('🗄️ LlmCacheService initializing...');
-  }
-
-  async onModuleInit() {
-    const redisUrl = this.configService.get('REDIS_URL') || 'redis://redis:6379';
-    
-    try {
-      this.redis = new Redis(redisUrl, {
-        maxRetriesPerRequest: 3,
-        retryStrategy: (times) => Math.min(times * 100, 3000),
-      });
-
-      this.redis.on('error', (err) => {
-        this.logger.error(`Redis error: ${err.message}`);
-      });
-
-      this.redis.on('connect', () => {
-        this.logger.log('✅ Connected to Redis for LLM caching');
-      });
-    } catch (error: any) {
-      this.logger.error(`Failed to initialize Redis: ${error.message}`);
-    }
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly configService: ConfigService,
+  ) {
+    this.logger.log('✅ LlmCacheService initialized with shared Redis');
   }
 
   /**

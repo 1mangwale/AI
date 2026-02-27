@@ -3,7 +3,7 @@ import { DemandForecastService } from '../services/demand-forecast.service';
 import { DynamicPricingService } from '../services/dynamic-pricing.service';
 import { SmartDiscountService } from '../services/smart-discount.service';
 
-@Controller('api/mos/demand')
+@Controller('mos/demand')
 export class DemandController {
   constructor(
     private readonly forecast: DemandForecastService,

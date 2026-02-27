@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import * as crypto from 'crypto';
+import { REDIS_CLIENT } from '../redis/redis.module';
 
 /**
  * Semantic Cache Configuration
@@ -57,9 +58,8 @@ export interface CacheStats {
 @Injectable()
 export class SemanticCacheService {
   private readonly logger = new Logger(SemanticCacheService.name);
-  private redis: Redis | null = null;
   private config: CacheConfig;
-  
+
   // Local stats (persisted to Redis periodically)
   private localStats = {
     hits: 0,
@@ -68,7 +68,10 @@ export class SemanticCacheService {
     latencySavedMs: 0,
   };
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly configService: ConfigService,
+  ) {
     this.config = {
       enabled: this.configService.get('SEMANTIC_CACHE_ENABLED', 'true') === 'true',
       ttlSeconds: parseInt(this.configService.get('SEMANTIC_CACHE_TTL', '3600'), 10), // 1 hour default
@@ -78,36 +81,11 @@ export class SemanticCacheService {
       useSemanticMatch: false, // Will enable when embeddings are available
     };
 
-    this.initializeRedis();
-  }
-
-  private async initializeRedis(): Promise<void> {
-    try {
-      const host = this.configService.get('REDIS_HOST', 'redis');
-      const port = parseInt(this.configService.get('REDIS_PORT', '6379'), 10);
-      
-      this.redis = new Redis({
-        host,
-        port,
-        keyPrefix: 'semantic_cache:',
-        lazyConnect: true,
-        maxRetriesPerRequest: 3,
-        retryStrategy: (times) => {
-          if (times > 3) return null;
-          return Math.min(times * 100, 3000);
-        },
-      });
-
-      await this.redis.connect();
-      this.logger.log(`🚀 Semantic Cache initialized (Redis: ${host}:${port})`);
-      this.logger.log(`   - TTL: ${this.config.ttlSeconds}s`);
-      this.logger.log(`   - Max entries: ${this.config.maxEntries}`);
-      this.logger.log(`   - Exact match: ${this.config.useExactMatch}`);
-      this.logger.log(`   - Semantic match: ${this.config.useSemanticMatch}`);
-    } catch (error) {
-      this.logger.warn(`⚠️ Redis not available, semantic cache disabled: ${error.message}`);
-      this.redis = null;
-    }
+    this.logger.log(`✅ Semantic Cache initialized with shared Redis`);
+    this.logger.log(`   - TTL: ${this.config.ttlSeconds}s`);
+    this.logger.log(`   - Max entries: ${this.config.maxEntries}`);
+    this.logger.log(`   - Exact match: ${this.config.useExactMatch}`);
+    this.logger.log(`   - Semantic match: ${this.config.useSemanticMatch}`);
   }
 
   /**
@@ -414,13 +392,5 @@ export class SemanticCacheService {
     return keys;
   }
 
-  /**
-   * Cleanup on module destroy
-   */
-  async onModuleDestroy(): Promise<void> {
-    if (this.redis) {
-      await this.redis.quit();
-      this.logger.log('🔌 Semantic Cache Redis connection closed');
-    }
-  }
+  // Redis cleanup handled by RedisModule
 }

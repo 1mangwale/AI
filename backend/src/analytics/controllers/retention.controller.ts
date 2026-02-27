@@ -58,7 +58,7 @@ interface ReorderStats {
   }>;
 }
 
-@Controller('api/mos/retention')
+@Controller('mos/retention')
 export class RetentionController implements OnModuleInit {
   private readonly logger = new Logger(RetentionController.name);
   private pgPool: Pool;

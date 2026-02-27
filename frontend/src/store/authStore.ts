@@ -84,9 +84,9 @@ export const useAuthStore = create<AuthState>()(
       name: 'auth-storage',
       storage: createJSONStorage(() => localStorage),
       // Don't persist _hasHydrated - it should always start false
+      // token is NOT persisted — it's in an HttpOnly cookie now
       partialize: (state) => ({
         user: state.user,
-        token: state.token,
         isAuthenticated: state.isAuthenticated,
         lastSyncedFrom: state.lastSyncedFrom,
       }),

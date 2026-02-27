@@ -7,8 +7,11 @@ import {
   Logger,
   UnauthorizedException,
   BadRequestException,
+  Res,
+  Req,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { Response } from 'express';
 import { PhpAuthService } from '../php-integration/services/php-auth.service';
 import { CentralizedAuthService } from './centralized-auth.service';
 import { normalizePhoneNumber } from '../common/utils/helpers';
@@ -41,12 +44,40 @@ function decodeJwt(token: string): any {
 @Controller('v1/auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
+  private readonly isProduction: boolean;
+  private readonly cookieDomain: string | undefined;
 
   constructor(
     private readonly phpAuth: PhpAuthService,
     private readonly centralizedAuth: CentralizedAuthService,
     private readonly httpService: HttpService,
-  ) {}
+  ) {
+    this.isProduction = process.env.NODE_ENV === 'production';
+    this.cookieDomain = process.env.COOKIE_DOMAIN || undefined;
+  }
+
+  /** Set HttpOnly auth cookie (dual mode — cookie + JSON token for non-browser clients) */
+  private setAuthCookie(res: Response, token: string): void {
+    res.cookie('mangwale_token', token, {
+      httpOnly: true,
+      secure: this.isProduction,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/',
+      ...(this.cookieDomain ? { domain: this.cookieDomain } : {}),
+    });
+  }
+
+  /** Clear auth cookie */
+  private clearAuthCookie(res: Response): void {
+    res.clearCookie('mangwale_token', {
+      httpOnly: true,
+      secure: this.isProduction,
+      sameSite: 'lax',
+      path: '/',
+      ...(this.cookieDomain ? { domain: this.cookieDomain } : {}),
+    });
+  }
 
   /**
    * Send OTP to phone number
@@ -99,7 +130,10 @@ export class AuthController {
    */
   @Post('verify-otp')
   @Throttle({ short: { limit: 5, ttl: 60000 }, medium: { limit: 10, ttl: 60000 }, long: { limit: 20, ttl: 300000 } })
-  async verifyOtp(@Body() body: { phone: string; otp: string }) {
+  async verifyOtp(
+    @Body() body: { phone: string; otp: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const { phone, otp } = body;
 
     if (!phone || !otp) {
@@ -167,6 +201,11 @@ export class AuthController {
       // Don't fail auth if sync fails - it's not critical for login
     }
     
+    // Set HttpOnly cookie (browsers use this; non-browser clients use JSON token)
+    if (phpData.token) {
+      this.setAuthCookie(res, phpData.token);
+    }
+
     return {
       success: true,
       token: phpData.token || null,
@@ -194,6 +233,7 @@ export class AuthController {
   @Post('update-info')
   async updateUserInfo(
     @Body() body: { phone: string; f_name: string; l_name?: string; email: string },
+    @Res({ passthrough: true }) res: Response,
   ) {
     const { phone, f_name, l_name, email } = body;
 
@@ -236,6 +276,10 @@ export class AuthController {
       }
     }
 
+    if (result.token) {
+      this.setAuthCookie(res, result.token);
+    }
+
     return {
       success: true,
       token: result.token,
@@ -256,12 +300,21 @@ export class AuthController {
    * Requires: Authorization header with Bearer token
    */
   @Get('profile')
-  async getProfile(@Headers('authorization') authHeader: string) {
-    if (!authHeader?.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Authorization token required');
+  async getProfile(
+    @Headers('authorization') authHeader: string,
+    @Req() req: any,
+  ) {
+    let token: string | undefined;
+
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.replace('Bearer ', '');
+    } else if (req.cookies?.mangwale_token) {
+      token = req.cookies.mangwale_token;
     }
 
-    const token = authHeader.replace('Bearer ', '');
+    if (!token) {
+      throw new UnauthorizedException('Authorization token required');
+    }
     
     this.logger.log(`👤 Get profile request`);
 
@@ -296,7 +349,10 @@ export class AuthController {
    */
   @Post('login')
   @Throttle({ short: { limit: 5, ttl: 60000 }, medium: { limit: 10, ttl: 60000 }, long: { limit: 20, ttl: 300000 } })
-  async login(@Body() body: { phone: string; password: string }) {
+  async login(
+    @Body() body: { phone: string; password: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const { phone, password } = body;
 
     if (!phone || !password) {
@@ -324,7 +380,11 @@ export class AuthController {
       const phpData = await this.phpAuth.loginWithPassword(emailOrPhone, password, fieldType);
       
       this.logger.log(`✅ Password login successful for ${phone}`);
-      
+
+      if (phpData.token) {
+        this.setAuthCookie(res, phpData.token);
+      }
+
       return {
         success: true,
         token: phpData.token,
@@ -357,6 +417,7 @@ export class AuthController {
   @Post('social-login')
   async socialLogin(
     @Body() body: { token: string; unique_id: string; email: string; medium: string },
+    @Res({ passthrough: true }) res: Response,
   ) {
     let { token, unique_id, email, medium } = body;
 
@@ -413,6 +474,9 @@ export class AuthController {
               
               if (loginResult.success && loginResult.data) {
                 this.logger.log(`✅ Google OAuth auto-login successful for existing user ${existingUser.data.id}`);
+                if (loginResult.data.token) {
+                  this.setAuthCookie(res, loginResult.data.token);
+                }
                 return {
                   success: true,
                   token: loginResult.data.token,
@@ -473,7 +537,11 @@ export class AuthController {
     }
 
     const phpData = result.data;
-    
+
+    if (phpData.token) {
+      this.setAuthCookie(res, phpData.token);
+    }
+
     return {
       success: true,
       token: phpData.token,
@@ -495,11 +563,14 @@ export class AuthController {
    * POST /v1/auth/logout
    */
   @Post('logout')
-  async logout(@Headers('authorization') authHeader: string) {
+  async logout(
+    @Headers('authorization') authHeader: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     this.logger.log(`👋 Logout request`);
 
-    // For stateless JWT auth, logout is client-side
-    // Just acknowledge the request
+    this.clearAuthCookie(res);
+
     return {
       success: true,
       message: 'Logged out successfully',

@@ -10,7 +10,7 @@ import {
 import { WhatsAppCatalogService } from '../services/whatsapp-catalog.service';
 import { WhatsAppOrderFlowService } from '../services/whatsapp-order-flow.service';
 
-@Controller('api/mos/whatsapp-commerce')
+@Controller('mos/whatsapp-commerce')
 export class WhatsAppCommerceController {
   constructor(
     private readonly catalog: WhatsAppCatalogService,

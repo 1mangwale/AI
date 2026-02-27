@@ -37,15 +37,20 @@ const API_URL = resolveApiUrl();
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_URL,
   timeout: 30000,
+  withCredentials: true, // Send HttpOnly cookies with every request
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Request interceptor - add auth token
+// Request interceptor - add auth token + zone headers
+// Token is primarily sent via HttpOnly cookie (withCredentials: true).
+// Bearer header is a fallback for in-memory token (non-browser clients).
 apiClient.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
+      // Fallback: set Bearer header from in-memory store if token exists
+      // (e.g., during the current session before cookie is established)
       const authStorage = localStorage.getItem('auth-storage');
       if (authStorage) {
         try {
@@ -63,7 +68,6 @@ apiClient.interceptors.request.use(
       const zoneId = localStorage.getItem('mangwale-user-zone-id');
       if (zoneId && config.headers) {
         config.headers['X-Zone-Id'] = zoneId;
-        // Also add zoneId header as expected by some endpoints
         config.headers['zoneId'] = JSON.stringify([parseInt(zoneId)]);
       }
     }

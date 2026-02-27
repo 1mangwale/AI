@@ -44,7 +44,7 @@ export interface ModelComparisonMetrics {
  * - Cost efficiency
  * - Trend analysis
  */
-@Controller('api/ai/models/comparison')
+@Controller('ai/models/comparison')
 export class ModelComparisonController {
   private readonly logger = new Logger(ModelComparisonController.name);
 

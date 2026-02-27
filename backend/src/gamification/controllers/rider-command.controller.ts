@@ -26,7 +26,7 @@ import * as mysql from 'mysql2/promise';
  * This avoids complex cross-module dependency injection by querying databases
  * directly for zone and prep-time endpoints.
  */
-@Controller('api/mos/riders')
+@Controller('mos/riders')
 export class RiderCommandController implements OnModuleInit {
   private readonly logger = new Logger(RiderCommandController.name);
   private pgPool: Pool;

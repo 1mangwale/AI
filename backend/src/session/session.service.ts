@@ -1,7 +1,8 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { PrismaService } from '../database/prisma.service';
+import { REDIS_CLIENT } from '../redis/redis.module';
 
 export interface ConversationMessage {
   role: 'user' | 'assistant';
@@ -21,38 +22,21 @@ export interface Session {
 @Injectable()
 export class SessionService {
   private readonly logger = new Logger(SessionService.name);
-  private readonly redis: Redis;
   private readonly sessionTtl: number;
-  
+
   // ✨ Request-scoped in-memory cache to reduce Redis calls
   // Cache is cleared after each request (via interceptor or manual cleanup)
   private readonly memoryCache = new Map<string, { session: Session | null; timestamp: number }>();
   private readonly CACHE_TTL_MS = 5000; // 5 seconds - enough for a single request lifecycle
 
   constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private configService: ConfigService,
     @Optional() private prisma: PrismaService,
   ) {
-    const redisConfig = {
-      host: this.configService.get('redis.host'),
-      port: this.configService.get('redis.port'),
-      password: this.configService.get('redis.password') || undefined,
-      db: this.configService.get('redis.db'),
-    };
-
-    this.redis = new Redis(redisConfig);
-
-    this.redis.on('connect', () => {
-      this.logger.log(`🔗 Connected to Redis at ${redisConfig.host}:${redisConfig.port} DB ${redisConfig.db}`);
-    });
-
-    this.redis.on('error', (err) => {
-      this.logger.error(`❌ Redis connection error: ${err.message}`);
-    });
-
     this.sessionTtl = this.configService.get('session.ttl');
-    this.logger.log(`✅ Session Service initialized | TTL: ${this.sessionTtl}s | Memory cache enabled`);
-    
+    this.logger.log(`✅ Session Service initialized with shared Redis | TTL: ${this.sessionTtl}s | Memory cache enabled`);
+
     // Cleanup expired cache entries every 10 seconds
     setInterval(() => this.cleanupCache(), 10000);
   }

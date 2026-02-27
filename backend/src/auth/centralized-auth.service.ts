@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { PhpAuthService } from '../php-integration/services/php-auth.service';
 import { normalizePhoneNumber } from '../common/utils/helpers';
 import { PrismaService } from '../database/prisma.service';
 import { UserProfileEnrichmentService } from '../personalization/user-profile-enrichment.service';
+import { REDIS_CLIENT, REDIS_PUBLISHER } from '../redis/redis.module';
 
 export interface AuthenticatedUser {
   userId: number;
@@ -43,24 +44,17 @@ export interface AuthEvent {
 @Injectable()
 export class CentralizedAuthService {
   private readonly logger = new Logger(CentralizedAuthService.name);
-  private readonly redis: Redis;
   private readonly authTtl: number = 7 * 24 * 60 * 60; // 7 days
 
   constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    @Inject(REDIS_PUBLISHER) private readonly redisPublisher: Redis,
     private readonly configService: ConfigService,
     private readonly phpAuthService: PhpAuthService,
     private readonly prisma: PrismaService,
     private readonly profileEnrichment: UserProfileEnrichmentService,
   ) {
-    const redisConfig = {
-      host: this.configService.get('redis.host'),
-      port: this.configService.get('redis.port'),
-      password: this.configService.get('redis.password') || undefined,
-      db: this.configService.get('redis.db'),
-    };
-
-    this.redis = new Redis(redisConfig);
-    this.logger.log('✅ Centralized Auth Service initialized with PostgreSQL sync & profile enrichment');
+    this.logger.log('✅ Centralized Auth Service initialized with shared Redis, PostgreSQL sync & profile enrichment');
   }
 
   /**
@@ -165,7 +159,7 @@ export class CentralizedAuthService {
     };
     
     // Publish to Redis pub/sub for cross-instance sync
-    await this.redis.publish('auth:events', JSON.stringify(authEvent));
+    await this.redisPublisher.publish('auth:events', JSON.stringify(authEvent));
 
     return authUser;
   }
@@ -270,7 +264,7 @@ export class CentralizedAuthService {
       timestamp: Date.now(),
     };
     
-    await this.redis.publish('auth:events', JSON.stringify(authEvent));
+    await this.redisPublisher.publish('auth:events', JSON.stringify(authEvent));
   }
 
   /**
@@ -297,7 +291,7 @@ export class CentralizedAuthService {
         timestamp: Date.now(),
       };
       
-      await this.redis.publish('auth:events', JSON.stringify(authEvent));
+      await this.redisPublisher.publish('auth:events', JSON.stringify(authEvent));
     }
   }
 
@@ -430,6 +424,6 @@ export class CentralizedAuthService {
       timestamp: Date.now(),
     };
     
-    await this.redis.publish('auth:events', JSON.stringify(authEvent));
+    await this.redisPublisher.publish('auth:events', JSON.stringify(authEvent));
   }
 }

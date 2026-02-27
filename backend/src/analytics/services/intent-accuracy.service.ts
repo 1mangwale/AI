@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
 import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../../redis/redis.module';
 
 /**
  * Intent Accuracy Service
@@ -49,22 +50,16 @@ export interface IntentAccuracyReport {
 @Injectable()
 export class IntentAccuracyService {
   private readonly logger = new Logger(IntentAccuracyService.name);
-  private readonly redis: Redis;
   private readonly METRICS_KEY = 'analytics:intent';
   private readonly CONFIDENCE_THRESHOLD = 0.85;
   private readonly LOW_CONFIDENCE_THRESHOLD = 0.6;
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly configService: ConfigService,
   ) {
-    this.redis = new Redis({
-      host: this.configService.get('redis.host'),
-      port: this.configService.get('redis.port'),
-      password: this.configService.get('redis.password') || undefined,
-      db: this.configService.get('redis.db'),
-    });
-    this.logger.log('✅ IntentAccuracyService initialized with Redis');
+    this.logger.log('✅ IntentAccuracyService initialized with shared Redis');
   }
 
   /**
