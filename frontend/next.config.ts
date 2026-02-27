@@ -205,6 +205,30 @@ const nextConfig: NextConfig = {
           source: '/api/files/:path*',
           destination: `${backendUrl}/api/files/:path*`,
         },
+        // mOS (Neural Decision Dashboard) routes
+        {
+          source: '/api/mos/:path*',
+          destination: `${backendUrl}/api/mos/:path*`,
+        },
+        // Approvals routes
+        {
+          source: '/api/approvals/:path*',
+          destination: `${backendUrl}/api/approvals/:path*`,
+        },
+        {
+          source: '/api/approvals',
+          destination: `${backendUrl}/api/approvals`,
+        },
+        // Payment webhook routes
+        {
+          source: '/api/payment/:path*',
+          destination: `${backendUrl}/api/payment/:path*`,
+        },
+        // WhatsApp routes (flows, commerce)
+        {
+          source: '/api/whatsapp/:path*',
+          destination: `${backendUrl}/api/whatsapp/:path*`,
+        },
         // Catch-all for other API routes EXCEPT /api/tts and /api/asr (local handlers)
         // Voice routes go to backend
         {

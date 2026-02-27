@@ -47,11 +47,11 @@ export class UnitEconomicsService implements OnModuleInit {
       const [orderRows] = await this.mysqlPool.query(`
         SELECT
           COUNT(*) as total_orders,
-          SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as completed,
-          SUM(CASE WHEN status = 'delivered' THEN total ELSE 0 END) as gmv,
-          AVG(CASE WHEN status = 'delivered' THEN total END) as avg_order_value,
-          AVG(CASE WHEN status = 'delivered'
-              THEN TIMESTAMPDIFF(MINUTE, created_at, delivered_at) END) as avg_delivery_time,
+          SUM(CASE WHEN order_status = 'delivered' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN order_status = 'delivered' THEN order_amount ELSE 0 END) as gmv,
+          AVG(CASE WHEN order_status = 'delivered' THEN order_amount END) as avg_order_value,
+          AVG(CASE WHEN order_status = 'delivered'
+              THEN TIMESTAMPDIFF(MINUTE, created_at, delivered) END) as avg_delivery_time,
           COUNT(DISTINCT user_id) as active_users
         FROM orders
         WHERE DATE(created_at) = ?
@@ -69,11 +69,11 @@ export class UnitEconomicsService implements OnModuleInit {
           SELECT user_id, COUNT(*) as cnt
           FROM orders
           WHERE DATE(created_at) < ?
-            AND status = 'delivered'
+            AND order_status = 'delivered'
           GROUP BY user_id
         ) prev_orders ON o.user_id = prev_orders.user_id
         WHERE DATE(o.created_at) = ?
-          AND o.status = 'delivered'
+          AND o.order_status = 'delivered'
       `, [date, date]) as any;
 
       const users = userRows[0] || {};
@@ -110,9 +110,9 @@ export class UnitEconomicsService implements OnModuleInit {
       const [rows] = await this.mysqlPool.query(`
         SELECT
           DATE(created_at) as date,
-          SUM(CASE WHEN status = 'delivered' THEN total ELSE 0 END) as gmv,
-          COUNT(CASE WHEN status = 'delivered' THEN 1 END) as orders,
-          AVG(CASE WHEN status = 'delivered' THEN total END) as aov
+          SUM(CASE WHEN order_status = 'delivered' THEN order_amount ELSE 0 END) as gmv,
+          COUNT(CASE WHEN order_status = 'delivered' THEN 1 END) as orders,
+          AVG(CASE WHEN order_status = 'delivered' THEN order_amount END) as aov
         FROM orders
         WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
         GROUP BY DATE(created_at)
@@ -146,9 +146,9 @@ export class UnitEconomicsService implements OnModuleInit {
       const [rows] = await this.mysqlPool.query(`
         SELECT
           DATE_FORMAT(created_at, '%Y-%m') as month,
-          SUM(CASE WHEN status = 'delivered' THEN total ELSE 0 END) as gmv,
-          COUNT(CASE WHEN status = 'delivered' THEN 1 END) as orders,
-          AVG(CASE WHEN status = 'delivered' THEN total END) as avg_value,
+          SUM(CASE WHEN order_status = 'delivered' THEN order_amount ELSE 0 END) as gmv,
+          COUNT(CASE WHEN order_status = 'delivered' THEN 1 END) as orders,
+          AVG(CASE WHEN order_status = 'delivered' THEN order_amount END) as avg_value,
           COUNT(DISTINCT user_id) as unique_customers
         FROM orders
         WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
@@ -176,11 +176,11 @@ export class UnitEconomicsService implements OnModuleInit {
   async getActiveRiderCount(date: string): Promise<number> {
     try {
       const [rows] = await this.mysqlPool.query(`
-        SELECT COUNT(DISTINCT rider_id) as active_riders
+        SELECT COUNT(DISTINCT delivery_man_id) as active_riders
         FROM orders
         WHERE DATE(created_at) = ?
-          AND rider_id IS NOT NULL
-          AND status IN ('delivered', 'picked_up', 'accepted')
+          AND delivery_man_id IS NOT NULL
+          AND order_status IN ('delivered', 'picked_up', 'accepted', 'confirmed')
       `, [date]) as any;
       return parseInt(rows[0]?.active_riders) || 0;
     } catch (error: any) {

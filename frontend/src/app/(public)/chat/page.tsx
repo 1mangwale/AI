@@ -10,6 +10,7 @@ import { parseButtonsFromText } from '@/lib/utils/helpers'
 import { ProductCard } from '@/components/chat/ProductCard'
 import { ParcelCard } from '@/components/chat/ParcelCard'
 import { VehicleCard } from '@/components/chat/VehicleCard'
+import { StoreCard } from '@/components/chat/StoreCard'
 import RunningCart from '@/components/chat/RunningCart'
 import { useRouter } from 'next/navigation'
 import { VoiceInput } from '@/components/chat/VoiceInput'
@@ -2192,7 +2193,7 @@ function ChatContent() {
                               })()}
 
                               {/* Card grid */}
-                              <div className="grid grid-cols-2 gap-1.5">
+                              <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 sm:gap-2">
                                 {(expandedCards[message.id] ? message.cards : message.cards.slice(0, 4)).map((card, cardIndex) => {
                                   if (card.cardType === 'vehicle') {
                                     return (
@@ -2206,6 +2207,16 @@ function ChatContent() {
                                         minimumCharge={card.metadata?.minimum_charge}
                                         ordersCount={card.metadata?.orders_count}
                                         onSelect={(id) => handleSend(id, 'button_click')}
+                                      />
+                                    );
+                                  }
+                                  if (card.cardType === 'store') {
+                                    return (
+                                      <StoreCard
+                                        key={card.id}
+                                        card={card}
+                                        onAction={(value) => handleSend(value, 'button_click', `🏪 ${card.name}`)}
+                                        index={cardIndex}
                                       />
                                     );
                                   }

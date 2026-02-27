@@ -257,6 +257,22 @@ export class IntentClassifierService {
       return { intent: mapped, confidence: 0.99, language: 'auto', provider: 'heuristic-priority' };
     }
 
+    // Browse stores/restaurants — user wants to see restaurant list (MUST come before browse_menu)
+    if (/show.*restaurant/i.test(t) ||
+        /all.*restaurant/i.test(t) ||
+        /list.*restaurant/i.test(t) ||
+        /show.*resto(?!re)/i.test(t) ||
+        /show.*restro/i.test(t) ||
+        /which.*restaurant/i.test(t) ||
+        /kitne.*restaurant/i.test(t) ||
+        /kaun.*restaurant/i.test(t) ||
+        /partner.*store/i.test(t) ||
+        /partner.*restaurant/i.test(t) ||
+        /all.*resto(?!re)/i.test(t) ||
+        /all.*restro/i.test(t)) {
+      return { intent: 'browse_stores', confidence: 0.92, language: 'auto', provider: 'heuristic-priority' };
+    }
+
     // Browse menu / category queries
     if (/what.*categ/i.test(t) ||
         /what.*catog/i.test(t) ||

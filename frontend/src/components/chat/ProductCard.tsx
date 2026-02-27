@@ -5,8 +5,8 @@ import type { ProductCard as ProductCardType, VariantOption } from '@/types/chat
 
 // Multiple image sources for fallback cascade
 const IMAGE_SOURCES = [
-  'https://storage.mangwale.ai/mangwale/product',           // MinIO CDN (primary — working)
-  'https://new.mangwale.com/storage/app/public/product',   // PHP Laravel storage fallback
+  'https://chat.mangwale.ai/storage/mangwale/product',     // MinIO via Traefik proxy (same server, reliable)
+  'https://storage.mangwale.ai/mangwale/product',           // MinIO CDN (external domain)
   'https://mangwale.s3.ap-south-1.amazonaws.com/product',  // S3 bucket-style (last resort)
 ];
 const S3_BASE_URL = IMAGE_SOURCES[0]; // Primary source

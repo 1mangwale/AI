@@ -78,7 +78,7 @@ export class ComplaintPatternService implements OnModuleInit {
           o.id as order_id,
           o.store_id,
           s.name as store_name,
-          o.status,
+          o.order_status as status,
           o.cancel_reason,
           o.notes,
           o.created_at
@@ -86,7 +86,7 @@ export class ComplaintPatternService implements OnModuleInit {
         LEFT JOIN stores s ON o.store_id = s.id
         WHERE o.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
           AND (
-            o.status = 'cancelled'
+            o.order_status = 'canceled'
             OR o.notes IS NOT NULL
             OR o.cancel_reason IS NOT NULL
           )

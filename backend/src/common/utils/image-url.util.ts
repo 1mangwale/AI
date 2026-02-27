@@ -18,12 +18,22 @@ export function resolveImageUrl(
   item: Record<string, any>,
   s3BaseUrl: string,
 ): string | undefined {
+  // Also check nested _source (OpenSearch hits keep data there)
+  const src = item._source || {};
   let imageUrl =
     item.image_full_url ||
     item.image_fallback_url ||
     item.image ||
     item.images?.[0] ||
-    item.image_url;
+    item.image_url ||
+    item.logo ||           // Store logo
+    item.cover_photo ||    // Store cover photo
+    src.image_full_url ||
+    src.image ||
+    src.images?.[0] ||
+    src.image_url ||
+    src.logo ||
+    src.cover_photo;
 
   if (!imageUrl) return undefined;
 
@@ -47,6 +57,13 @@ export function resolveImageUrl(
     filename = filename.replace('/product/', '');
   } else if (filename.startsWith('product/')) {
     filename = filename.replace('product/', '');
+  } else if (filename.startsWith('/store/')) {
+    // Store images — use store/ prefix instead of product/
+    filename = filename.replace('/store/', '');
+    return `${s3BaseUrl.replace('/product', '/store')}/${filename}`;
+  } else if (filename.startsWith('store/')) {
+    filename = filename.replace('store/', '');
+    return `${s3BaseUrl.replace('/product', '/store')}/${filename}`;
   }
 
   return `${s3BaseUrl}/${filename}`;

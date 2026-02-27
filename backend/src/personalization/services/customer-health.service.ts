@@ -82,16 +82,16 @@ export class CustomerHealthService implements OnModuleInit {
       const [orderRows] = await this.mysqlPool.query(`
         SELECT
           u.id as user_id,
-          u.mobile as phone,
-          COUNT(CASE WHEN o.status = 'delivered' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY) THEN 1 END) as orders_90d,
-          AVG(CASE WHEN o.status = 'delivered' THEN o.total END) as avg_order_value,
+          u.phone as phone,
+          COUNT(CASE WHEN o.order_status = 'delivered' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY) THEN 1 END) as orders_90d,
+          AVG(CASE WHEN o.order_status = 'delivered' THEN o.order_amount END) as avg_order_value,
           MAX(o.created_at) as last_order_date,
           DATEDIFF(NOW(), MAX(o.created_at)) as recency_days,
-          COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) / GREATEST(COUNT(*), 1) as cancel_rate
+          COUNT(CASE WHEN o.order_status = 'canceled' THEN 1 END) / GREATEST(COUNT(*), 1) as cancel_rate
         FROM users u
         LEFT JOIN orders o ON u.id = o.user_id
         WHERE u.id = ?
-        GROUP BY u.id, u.mobile
+        GROUP BY u.id, u.phone
       `, [userId]) as any;
 
       if (!orderRows[0]) return null;
@@ -171,8 +171,12 @@ export class CustomerHealthService implements OnModuleInit {
 
       for (const row of rows) {
         try {
-          await this.computeHealthScore(row.user_id);
-          computed++;
+          const result = await this.computeHealthScore(row.user_id);
+          if (result) {
+            computed++;
+          } else {
+            errors++;
+          }
         } catch {
           errors++;
         }

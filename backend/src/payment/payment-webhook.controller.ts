@@ -7,6 +7,7 @@ import { Request } from 'express';
 import { Pool } from 'pg';
 import * as crypto from 'crypto';
 import { WhatsAppCloudService } from '../whatsapp/services/whatsapp-cloud.service';
+import { FlowEngineService } from '../flow-engine/flow-engine.service';
 
 /**
  * Payment Webhook Controller
@@ -22,7 +23,7 @@ import { WhatsAppCloudService } from '../whatsapp/services/whatsapp-cloud.servic
  * Endpoint: POST /api/payment/razorpay/webhook
  * Configure in Razorpay Dashboard → Settings → Webhooks
  */
-@Controller('api/payment/razorpay')
+@Controller('payment/razorpay')
 export class PaymentWebhookController implements OnModuleInit {
   private readonly logger = new Logger(PaymentWebhookController.name);
   private readonly webhookSecret: string;
@@ -31,6 +32,7 @@ export class PaymentWebhookController implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     private readonly whatsapp: WhatsAppCloudService,
+    private readonly flowEngine: FlowEngineService,
   ) {
     this.webhookSecret = this.config.get('RAZORPAY_WEBHOOK_SECRET') || '';
   }
@@ -153,6 +155,9 @@ export class PaymentWebhookController implements OnModuleInit {
       } catch (err) {
         this.logger.warn(`Failed to send payment confirmation to ${phone}: ${err.message}`);
       }
+
+      // Bridge to flow engine — advance from wait_food_payment_result
+      await this.resumeFlow(phone, '__payment_success__', orderId);
     }
   }
 
@@ -176,6 +181,9 @@ export class PaymentWebhookController implements OnModuleInit {
       } catch (err) {
         this.logger.warn(`Failed to send payment failure notice to ${phone}: ${err.message}`);
       }
+
+      // Bridge to flow engine — trigger COD fallback path
+      await this.resumeFlow(phone, '__payment_failed__', orderId);
     }
   }
 
@@ -201,6 +209,41 @@ export class PaymentWebhookController implements OnModuleInit {
       } catch (err) {
         this.logger.warn(`Failed to send refund notice to ${phone}: ${err.message}`);
       }
+    }
+  }
+
+  /**
+   * Resume flow engine for a customer after payment webhook.
+   * Tries multiple phone formats since session keys vary (digits, +91, etc.)
+   * Pattern from PostPaymentOrchestrationService.
+   */
+  private async resumeFlow(phone: string, signal: string, orderId: string): Promise<void> {
+    try {
+      const cleanPhone = String(phone).replace(/\D/g, '');
+      const phoneVariants = [
+        cleanPhone,
+        `+${cleanPhone}`,
+        cleanPhone.startsWith('91') ? cleanPhone.slice(2) : `91${cleanPhone}`,
+      ];
+
+      this.logger.log(`[Webhook→Flow] Injecting ${signal} for order #${orderId}, phone variants: ${phoneVariants.join(', ')}`);
+
+      for (const variant of phoneVariants) {
+        try {
+          const result = await this.flowEngine.processMessage(variant, signal, 'user_message');
+          if (result && result.response) {
+            this.logger.log(`[Webhook→Flow] Flow resumed for ${variant}`);
+            return;
+          }
+        } catch {
+          // Try next variant
+        }
+      }
+
+      this.logger.warn(`[Webhook→Flow] No active flow session for order #${orderId} phone ${cleanPhone}`);
+    } catch (err) {
+      // Webhook must return 200 regardless — don't let flow errors break it
+      this.logger.error(`[Webhook→Flow] Failed: ${err.message}`);
     }
   }
 

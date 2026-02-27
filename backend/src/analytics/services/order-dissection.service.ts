@@ -88,11 +88,11 @@ export class OrderDissectionService implements OnModuleInit {
       const [rows] = await this.mysqlPool.query(`
         SELECT
           COUNT(*) as total_orders,
-          SUM(CASE WHEN o.status = 'delivered' THEN 1 ELSE 0 END) as completed,
-          SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
-          AVG(TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered_at)) as avg_delivery_time,
-          AVG(TIMESTAMPDIFF(MINUTE, o.created_at, o.accepted_at)) as avg_accept_time,
-          SUM(o.total) as total_gmv,
+          SUM(CASE WHEN o.order_status = 'delivered' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN o.order_status = 'canceled' THEN 1 ELSE 0 END) as cancelled,
+          AVG(TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered)) as avg_delivery_time,
+          AVG(TIMESTAMPDIFF(MINUTE, o.created_at, o.accepted)) as avg_accept_time,
+          SUM(o.order_amount) as total_gmv,
           HOUR(o.created_at) as order_hour
         FROM orders o
         WHERE DATE(o.created_at) = ?
@@ -174,7 +174,7 @@ export class OrderDissectionService implements OnModuleInit {
         SELECT
           HOUR(created_at) as hour,
           COUNT(*) as orders,
-          SUM(total) as gmv
+          SUM(order_amount) as gmv
         FROM orders
         WHERE DATE(created_at) = ?
           ${zoneId ? 'AND zone_id = ?' : ''}
@@ -212,16 +212,16 @@ export class OrderDissectionService implements OnModuleInit {
         SELECT
           o.id as order_id,
           s.name as store_name,
-          TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered_at) as total_time,
-          TIMESTAMPDIFF(MINUTE, o.created_at, o.accepted_at) as prep_time,
-          TIMESTAMPDIFF(MINUTE, o.accepted_at, o.delivered_at) as transit_time,
-          o.total as order_total,
-          o.status
+          TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered) as total_time,
+          TIMESTAMPDIFF(MINUTE, o.created_at, o.accepted) as prep_time,
+          TIMESTAMPDIFF(MINUTE, o.accepted, o.delivered) as transit_time,
+          o.order_amount as order_total,
+          o.order_status as status
         FROM orders o
         LEFT JOIN stores s ON o.store_id = s.id
         WHERE DATE(o.created_at) = ?
-          AND o.status = 'delivered'
-          AND TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered_at) > ?
+          AND o.order_status = 'delivered'
+          AND TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered) > ?
         ORDER BY total_time DESC
         LIMIT 50
       `, [date, thresholdMinutes]) as any;
@@ -259,12 +259,12 @@ export class OrderDissectionService implements OnModuleInit {
           o.store_id,
           s.name as store_name,
           COUNT(*) as order_count,
-          AVG(CASE WHEN o.status = 'delivered'
-              THEN TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered_at) END) as avg_delivery,
-          AVG(CASE WHEN o.status = 'delivered'
-              THEN TIMESTAMPDIFF(MINUTE, o.created_at, o.accepted_at) END) as avg_prep,
-          SUM(CASE WHEN o.status = 'delivered' THEN 1 ELSE 0 END) / COUNT(*) * 100 as completion_rate,
-          SUM(o.total) as total_revenue
+          AVG(CASE WHEN o.order_status = 'delivered'
+              THEN TIMESTAMPDIFF(MINUTE, o.created_at, o.delivered) END) as avg_delivery,
+          AVG(CASE WHEN o.order_status = 'delivered'
+              THEN TIMESTAMPDIFF(MINUTE, o.created_at, o.accepted) END) as avg_prep,
+          SUM(CASE WHEN o.order_status = 'delivered' THEN 1 ELSE 0 END) / COUNT(*) * 100 as completion_rate,
+          SUM(o.order_amount) as total_revenue
         FROM orders o
         LEFT JOIN stores s ON o.store_id = s.id
         WHERE DATE(o.created_at) = ?

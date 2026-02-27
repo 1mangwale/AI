@@ -153,7 +153,7 @@ export class PrepTimePredictionService implements OnModuleInit {
           DATE(o.created_at) as order_date
         FROM orders o
         JOIN stores s ON o.store_id = s.id
-        WHERE o.status = 'delivered'
+        WHERE o.order_status = 'delivered'
           AND o.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
           AND o.accepted_at IS NOT NULL
           AND TIMESTAMPDIFF(MINUTE, o.created_at, o.accepted_at) > 0

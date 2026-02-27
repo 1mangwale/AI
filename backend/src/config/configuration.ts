@@ -54,7 +54,7 @@ export default () => ({
     baseUrl: process.env.TRACKING_BASE_URL || 'https://track.mangwale.in',
   },
   storage: {
-    cdnUrl: process.env.STORAGE_CDN_URL || 'https://storage.mangwale.ai/mangwale/product',
+    cdnUrl: process.env.STORAGE_CDN_URL || 'https://chat.mangwale.ai/storage/mangwale/product',
     s3BaseUrl: process.env.S3_BASE_URL || 'https://mangwale.s3.ap-south-1.amazonaws.com/product',
   },
   geo: {

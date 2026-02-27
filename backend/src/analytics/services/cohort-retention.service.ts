@@ -82,7 +82,7 @@ export class CohortRetentionService implements OnModuleInit {
             PERIOD_DIFF(DATE_FORMAT(o.created_at, '%Y%m'), DATE_FORMAT(us.signup_date, '%Y%m')) as months_since
           FROM user_signups us
           JOIN orders o ON us.user_id = o.user_id
-          WHERE o.status = 'delivered'
+          WHERE o.order_status = 'delivered'
         )
         SELECT
           signup_cohort,
@@ -162,10 +162,10 @@ export class CohortRetentionService implements OnModuleInit {
           COUNT(CASE WHEN PERIOD_DIFF(DATE_FORMAT(o.created_at, '%Y%m'), DATE_FORMAT(u.created_at, '%Y%m')) BETWEEN 4 AND 6 THEN 1 END) as m6,
           COUNT(CASE WHEN PERIOD_DIFF(DATE_FORMAT(o.created_at, '%Y%m'), DATE_FORMAT(u.created_at, '%Y%m')) BETWEEN 7 AND 12 THEN 1 END) as m12,
           COUNT(o.id) as total_orders,
-          COALESCE(SUM(o.total), 0) as total_spend,
+          COALESCE(SUM(o.order_amount), 0) as total_spend,
           MAX(o.created_at) as last_order
         FROM users u
-        LEFT JOIN orders o ON u.id = o.user_id AND o.status = 'delivered'
+        LEFT JOIN orders o ON u.id = o.user_id AND o.order_status = 'delivered'
         WHERE u.created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
         GROUP BY u.id, DATE_FORMAT(u.created_at, '%Y-%m'), DATE(u.created_at)
       `) as any;

@@ -746,6 +746,11 @@ export class SearchExecutor implements ActionExecutor {
         let storeFilter = filters.find((f: any) => f.field === 'store_id');
         const storeNameFilter = filters.find((f: any) => f.field === 'store_name');
         const vegFilter = filters.find((f: any) => f.field === 'veg');
+
+        // Strip "store_" prefix from button values (e.g. "store_123" → 123)
+        if (storeFilter && typeof storeFilter.value === 'string' && storeFilter.value.startsWith('store_')) {
+          storeFilter = { ...storeFilter, value: parseInt(storeFilter.value.replace('store_', ''), 10) };
+        }
         
         // 🏪 SMART STORE RESOLUTION: Use EntityResolutionService result first, then fallback
         let resolvedStoreId: number | undefined = resolvedStore?.id as number || storeFilter?.value as number;
@@ -1240,15 +1245,16 @@ export class SearchExecutor implements ActionExecutor {
             distanceKm,
             distance: distanceText,
             veg: item.veg ?? src.veg,
-            cardType: index?.includes('ecom') ? 'product' : 'food',
+            cardType: index === 'stores' ? 'store' : (index?.includes('ecom') ? 'product' : 'food'),
             has_variant: (() => {
+              if (index === 'stores') return 0;
               if (Array.isArray(parsedVariations) && parsedVariations.length > 0) return 1;
               return item.has_variant || src.has_variant || 0;
             })(),
-            food_variations: Array.isArray(parsedVariations) ? parsedVariations : [],
+            food_variations: index === 'stores' ? [] : (Array.isArray(parsedVariations) ? parsedVariations : []),
             action: {
-              label: 'Add +',
-              value: `item_${item.id || src.id}`
+              label: index === 'stores' ? 'View Menu' : 'Add +',
+              value: index === 'stores' ? `store_${item.id || src.id}` : `item_${item.id || src.id}`,
             }
           };
         });
