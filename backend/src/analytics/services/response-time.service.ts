@@ -278,7 +278,7 @@ export class ResponseTimeService {
           database,
         },
         llmProviders,
-        slowestEndpoints: [], // TODO: Track by endpoint
+        slowestEndpoints: await this.getSlowestEndpoints(),
         healthStatus,
       };
     } catch (error) {
@@ -295,6 +295,45 @@ export class ResponseTimeService {
         slowestEndpoints: [],
         healthStatus: 'healthy',
       };
+    }
+  }
+
+  /**
+   * Get slowest endpoints based on recorded component latencies
+   */
+  private async getSlowestEndpoints(): Promise<{ endpoint: string; averageMs: number; callCount: number }[]> {
+    try {
+      const components = ['end_to_end', 'nlu', 'llm', 'search', 'database'];
+      const endpoints: { endpoint: string; averageMs: number; callCount: number }[] = [];
+
+      for (const component of components) {
+        const metrics = await this.getLatencyMetrics(component);
+        if (metrics.sampleCount > 0 && metrics.average > 0) {
+          endpoints.push({
+            endpoint: component,
+            averageMs: Math.round(metrics.average),
+            callCount: metrics.sampleCount,
+          });
+        }
+      }
+
+      // Also check LLM providers
+      const providers = ['vllm', 'groq', 'openrouter', 'huggingface'];
+      for (const provider of providers) {
+        const metrics = await this.getLatencyMetrics(`llm:${provider}`);
+        if (metrics.sampleCount > 0 && metrics.average > 0) {
+          endpoints.push({
+            endpoint: `llm:${provider}`,
+            averageMs: Math.round(metrics.average),
+            callCount: metrics.sampleCount,
+          });
+        }
+      }
+
+      return endpoints.sort((a, b) => b.averageMs - a.averageMs).slice(0, 10);
+    } catch (error) {
+      this.logger.debug(`Failed to get slowest endpoints: ${error.message}`);
+      return [];
     }
   }
 

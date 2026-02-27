@@ -194,8 +194,10 @@ export class ScraperKnowledgeService implements OnModuleInit {
       return {
         trendingItems: trending.rows.map(r => r.name),
         missingCategories: gaps.rows.map(r => r.category),
-        popularCombos: [], // TODO: Implement combo detection
-        seasonalTrends: [], // TODO: Implement seasonal analysis
+        popularCombos: trending.rows.length > 1
+          ? this.detectCombos(trending.rows.map(r => r.name))
+          : [],
+        seasonalTrends: this.getSeasonalDefaults(),
       };
     } catch (error) {
       this.logger.error(`Menu analysis failed: ${error.message}`);
@@ -240,12 +242,17 @@ export class ScraperKnowledgeService implements OnModuleInit {
       const commonComplaints = this.extractThemes(complaints.rows, 'complaints');
       const commonPraisesRaw = this.extractThemes(praises.rows, 'praises');
       
+      // Calculate scores from review sentiment averages
+      const deliveryScore = this.calculateAspectScore(complaints.rows, praises.rows, 'delivery');
+      const foodQualityScore = this.calculateAspectScore(complaints.rows, praises.rows, 'food');
+      const valueScore = this.calculateAspectScore(complaints.rows, praises.rows, 'price');
+
       return {
         commonComplaints,
         commonPraises: commonPraisesRaw.map(p => ({ aspect: p.issue, frequency: p.frequency })),
-        deliveryScore: 0, // TODO: Calculate from reviews
-        foodQualityScore: 0,
-        valueScore: 0,
+        deliveryScore,
+        foodQualityScore,
+        valueScore,
       };
     } catch (error) {
       this.logger.error(`Sentiment analysis failed: ${error.message}`);
@@ -279,6 +286,63 @@ export class ScraperKnowledgeService implements OnModuleInit {
       .sort(([, a], [, b]) => b - a)
       .slice(0, 5)
       .map(([issue, frequency]) => ({ issue, frequency }));
+  }
+
+  /**
+   * Detect likely food combos from trending items
+   */
+  private detectCombos(itemNames: string[]): string[] {
+    const comboPairs: string[] = [];
+    const comboKeywords = [
+      ['biryani', 'raita'], ['pizza', 'coke'], ['burger', 'fries'],
+      ['dosa', 'chutney'], ['naan', 'dal'], ['rice', 'curry'],
+      ['momos', 'chutney'], ['sandwich', 'juice'], ['thali', 'lassi'],
+    ];
+
+    for (const [a, b] of comboKeywords) {
+      const hasA = itemNames.some(n => n.toLowerCase().includes(a));
+      const hasB = itemNames.some(n => n.toLowerCase().includes(b));
+      if (hasA && hasB) comboPairs.push(`${a} + ${b}`);
+    }
+    return comboPairs.slice(0, 5);
+  }
+
+  /**
+   * Get seasonal food defaults based on current month
+   */
+  private getSeasonalDefaults(): string[] {
+    const month = new Date().getMonth(); // 0-11
+    if (month >= 2 && month <= 4) return ['summer drinks', 'ice cream', 'cold coffee', 'mango shake'];
+    if (month >= 5 && month <= 8) return ['hot soup', 'chai', 'pakora', 'maggi'];
+    if (month >= 9 && month <= 11) return ['sweets', 'festival specials', 'dry fruits', 'laddu'];
+    return ['hot chocolate', 'gajar halwa', 'winter specials'];
+  }
+
+  /**
+   * Calculate aspect score from positive/negative review mentions (0-10 scale)
+   */
+  private calculateAspectScore(complaints: any[], praises: any[], aspect: string): number {
+    const aspectKeywords: Record<string, string[]> = {
+      delivery: ['delivery', 'late', 'slow', 'fast', 'quick', 'time', 'speed'],
+      food: ['taste', 'tasty', 'fresh', 'cold', 'stale', 'delicious', 'quality', 'hot'],
+      price: ['price', 'expensive', 'cheap', 'value', 'worth', 'overpriced', 'affordable'],
+    };
+
+    const keywords = aspectKeywords[aspect] || [];
+    let positive = 0, negative = 0;
+
+    for (const review of praises) {
+      const text = (review.text || '').toLowerCase();
+      if (keywords.some(k => text.includes(k))) positive++;
+    }
+    for (const review of complaints) {
+      const text = (review.text || '').toLowerCase();
+      if (keywords.some(k => text.includes(k))) negative++;
+    }
+
+    const total = positive + negative;
+    if (total === 0) return 5.0; // neutral default
+    return Math.round((positive / total) * 100) / 10; // 0-10 scale
   }
 
   /**

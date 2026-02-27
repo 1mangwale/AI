@@ -163,8 +163,9 @@ export class NluClientService {
         this.currentEndpoint = this.primaryEndpoint;
         this.axiosInstance = this.createAxiosInstance(this.primaryEndpoint);
       }
-    } catch {
+    } catch (err) {
       // Primary still down, continue using fallback
+      this.logger.debug(`Primary NLU still unreachable: ${err.message || 'connection refused'}`);
     }
   }
 
@@ -753,7 +754,8 @@ export class NluClientService {
       const data = response.data;
       this.logger.debug(`NLU Health: encoder_loaded=${data.encoder_loaded}, intent_loaded=${data.intent_loaded}`);
       return data.encoder_loaded === true;
-    } catch {
+    } catch (err) {
+      this.logger.debug(`NLU health check failed: ${err.message || 'connection error'}`);
       return false;
     }
   }

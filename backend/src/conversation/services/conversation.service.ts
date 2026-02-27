@@ -2643,10 +2643,28 @@ export class ConversationService {
     // Store selected payment method
     await this.sessionService.setData(phoneNumber, 'payment_method', selectedPayment);
 
-    // If wallet selected, check balance and determine payment type
+    // If wallet selected, check balance before proceeding
     if (selectedPayment === 'wallet') {
-      // TODO: Add wallet balance check logic here if needed
-      // For now, we assume the user has checked balance in previous step
+      const authToken = await this.sessionService.getData(phoneNumber, 'auth_token');
+      if (authToken) {
+        const orderTotal = await this.sessionService.getData(phoneNumber, 'calculated_total') || 0;
+        const walletCheck = await this.walletService.canPayWithWallet(authToken, orderTotal);
+        if (walletCheck.success && !walletCheck.canPay) {
+          // Insufficient balance — show options
+          await this.messagingService.sendTextMessage(Platform.WHATSAPP,
+            phoneNumber,
+            this.walletService.formatInsufficientBalanceMessage(
+              orderTotal, walletCheck.balance || 0, walletCheck.shortfall || orderTotal,
+            ) + '\n\n' +
+            '1️⃣ Recharge Wallet\n' +
+            '2️⃣ Pay with Cash on Delivery\n' +
+            '3️⃣ Pay Online (Razorpay)\n\n' +
+            'Reply with 1, 2, or 3:',
+          );
+          await this.sessionService.setStep(phoneNumber, 'wallet_insufficient');
+          return;
+        }
+      }
     }
 
     try {
@@ -3222,23 +3240,126 @@ export class ConversationService {
   }
 
   private async handleWalletInsufficientAction(phoneNumber: string, messageText: string): Promise<void> {
-    this.logger.warn(`handleWalletInsufficientAction not implemented`);
-    await this.showMainMenu(phoneNumber);
+    const choice = messageText.trim();
+
+    if (choice === '1') {
+      // Recharge wallet — show smart suggestions
+      const authToken = await this.sessionService.getData(phoneNumber, 'auth_token');
+      if (!authToken) { await this.showMainMenu(phoneNumber); return; }
+      const shortfall = await this.sessionService.getData(phoneNumber, 'wallet_shortfall') || 0;
+      const suggestions = await this.walletService.getSmartRechargeSuggestions(authToken, shortfall);
+      if (suggestions.success && suggestions.suggestions) {
+        await this.messagingService.sendTextMessage(Platform.WHATSAPP,
+          phoneNumber,
+          this.walletService.formatSmartRechargeSuggestionsMessage(suggestions.suggestions, shortfall),
+        );
+        await this.sessionService.setStep(phoneNumber, 'wallet_recharge_suggestion');
+      } else {
+        await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+          '❌ Failed to load recharge options. Please try again or choose another payment method.');
+        await this.showMainMenu(phoneNumber);
+      }
+    } else if (choice === '2') {
+      // Switch to COD
+      await this.sessionService.setData(phoneNumber, 'payment_method', 'cash_on_delivery');
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        '✅ Payment method changed to Cash on Delivery. Proceeding with your order...');
+      await this.handleCheckout(phoneNumber, 'checkout');
+    } else if (choice === '3') {
+      // Switch to Razorpay
+      await this.sessionService.setData(phoneNumber, 'payment_method', 'digital_payment');
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        '✅ Payment method changed to Online Payment. Proceeding with your order...');
+      await this.handleCheckout(phoneNumber, 'checkout');
+    } else {
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        '❓ Please reply with 1, 2, or 3 to select an option.');
+    }
   }
 
   private async handleWalletPartialPaymentChoice(phoneNumber: string, messageText: string): Promise<void> {
-    this.logger.warn(`handleWalletPartialPaymentChoice not implemented`);
-    await this.showMainMenu(phoneNumber);
+    const choice = messageText.trim();
+    if (choice === '1') {
+      // Use wallet balance + COD for remaining
+      await this.sessionService.setData(phoneNumber, 'payment_method', 'partial_payment');
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        '✅ Partial wallet payment selected. Remaining amount will be Cash on Delivery.');
+      await this.handleCheckout(phoneNumber, 'checkout');
+    } else if (choice === '2') {
+      // Recharge wallet first
+      await this.handleWalletInsufficientAction(phoneNumber, '1');
+    } else if (choice === '3') {
+      // Switch to another method
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        'Select payment method:\n\n' +
+        '1️⃣ Cash on Delivery 💵\n' +
+        '2️⃣ Online Payment (Razorpay) 💳\n\n' +
+        'Reply with 1 or 2:');
+      await this.sessionService.setStep(phoneNumber, 'payment_selection');
+    } else {
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        '❓ Please reply with 1, 2, or 3 to select an option.');
+    }
   }
 
   private async handleWalletRechargeSuggestionChoice(phoneNumber: string, messageText: string): Promise<void> {
-    this.logger.warn(`handleWalletRechargeSuggestionChoice not implemented`);
-    await this.showMainMenu(phoneNumber);
+    const authToken = await this.sessionService.getData(phoneNumber, 'auth_token');
+    if (!authToken) { await this.showMainMenu(phoneNumber); return; }
+
+    const choice = parseInt(messageText.trim(), 10);
+    const shortfall = await this.sessionService.getData(phoneNumber, 'wallet_shortfall') || 0;
+    const suggestions = await this.walletService.getSmartRechargeSuggestions(authToken, shortfall);
+
+    if (!suggestions.success || !suggestions.suggestions) {
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        '❌ Unable to process. Returning to main menu.');
+      await this.showMainMenu(phoneNumber);
+      return;
+    }
+
+    const maxOption = suggestions.suggestions.length + 1;
+    if (choice === maxOption) {
+      // Custom amount
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        '💰 Enter recharge amount (₹10 - ₹50,000):');
+      await this.sessionService.setStep(phoneNumber, 'wallet_recharge_amount');
+    } else if (choice >= 1 && choice <= suggestions.suggestions.length) {
+      const selected = suggestions.suggestions[choice - 1];
+      const result = await this.walletService.initiateRecharge(authToken, selected.amount);
+      if (result.success) {
+        await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+          result.formattedMessage || `Recharge of ₹${selected.amount} initiated. Complete payment to proceed.`);
+      } else {
+        await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+          `❌ ${result.message || 'Failed to initiate recharge'}. Please try again.`);
+      }
+    } else {
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        `❓ Please reply with a number between 1 and ${maxOption}.`);
+    }
   }
 
   private async handleWalletRechargeAmount(phoneNumber: string, messageText: string): Promise<void> {
-    this.logger.warn(`handleWalletRechargeAmount not implemented`);
-    await this.showMainMenu(phoneNumber);
+    const amount = parseFloat(messageText.trim().replace(/[₹,]/g, ''));
+
+    if (isNaN(amount) || amount < 10 || amount > 50000) {
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        '⚠️ Please enter a valid amount between ₹10 and ₹50,000.');
+      return;
+    }
+
+    const authToken = await this.sessionService.getData(phoneNumber, 'auth_token');
+    if (!authToken) { await this.showMainMenu(phoneNumber); return; }
+
+    const result = await this.walletService.initiateRecharge(authToken, amount);
+    if (result.success) {
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        result.formattedMessage || `Recharge of ₹${amount} initiated. Complete payment to proceed.`);
+    } else {
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP, phoneNumber,
+        `❌ ${result.message || 'Failed to initiate recharge'}. Please try again.`);
+      await this.showMainMenu(phoneNumber);
+    }
   }
 
   private async handleCheckout(phoneNumber: string, messageText: string): Promise<void> {

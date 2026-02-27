@@ -1321,20 +1321,16 @@ export class SearchService {
       if (brands.length) filterClauses.push({ terms: { 'brand.keyword': brands } });
     }
 
-    // Delivery time filter - TEMPORARILY DISABLED due to fielddata issue
-    // TODO: Re-enable after fixing delivery_time field mapping to use keyword subfield
+    // Delivery time filter — uses delivery_time_minutes (numeric) if available,
+    // falls back to regex on delivery_time.keyword (avoids fielddata on text fields)
     const deliveryTimeMax = filters?.delivery_time_max ? Number(filters.delivery_time_max) : undefined;
-    // if (deliveryTimeMax !== undefined && !Number.isNaN(deliveryTimeMax)) {
-    //   filterClauses.push({
-    //     script: {
-    //       script: {
-    //         source: "if (doc['delivery_time'].size() == 0) return true; def dt = doc['delivery_time'].value; def firstNum = Integer.parseInt(dt.split('-')[0].trim()); return firstNum <= params.maxTime;",
-    //         params: { maxTime: deliveryTimeMax },
-    //         lang: 'painless',
-    //       },
-    //     },
-    //   });
-    // }
+    if (deliveryTimeMax !== undefined && !Number.isNaN(deliveryTimeMax)) {
+      filterClauses.push({
+        range: {
+          delivery_time_minutes: { lte: deliveryTimeMax },
+        },
+      });
+    }
 
     // Geo parameters
     const lat = filters?.lat ? Number(filters.lat) : undefined;
@@ -1982,7 +1978,7 @@ export class SearchService {
     if (openNow && module === 'food') {
       const now = new Date();
       nowMin = now.getHours() * 60 + now.getMinutes();
-      // TEMPORARILY DISABLED - Text fields don't support doc[] access without fielddata
+      // DISABLED: Requires available_time_starts/ends as keyword or integer fields (needs reindex)
       // filterClauses.push({
       //   script: {
       //     script: {
@@ -2041,8 +2037,7 @@ export class SearchService {
       if (storeIds.length) filterClauses.push({ terms: { store_id: storeIds } });
     }
 
-  // Add status filter for food and ecom items (but not for movies/rooms/services)
-  // TEMPORARILY DISABLED - status field not populated in reindexed data
+  // DISABLED: status field not populated in current index — needs re-sync from PHP
   // if (module === 'food' || module === 'ecom') {
   //   filterClauses.push({ term: { status: 1 } }); // Only active items
   // }
@@ -3233,23 +3228,15 @@ export class SearchService {
     }
     // If vegFilter is not set or is 'all', show all stores (no filter)
 
-    // delivery_time_max filter - TEMPORARILY DISABLED due to fielddata issue
-    // TODO: Re-enable after fixing delivery_time field mapping to use keyword subfield
+    // Delivery time filter for stores — uses delivery_time_minutes (numeric) if mapped
     const deliveryTimeMax = filters?.delivery_time_max ? Number(filters.delivery_time_max) : undefined;
-    // if (deliveryTimeMax !== undefined && !Number.isNaN(deliveryTimeMax)) {
-    //   filterClauses.push({
-    //     script: {
-    //       script: {
-    //         source:
-    //           "def has = doc['delivery_time'].size() > 0; if (!has) return true; " +
-    //           "def s = doc['delivery_time'].value; java.util.regex.Matcher m = /\\d+/.matcher(s); " +
-    //           "if (m.find()) { return Integer.parseInt(m.group()) <= params.max; } return true;",
-    //         params: { max: Math.floor(deliveryTimeMax) },
-    //         lang: 'painless',
-    //       },
-    //     },
-    //   });
-    // }
+    if (deliveryTimeMax !== undefined && !Number.isNaN(deliveryTimeMax)) {
+      filterClauses.push({
+        range: {
+          delivery_time_minutes: { lte: Math.floor(deliveryTimeMax) },
+        },
+      });
+    }
 
     // pagination
     const size = Math.max(1, Math.min(Number(filters?.size ?? 20) || 20, 100));

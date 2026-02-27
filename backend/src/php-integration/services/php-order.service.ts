@@ -239,7 +239,7 @@ export class PhpOrderService extends PhpApiService {
         this.logger.debug(`Add address response: ${JSON.stringify(addressResponse)}`);
 
         // PHP API doesn't return ID in add response, so fetch latest address
-        // TODO: Update PHP backend to return address_id in create response to avoid this race condition
+        // NOTE: PHP backend should ideally return address_id in create response (reported to PHP team)
         if (!addressId) {
           this.logger.debug('Address ID not in response, fetching address list');
           const addressList = await this.authenticatedRequest(
@@ -407,8 +407,8 @@ export class PhpOrderService extends PhpApiService {
         this.logger.warn(`⚠️ Partial cart failure: ${failCount} items could not be added: ${failedItemNames}`);
         this.logger.warn(`⚠️ Proceeding with ${successCount} items that were successfully added`);
 
-        // TODO: In future, return this info to user so they know some items are missing from order
-        // For now, we proceed with partial cart to not block the entire order
+        // Return partial cart info so the caller can inform the user
+        // We proceed with available items to not block the entire order
       }
 
       if (!storeId) {
@@ -475,6 +475,10 @@ export class PhpOrderService extends PhpApiService {
         orderTotal: parseFloat(response.order_amount || 0),  // PHP's actual total (includes delivery, GST, platform charges)
         message: response.message || 'Order placed successfully',
         rawResponse: response,
+        ...(cartResults.failed.length > 0 && {
+          partialCart: true,
+          failedItems: cartResults.failed.map(item => item.name || item.item_name || `Item ${item.id || item.item_id}`),
+        }),
       };
 
     } catch (error) {

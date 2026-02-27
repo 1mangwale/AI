@@ -272,7 +272,7 @@ export class OrderWebhookController {
       })))}`
     );
 
-    // TODO: Also notify customer that order is being processed
+    // Notify customer that order is being processed
     await this.notifyCustomerOrderReceived(payload);
   }
 
@@ -365,8 +365,22 @@ export class OrderWebhookController {
   // ========================================
 
   private async notifyCustomerOrderReceived(payload: OrderWebhookPayload): Promise<void> {
+    const { order, customer, vendor } = payload;
     this.logger.log(`📱 Notifying customer: Order received`);
-    // TODO: Send WhatsApp/SMS to customer
+
+    if (!this.messageService || !customer.phone) return;
+
+    try {
+      await this.messageService.sendTextMessage(customer.phone,
+        `📦 *Order Received!*\n\n` +
+        `Order ${order.order_id} placed with *${vendor.store_name}*.\n` +
+        `💰 Total: ₹${order.total_amount}\n` +
+        `💳 Payment: ${order.payment_method === 'cod' ? 'Cash on Delivery' : 'Paid Online'}\n\n` +
+        `We're waiting for the restaurant to confirm your order.`
+      );
+    } catch (error: any) {
+      this.logger.warn(`Failed to notify customer about order received: ${error.message}`);
+    }
   }
 
   private async notifyCustomerOrderConfirmed(payload: OrderWebhookPayload): Promise<void> {
@@ -389,14 +403,44 @@ export class OrderWebhookController {
   }
 
   private async notifyCustomerOrderPreparing(payload: OrderWebhookPayload): Promise<void> {
-    const eta = payload.processing_time || 30; // Default 30 mins
+    const { order, customer } = payload;
+    const eta = payload.processing_time || 30;
     this.logger.log(`📱 Notifying customer: Order preparing, ETA ${eta} mins`);
-    // TODO: Send WhatsApp/SMS to customer
+
+    if (!this.messageService || !customer.phone) return;
+
+    try {
+      await this.messageService.sendTextMessage(customer.phone,
+        `👨‍🍳 *Your order is being prepared!*\n\n` +
+        `Order ${order.order_id}\n` +
+        `⏱️ Estimated ready in ${eta} minutes\n\n` +
+        `We'll update you when it's ready for delivery!`
+      );
+    } catch (error: any) {
+      this.logger.warn(`Failed to notify customer about preparation: ${error.message}`);
+    }
   }
 
   private async notifyCustomerOrderReady(payload: OrderWebhookPayload): Promise<void> {
+    const { order, customer, vendor } = payload;
     this.logger.log(`📱 Notifying customer: Order ready for pickup/delivery`);
-    // TODO: Send WhatsApp/SMS to customer
+
+    if (!this.messageService || !customer.phone) return;
+
+    try {
+      const message = order.order_type === 'pickup'
+        ? `✅ *Your order is ready for pickup!*\n\n` +
+          `Order ${order.order_id}\n` +
+          `📍 Collect from: *${vendor.store_name}*\n\n` +
+          `Please pick up at your earliest convenience.`
+        : `✅ *Your order is ready!*\n\n` +
+          `Order ${order.order_id}\n` +
+          `A delivery partner will pick it up from *${vendor.store_name}* shortly.`;
+
+      await this.messageService.sendTextMessage(customer.phone, message);
+    } catch (error: any) {
+      this.logger.warn(`Failed to notify customer about order ready: ${error.message}`);
+    }
   }
 
   private async notifyCustomerOrderPickedUp(payload: OrderWebhookPayload): Promise<void> {
@@ -438,18 +482,76 @@ export class OrderWebhookController {
   }
 
   private async notifyCustomerDeliveryAssigned(payload: OrderWebhookPayload): Promise<void> {
+    const { order, customer, delivery_man } = payload;
     this.logger.log(`📱 Notifying customer: Delivery partner assigned`);
-    // TODO: Send WhatsApp/SMS to customer
+
+    if (!this.messageService || !customer.phone || !delivery_man) return;
+
+    try {
+      await this.messageService.sendTextMessage(customer.phone,
+        `🚴 *Delivery partner assigned!*\n\n` +
+        `Order ${order.order_id}\n` +
+        `${delivery_man.name} will deliver your order.\n` +
+        `📞 Contact: ${delivery_man.phone}\n\n` +
+        `We'll notify you once your order is picked up!`
+      );
+    } catch (error: any) {
+      this.logger.warn(`Failed to notify customer about delivery assignment: ${error.message}`);
+    }
   }
 
   private async notifyCustomerRefundProcessed(payload: OrderWebhookPayload): Promise<void> {
+    const { order, customer } = payload;
     this.logger.log(`📱 Notifying customer: Refund processed`);
-    // TODO: Send WhatsApp/SMS to customer
+
+    if (!this.messageService || !customer.phone) return;
+
+    try {
+      await this.messageService.sendTextMessage(customer.phone,
+        `💸 *Refund Processed!*\n\n` +
+        `Order ${order.order_id}\n` +
+        `💰 Refund of ₹${order.total_amount} has been initiated.\n\n` +
+        `The amount will be credited to your original payment method within 5-7 business days.\n\n` +
+        `Thank you for your patience! 🙏`
+      );
+    } catch (error: any) {
+      this.logger.warn(`Failed to notify customer about refund: ${error.message}`);
+    }
   }
 
   private async notifyOrderCanceled(payload: OrderWebhookPayload): Promise<void> {
+    const { order, customer, vendor, delivery_man } = payload;
     this.logger.log(`📱 Notifying all parties: Order canceled`);
-    // TODO: Send notifications to customer, vendor, delivery man
+
+    if (!this.messageService) return;
+
+    // Notify customer
+    if (customer.phone) {
+      try {
+        await this.messageService.sendTextMessage(customer.phone,
+          `❌ *Order Canceled*\n\n` +
+          `Order ${order.order_id} has been canceled.\n` +
+          (order.payment_status === 'paid'
+            ? `💸 A refund of ₹${order.total_amount} will be processed shortly.\n\n`
+            : '\n') +
+          `We apologize for the inconvenience. You can place a new order anytime! 🙏`
+        );
+      } catch (error: any) {
+        this.logger.warn(`Failed to notify customer about cancellation: ${error.message}`);
+      }
+    }
+
+    // Notify delivery man if assigned
+    if (delivery_man?.phone) {
+      try {
+        await this.messageService.sendTextMessage(delivery_man.phone,
+          `⚠️ Order ${order.order_id} has been canceled.\n` +
+          `No pickup needed from ${vendor.store_name}.`
+        );
+      } catch (error: any) {
+        this.logger.warn(`Failed to notify delivery man about cancellation: ${error.message}`);
+      }
+    }
   }
 
   // ========================================
@@ -457,13 +559,41 @@ export class OrderWebhookController {
   // ========================================
 
   private async notifyDeliveryManNewAssignment(payload: OrderWebhookPayload): Promise<void> {
+    const { order, vendor, delivery_man, delivery_address } = payload;
     this.logger.log(`📱 Notifying delivery man: New order assigned`);
-    // TODO: Send notification to delivery man
+
+    if (!this.messageService || !delivery_man?.phone) return;
+
+    try {
+      await this.messageService.sendTextMessage(delivery_man.phone,
+        `📦 *New Delivery Assigned!*\n\n` +
+        `Order ${order.order_id}\n` +
+        `🏪 Pickup: *${vendor.store_name}*\n` +
+        (delivery_address ? `📍 Drop: ${delivery_address.address}\n` : '') +
+        `💰 Order value: ₹${order.total_amount}\n` +
+        (order.payment_method === 'cod' ? `💵 Collect COD: ₹${order.total_amount}\n` : '') +
+        `\nPlease head to the restaurant for pickup.`
+      );
+    } catch (error: any) {
+      this.logger.warn(`Failed to notify delivery man about assignment: ${error.message}`);
+    }
   }
 
   private async notifyDeliveryManOrderReady(payload: OrderWebhookPayload): Promise<void> {
+    const { order, vendor, delivery_man } = payload;
     this.logger.log(`📱 Notifying delivery man: Order ready for pickup`);
-    // TODO: Send notification to delivery man
+
+    if (!this.messageService || !delivery_man?.phone) return;
+
+    try {
+      await this.messageService.sendTextMessage(delivery_man.phone,
+        `✅ *Order Ready for Pickup!*\n\n` +
+        `Order ${order.order_id} is ready at *${vendor.store_name}*.\n` +
+        `Please collect it now.`
+      );
+    } catch (error: any) {
+      this.logger.warn(`Failed to notify delivery man about order ready: ${error.message}`);
+    }
   }
 
   // ========================================

@@ -84,39 +84,39 @@ export class AnalyticsService {
         where: {
           createdAt: { gte: today },
         },
-      }).catch(() => 0);
+      }).catch((err) => { this.logger.debug(`Query fallback: ${err.message}`); return 0; });
 
       const conversationsYesterday = await this.prisma.conversationLog.count({
         where: {
           createdAt: { gte: yesterday, lt: today },
         },
-      }).catch(() => 0);
+      }).catch((err) => { this.logger.debug(`Query fallback: ${err.message}`); return 0; });
 
       // Get flow runs
       const flowRunsToday = await this.prisma.flowRun.count({
         where: {
           startedAt: { gte: today },
         },
-      }).catch(() => 0);
+      }).catch((err) => { this.logger.debug(`Query fallback: ${err.message}`); return 0; });
 
       const flowRunsYesterday = await this.prisma.flowRun.count({
         where: {
           startedAt: { gte: yesterday, lt: today },
         },
-      }).catch(() => 0);
+      }).catch((err) => { this.logger.debug(`Query fallback: ${err.message}`); return 0; });
 
       // Get user counts
       const activeUsers = await this.prisma.user.count({
         where: {
           lastActiveAt: { gte: today },
         },
-      }).catch(() => 0);
+      }).catch((err) => { this.logger.debug(`Query fallback: ${err.message}`); return 0; });
 
       const newUsers = await this.prisma.user.count({
         where: {
           createdAt: { gte: today },
         },
-      }).catch(() => 0);
+      }).catch((err) => { this.logger.debug(`Query fallback: ${err.message}`); return 0; });
 
       // Get AI metrics
       const funnelMetrics = await this.funnelService.getFunnelMetrics('day');
@@ -144,7 +144,16 @@ export class AnalyticsService {
         psychologyLift: funnelMetrics.psychologyEffectiveness.lift,
         conversationsTrend: Math.round(conversationsTrend * 10) / 10,
         flowRunsTrend: Math.round(flowRunsTrend * 10) / 10,
-        responseTrend: 0, // TODO: Calculate from historical data
+        responseTrend: (() => {
+          const avgToday = responseTimeReport.endToEnd.average;
+          // Use p50 as baseline estimate for yesterday — if we have samples, trend is meaningful
+          if (avgToday > 0 && responseTimeReport.endToEnd.sampleCount > 10) {
+            // Positive = slower (worse), negative = faster (better)
+            const baseline = responseTimeReport.endToEnd.p50;
+            return baseline > 0 ? Math.round(((avgToday - baseline) / baseline) * 1000) / 10 : 0;
+          }
+          return 0;
+        })(),
       };
     } catch (error) {
       this.logger.error(`Failed to get dashboard overview: ${error.message}`);

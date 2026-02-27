@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Post, Body } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 
 interface AuditLog {
@@ -26,77 +26,14 @@ interface CreateAuditLogDto {
   metadata?: Record<string, any>;
 }
 
-// In-memory storage for demo (would use database in production)
-const auditLogs: AuditLog[] = [
-  {
-    id: '1',
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-    user: 'admin@mangwale.ai',
-    action: 'CREATE',
-    resource: 'Training Job',
-    resource_id: 'train_001',
-    details: 'Started NLU training job for food module',
-    ip: '192.168.1.100',
-    status: 'success',
-  },
-  {
-    id: '2',
-    timestamp: new Date(Date.now() - 7200000).toISOString(),
-    user: 'system',
-    action: 'UPDATE',
-    resource: 'Flow',
-    resource_id: 'food-order-flow',
-    details: 'Auto-saved flow configuration changes',
-    ip: '127.0.0.1',
-    status: 'success',
-  },
-  {
-    id: '3',
-    timestamp: new Date(Date.now() - 10800000).toISOString(),
-    user: 'admin@mangwale.ai',
-    action: 'DELETE',
-    resource: 'Dataset',
-    resource_id: 'old_dataset_123',
-    details: 'Cleaned up old training dataset',
-    ip: '192.168.1.100',
-    status: 'success',
-  },
-  {
-    id: '4',
-    timestamp: new Date(Date.now() - 14400000).toISOString(),
-    user: 'admin@mangwale.ai',
-    action: 'LOGIN',
-    resource: 'Auth',
-    details: 'Admin user logged in successfully',
-    ip: '192.168.1.100',
-    status: 'success',
-  },
-  {
-    id: '5',
-    timestamp: new Date(Date.now() - 18000000).toISOString(),
-    user: 'unknown',
-    action: 'LOGIN',
-    resource: 'Auth',
-    details: 'Failed login attempt with invalid credentials',
-    ip: '203.0.113.42',
-    status: 'failure',
-  },
-  {
-    id: '6',
-    timestamp: new Date(Date.now() - 21600000).toISOString(),
-    user: 'system',
-    action: 'CREATE',
-    resource: 'Model',
-    resource_id: 'nlu_model_v2',
-    details: 'Deployed new NLU model version',
-    ip: '127.0.0.1',
-    status: 'success',
-  },
-];
+// In-memory storage — persists within process lifetime only (max 1000 entries)
+// Seeded empty; all entries are real runtime logs
+const auditLogs: AuditLog[] = [];
 
 @ApiTags('audit-logs')
 @Controller('audit-logs')
 export class AuditLogsController {
+  private readonly logger = new Logger(AuditLogsController.name);
 
   @Get()
   @ApiOperation({ summary: 'Get audit logs with filtering' })
@@ -209,12 +146,14 @@ export class AuditLogsController {
       total_logs: auditLogs.length,
       logs_24h: logs24h.length,
       logs_7d: logs7d.length,
-      success_rate: auditLogs.length > 0 
+      success_rate: auditLogs.length > 0
         ? Math.round(auditLogs.filter(l => l.status === 'success').length / auditLogs.length * 100)
         : 100,
       action_breakdown: actionCounts,
       resource_breakdown: resourceCounts,
       recent_failures: auditLogs.filter(l => l.status === 'failure').slice(0, 5),
+      storage: 'in-memory',
+      note: 'Logs reset on server restart. Limited to last 1000 entries.',
     };
   }
 

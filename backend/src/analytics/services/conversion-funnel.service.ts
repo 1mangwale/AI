@@ -209,7 +209,9 @@ export class ConversionFunnelService {
         stages,
         totalUsers,
         conversionRate: (stageCounts['purchase'] / totalUsers) * 100,
-        averageTimeToConvert: 0, // TODO: Calculate from Redis data
+        averageTimeToConvert: totalConversions > 0
+          ? await this.calculateAverageTimeToConvert()
+          : 0,
         topDropOffStage,
         psychologyEffectiveness: {
           withTriggers: Math.round(withTriggersRate * 10) / 10,
@@ -231,6 +233,50 @@ export class ConversionFunnelService {
           lift: 0,
         },
       };
+    }
+  }
+
+  /**
+   * Calculate average time to convert from Redis funnel data (in minutes)
+   */
+  private async calculateAverageTimeToConvert(): Promise<number> {
+    try {
+      // Scan for funnel session keys that have conversion data
+      const keys: string[] = [];
+      let cursor = '0';
+      do {
+        const [nextCursor, batch] = await this.redis.scan(
+          cursor, 'MATCH', `${this.FUNNEL_KEY}:*`, 'COUNT', 100,
+        );
+        cursor = nextCursor;
+        // Filter to session keys only (not count/converted keys)
+        for (const key of batch) {
+          if (!key.includes(':count:') && !key.includes(':converted:') && !key.includes(':total_')) {
+            keys.push(key);
+          }
+        }
+      } while (cursor !== '0' && keys.length < 200);
+
+      const conversionTimes: number[] = [];
+      for (const key of keys.slice(0, 100)) {
+        try {
+          const data = await this.redis.get(key);
+          if (!data) continue;
+          const parsed = JSON.parse(data);
+          if (parsed.converted && parsed.timeToConvert > 0) {
+            conversionTimes.push(parsed.timeToConvert);
+          }
+        } catch {
+          // skip malformed entries
+        }
+      }
+
+      if (conversionTimes.length === 0) return 0;
+      const avgMs = conversionTimes.reduce((a, b) => a + b, 0) / conversionTimes.length;
+      return Math.round(avgMs / 60000 * 10) / 10; // Convert to minutes, 1 decimal
+    } catch (error) {
+      this.logger.debug(`Failed to calculate avg time to convert: ${error.message}`);
+      return 0;
     }
   }
 
