@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Delete, Req, Res, Logger, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Req, Res, Logger, HttpCode, Optional } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { SkipThrottle } from '@nestjs/throttler';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { McpServerService } from './services/mcp-server.service';
+import { MetricsService } from '../metrics/metrics.service';
 
 /**
  * MCP Controller — HTTP Transport for AI Agent Access
@@ -28,7 +29,10 @@ export class McpController {
   private readonly sseTransports = new Map<string, SSEServerTransport>();
   private readonly streamSessions = new Map<string, { transport: StreamableHTTPServerTransport; server: Server }>();
 
-  constructor(private readonly mcpServer: McpServerService) {}
+  constructor(
+    private readonly mcpServer: McpServerService,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
 
   // ─── Streamable HTTP (Modern) ──────────────────────────────
 
@@ -76,9 +80,11 @@ export class McpController {
       // Now store the transport (session ID is set after handleRequest)
       if (transport.sessionId) {
         this.streamSessions.set(transport.sessionId, { transport, server });
+        this.metrics?.updateMcpSessions('streamable-http', this.streamSessions.size);
         this.logger.log(`MCP stream session created: ${transport.sessionId}`);
         transport.onclose = () => {
           this.streamSessions.delete(transport.sessionId);
+          this.metrics?.updateMcpSessions('streamable-http', this.streamSessions.size);
           this.logger.log(`MCP stream session closed: ${transport.sessionId}`);
         };
       }
@@ -98,6 +104,7 @@ export class McpController {
       await transport.close();
       await server.close();
       this.streamSessions.delete(sessionId);
+      this.metrics?.updateMcpSessions('streamable-http', this.streamSessions.size);
       this.logger.log(`MCP stream session cleaned up: ${sessionId}`);
       res.status(200).json({ status: 'session_closed' });
     } else {
@@ -115,10 +122,12 @@ export class McpController {
     const transport = new SSEServerTransport('/mcp/messages', res as any);
 
     this.sseTransports.set(transport.sessionId, transport);
+    this.metrics?.updateMcpSessions('sse', this.sseTransports.size);
     this.logger.log(`MCP SSE session created: ${transport.sessionId}`);
 
     transport.onclose = () => {
       this.sseTransports.delete(transport.sessionId);
+      this.metrics?.updateMcpSessions('sse', this.sseTransports.size);
       this.logger.log(`MCP SSE session closed: ${transport.sessionId}`);
     };
 
@@ -153,7 +162,7 @@ export class McpController {
       server: 'mangwale-commerce',
       version: '1.1.0',
       protocol: 'MCP (Model Context Protocol)',
-      tools: 17,
+      tools: 18,
       transports: ['sse', 'streamable-http'],
       active_sessions: {
         sse: this.sseTransports.size,

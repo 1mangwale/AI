@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
@@ -6,6 +6,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { McpToolsService } from './mcp-tools.service';
 import { McpCacheService } from './mcp-cache.service';
+import { MetricsService } from '../../metrics/metrics.service';
 
 /**
  * MCP Server Service
@@ -35,15 +36,17 @@ export class McpServerService implements OnModuleInit {
     get_coupons: 600,          // 10 min
     get_payment_methods: 600,  // 10 min
     get_categories: 600,       // 10 min
+    conversational_search: 60, // 1 min
   };
 
   constructor(
     private readonly tools: McpToolsService,
     private readonly cache: McpCacheService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   onModuleInit() {
-    this.logger.log('MCP Server Service initialized — 17 tools registered');
+    this.logger.log('MCP Server Service initialized — 18 tools registered');
   }
 
   /**
@@ -322,6 +325,33 @@ export class McpServerService implements OnModuleInit {
             },
           },
         },
+        {
+          name: 'conversational_search',
+          description:
+            'Context-aware conversational search. Handles follow-up queries like "cheaper ones", "show more", "vegetarian only" by refining previous search results. Use this for multi-turn search conversations.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              query: { type: 'string', description: 'Current user query (e.g., "cheaper ones", "show veg only")' },
+              previous_query: { type: 'string', description: 'Previous search query for context' },
+              previous_results: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    item_id: { type: 'number' },
+                    name: { type: 'string' },
+                    price: { type: 'number' },
+                  },
+                },
+                description: 'Results from previous search (for refinement)',
+              },
+              module: { type: 'string', enum: ['food', 'ecommerce'], description: 'Module (default: food)' },
+              zone_id: { type: 'number', description: 'Zone ID for location-based search' },
+            },
+            required: ['query'],
+          },
+        },
       ],
     }));
 
@@ -341,7 +371,9 @@ export class McpServerService implements OnModuleInit {
           const cached = await this.cache.get(cacheKey);
           if (cached) {
             this.logger.debug(`MCP cache hit: ${name}`);
-            await this.cache.logToolCall(name, args, Date.now() - startTime, true);
+            const elapsed = Date.now() - startTime;
+            await this.cache.logToolCall(name, args, elapsed, true);
+            this.metrics?.recordMcpToolCall(name, elapsed, true);
             return { content: [{ type: 'text' as const, text: JSON.stringify(cached, null, 2) }] };
           }
         }
@@ -398,6 +430,9 @@ export class McpServerService implements OnModuleInit {
           case 'get_categories':
             result = await this.tools.getCategories(args as any);
             break;
+          case 'conversational_search':
+            result = await this.tools.conversationalSearch(args as any);
+            break;
           default:
             return {
               content: [{ type: 'text' as const, text: JSON.stringify({ error: `Unknown tool: ${name}. Use tools/list to see available tools.` }) }],
@@ -411,13 +446,18 @@ export class McpServerService implements OnModuleInit {
           await this.cache.set(cacheKey, result, cacheTtl);
         }
 
-        await this.cache.logToolCall(name, args, Date.now() - startTime, true);
+        const elapsed = Date.now() - startTime;
+        await this.cache.logToolCall(name, args, elapsed, true);
+        this.metrics?.recordMcpToolCall(name, elapsed, false);
 
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
         };
       } catch (err) {
-        await this.cache.logToolCall(name, args, Date.now() - startTime, false);
+        const elapsed = Date.now() - startTime;
+        await this.cache.logToolCall(name, args, elapsed, false);
+        const errorType = err.message?.includes('401') ? 'auth' : err.message?.includes('ECONNREFUSED') ? 'connection' : 'runtime';
+        this.metrics?.recordMcpToolError(name, errorType);
         this.logger.error(`MCP tool ${name} failed: ${err.message}`, err.stack);
 
         // Provide helpful hints based on error type

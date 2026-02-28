@@ -1,6 +1,8 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../redis/redis.module';
 
@@ -52,10 +54,14 @@ export class AlertingService {
   // In-memory alert state
   private activeAlerts: Map<string, Alert> = new Map();
 
+  private readonly webhookUrl: string;
+
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly configService: ConfigService,
+    @Optional() private readonly httpService?: HttpService,
   ) {
+    this.webhookUrl = this.configService.get('ALERT_WEBHOOK_URL', '');
     this.logger.log('✅ AlertingService initialized with shared Redis');
   }
 
@@ -114,6 +120,11 @@ export class AlertingService {
     } else {
       this.logger.warn(`⚠️ WARNING: ${alert.message}`);
     }
+
+    // Send webhook notification for warning/critical
+    this.notifyWebhook(alert).catch(err =>
+      this.logger.debug(`Webhook notification skipped: ${err.message}`),
+    );
 
     return alert;
   }
@@ -274,6 +285,43 @@ export class AlertingService {
       acknowledged: alerts.filter(a => a.acknowledged).length,
       latestAlert: alerts[0],
     };
+  }
+
+  /**
+   * Send alert notification to external webhook (Slack-compatible payload)
+   */
+  private async notifyWebhook(alert: Alert): Promise<void> {
+    if (!this.webhookUrl || !this.httpService) return;
+
+    const emoji = alert.type === 'critical' ? '🚨' : '⚠️';
+    const color = alert.type === 'critical' ? '#FF0000' : '#FFA500';
+
+    const payload = {
+      text: `${emoji} Mangwale Alert: ${alert.message}`,
+      attachments: [
+        {
+          color,
+          title: `${alert.type.toUpperCase()}: ${alert.component}`,
+          text: alert.message,
+          fields: [
+            { title: 'Component', value: alert.component, short: true },
+            { title: 'Metric', value: alert.metric || 'N/A', short: true },
+            { title: 'Value', value: String(alert.value ?? 'N/A'), short: true },
+            { title: 'Threshold', value: String(alert.threshold ?? 'N/A'), short: true },
+          ],
+          ts: Math.floor(alert.timestamp.getTime() / 1000),
+        },
+      ],
+    };
+
+    try {
+      await firstValueFrom(
+        this.httpService.post(this.webhookUrl, payload, { timeout: 5000 }),
+      );
+      this.logger.debug(`Webhook notification sent for alert ${alert.id}`);
+    } catch (err) {
+      this.logger.warn(`Webhook notification failed: ${err.message}`);
+    }
   }
 
   /**

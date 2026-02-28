@@ -6,6 +6,7 @@ import { McpToolsService } from './services/mcp-tools.service';
 import { McpCacheService } from './services/mcp-cache.service';
 import { PhpIntegrationModule } from '../php-integration/php-integration.module';
 import { ZonesModule } from '../zones/zones.module';
+import { SearchModule } from '../search/search.module';
 
 /**
  * MCP Module — Model Context Protocol Server
@@ -15,7 +16,7 @@ import { ZonesModule } from '../zones/zones.module';
  * browse restaurants, manage orders, and handle deliveries.
  *
  * Transports:
- *   - Streamable HTTP (POST /mcp/stream) — modern, stateless, recommended
+ *   - Streamable HTTP (POST /mcp/stream) — modern, stateful, recommended
  *   - SSE (GET /mcp/sse) — legacy, backwards compatible
  *
  * Architecture:
@@ -31,6 +32,7 @@ import { ZonesModule } from '../zones/zones.module';
     HttpModule.register({ timeout: 15000 }),
     PhpIntegrationModule,
     ZonesModule,
+    SearchModule,
   ],
   controllers: [McpController],
   providers: [McpServerService, McpToolsService, McpCacheService],

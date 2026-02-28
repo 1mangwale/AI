@@ -2,15 +2,24 @@ import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
 import { OSRMService } from './services/osrm.service';
+import { RiderAssignmentService } from './services/rider-assignment.service';
+import { DeliveryTrackingService } from './services/delivery-tracking.service';
 import { RoutingConfigController } from './controllers/routing-config.controller';
 import { RoutingController } from './routing.controller';
-import { StoresModule } from '../stores/stores.module'; // Import StoresModule for schedule integration
+import { StoresModule } from '../stores/stores.module';
+import { DatabaseModule } from '../database/database.module';
+import { RedisModule } from '../redis/redis.module';
 
 /**
  * Routing Module
- * 
- * Handles distance calculation, routing, and delivery time estimation
- * using OSRM (Open Source Routing Machine)
+ *
+ * Handles distance calculation, routing, delivery time estimation,
+ * rider assignment, and real-time delivery tracking.
+ *
+ * Services:
+ * - OSRMService: Distance/duration calculation via OSRM routing engine
+ * - RiderAssignmentService: Rider-to-order assignment lifecycle
+ * - DeliveryTrackingService: Real-time rider location tracking & ETA
  */
 @Module({
   imports: [
@@ -19,10 +28,12 @@ import { StoresModule } from '../stores/stores.module'; // Import StoresModule f
       maxRedirects: 5,
     }),
     ConfigModule,
-    StoresModule, // Import for store schedule access
+    DatabaseModule,
+    RedisModule,
+    StoresModule,
   ],
   controllers: [RoutingConfigController, RoutingController],
-  providers: [OSRMService],
-  exports: [OSRMService],
+  providers: [OSRMService, RiderAssignmentService, DeliveryTrackingService],
+  exports: [OSRMService, RiderAssignmentService, DeliveryTrackingService],
 })
 export class RoutingModule {}

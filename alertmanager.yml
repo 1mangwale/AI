@@ -14,4 +14,6 @@ route:
 # Receivers - where to send alerts
 receivers:
   - name: 'default-receiver'
-    # Placeholder - configure with webhook URL in production
+    webhook_configs:
+      - url: 'http://host.docker.internal:3200/api/webhooks/alertmanager'
+        send_resolved: true

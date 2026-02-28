@@ -17,6 +17,7 @@
 export function resolveImageUrl(
   item: Record<string, any>,
   s3BaseUrl: string,
+  debugLogger?: { debug: (msg: string) => void },
 ): string | undefined {
   // Also check nested _source (OpenSearch hits keep data there)
   const src = item._source || {};
@@ -35,7 +36,25 @@ export function resolveImageUrl(
     src.logo ||
     src.cover_photo;
 
-  if (!imageUrl) return undefined;
+  if (!imageUrl) {
+    debugLogger?.debug(`resolveImageUrl: no image found in keys [image_full_url, image_fallback_url, image, images[0], image_url, logo, cover_photo]`);
+    return undefined;
+  }
+
+  const sourceField = imageUrl === item.image_full_url ? 'image_full_url'
+    : imageUrl === item.image_fallback_url ? 'image_fallback_url'
+    : imageUrl === item.image ? 'image'
+    : imageUrl === item.images?.[0] ? 'images[0]'
+    : imageUrl === item.image_url ? 'image_url'
+    : imageUrl === item.logo ? 'logo'
+    : imageUrl === item.cover_photo ? 'cover_photo'
+    : imageUrl === src.image_full_url ? '_source.image_full_url'
+    : imageUrl === src.image ? '_source.image'
+    : imageUrl === src.images?.[0] ? '_source.images[0]'
+    : imageUrl === src.image_url ? '_source.image_url'
+    : imageUrl === src.logo ? '_source.logo'
+    : '_source.cover_photo';
+  debugLogger?.debug(`resolveImageUrl: resolved from "${sourceField}" → "${imageUrl}"`);
 
   // If it's a full URL, check if it's pointing to the broken S3 bucket
   // (mangwale.s3.ap-south-1.amazonaws.com returns 403/404) — redirect to CDN

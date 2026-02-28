@@ -71,6 +71,9 @@ import { SchedulerModule } from './scheduler/scheduler.module'; // ✨ mOS Sched
 import { InstagramModule } from './instagram/instagram.module'; // ✨ Instagram DM Channel
 import { McpModule } from './mcp/mcp.module'; // ✨ MCP Server (AI Agent Commerce Discovery)
 import { PaymentModule } from './payment/payment.module'; // ✨ Payment Webhooks (Razorpay + UPI)
+import { FinanceModule } from './finance/finance.module'; // ✨ Finance (Commissions, Settlements, Payouts)
+import { ReturnsModule } from './returns/returns.module'; // ✨ Returns & Refunds
+import { OndcModule } from './ondc/ondc.module'; // ✨ ONDC Network Integration (Beckn Protocol)
 // import { ClientLogsController } from './logging/controllers/client-logs.controller'; // ✨ Frontend Logging (FILE MISSING)
 
 @Module({
@@ -172,6 +175,9 @@ FlowManagementModule, // ✨ Visual Flow Builder & Execution
     SchedulerModule, // ✨ mOS Scheduler (Cron Jobs & Auto-Actions)
     McpModule, // ✨ MCP Server (AI Agent Commerce Discovery)
     PaymentModule, // ✨ Payment Webhooks (Razorpay + UPI)
+    FinanceModule, // ✨ Finance (Commissions, Settlements, Payouts)
+    ReturnsModule, // ✨ Returns & Refunds
+    OndcModule, // ✨ ONDC Network Integration (Beckn Protocol)
 
     // Channel implementation modules
     WhatsAppModule, // WhatsApp channel

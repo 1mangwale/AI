@@ -111,6 +111,29 @@ export class MetricsService {
   /** LLM token usage */
   public readonly llmTokensUsed: client.Counter<string>;
 
+  // ═══════════════════════════════════════════════════════════════
+  // MCP METRICS
+  // ═══════════════════════════════════════════════════════════════
+
+  /** MCP tool call counter */
+  public readonly mcpToolCalls: client.Counter<string>;
+
+  /** MCP tool execution duration */
+  public readonly mcpToolDuration: client.Histogram<string>;
+
+  /** MCP tool error counter */
+  public readonly mcpToolErrors: client.Counter<string>;
+
+  /** MCP active sessions gauge */
+  public readonly mcpActiveSessions: client.Gauge<string>;
+
+  // ═══════════════════════════════════════════════════════════════
+  // SELF-LEARNING METRICS
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Self-learning actions counter */
+  public readonly selfLearningActions: client.Counter<string>;
+
   constructor() {
     this.register = new client.Registry();
 
@@ -293,6 +316,43 @@ export class MetricsService {
       name: 'mangwale_llm_tokens_used_total',
       help: 'LLM tokens consumed',
       labelNames: ['model', 'type'],
+      registers: [this.register],
+    });
+
+    // MCP metrics
+    this.mcpToolCalls = new client.Counter({
+      name: 'mangwale_mcp_tool_calls_total',
+      help: 'MCP tool call counter',
+      labelNames: ['tool', 'cached'],
+      registers: [this.register],
+    });
+
+    this.mcpToolDuration = new client.Histogram({
+      name: 'mangwale_mcp_tool_duration_seconds',
+      help: 'MCP tool execution duration',
+      labelNames: ['tool'],
+      buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+      registers: [this.register],
+    });
+
+    this.mcpToolErrors = new client.Counter({
+      name: 'mangwale_mcp_tool_errors_total',
+      help: 'MCP tool error counter',
+      labelNames: ['tool', 'error_type'],
+      registers: [this.register],
+    });
+
+    this.mcpActiveSessions = new client.Gauge({
+      name: 'mangwale_mcp_active_sessions',
+      help: 'MCP active sessions by transport',
+      labelNames: ['transport'],
+      registers: [this.register],
+    });
+
+    this.selfLearningActions = new client.Counter({
+      name: 'mangwale_self_learning_actions_total',
+      help: 'Self-learning actions counter',
+      labelNames: ['action'],
       registers: [this.register],
     });
 
@@ -495,5 +555,46 @@ export class MetricsService {
       const end = process.hrtime.bigint();
       return Number(end - start) / 1_000_000; // Return milliseconds
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // MCP CONVENIENCE METHODS
+  // ═══════════════════════════════════════════════════════════════
+
+  recordMcpToolCall(tool: string, durationMs: number, cached: boolean) {
+    this.mcpToolCalls.labels(tool, String(cached)).inc();
+    this.mcpToolDuration.labels(tool).observe(durationMs / 1000);
+  }
+
+  recordMcpToolError(tool: string, errorType: string) {
+    this.mcpToolErrors.labels(tool, errorType).inc();
+  }
+
+  updateMcpSessions(transport: string, count: number) {
+    this.mcpActiveSessions.labels(transport).set(count);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // NLU CLASSIFICATION CONVENIENCE METHOD
+  // ═══════════════════════════════════════════════════════════════
+
+  recordNluClassification(
+    intent: string,
+    confidence: number,
+    provider: string,
+    language: string,
+    durationMs: number,
+  ) {
+    this.intentClassifications.labels(intent, language).inc();
+    this.intentConfidence.labels(intent).observe(confidence);
+    this.nluProcessingDuration.labels(provider).observe(durationMs / 1000);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // SELF-LEARNING CONVENIENCE METHOD
+  // ═══════════════════════════════════════════════════════════════
+
+  recordSelfLearningAction(action: string) {
+    this.selfLearningActions.labels(action).inc();
   }
 }

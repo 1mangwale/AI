@@ -15,6 +15,7 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { randomUUID } from 'crypto';
 import { RetrainingCoordinatorService } from './retraining-coordinator.service';
+import { MetricsService } from '../../metrics/metrics.service';
 
 interface NLUPrediction {
   text: string;
@@ -68,6 +69,7 @@ export class SelfLearningService {
     private readonly configService: ConfigService,
     @Optional() @Inject(forwardRef(() => RetrainingCoordinatorService))
     private readonly retrainingCoordinator?: RetrainingCoordinatorService,
+    @Optional() private readonly metricsService?: MetricsService,
   ) {
     this.HIGH_CONFIDENCE = parseFloat(this.configService.get('TRAINING_CONFIDENCE_HIGH', '0.85'));
     this.MEDIUM_CONFIDENCE = parseFloat(this.configService.get('TRAINING_CONFIDENCE_MEDIUM', '0.70'));
@@ -99,18 +101,21 @@ export class SelfLearningService {
     // High confidence - Auto approve
     if (confidence >= this.HIGH_CONFIDENCE) {
       await this.autoApprove(prediction);
+      this.metricsService?.recordSelfLearningAction('auto_approved');
       return { action: 'auto_approved', message: `Auto-approved with ${(confidence * 100).toFixed(1)}% confidence` };
     }
-    
+
     // Medium confidence - Human review
     if (confidence >= this.MEDIUM_CONFIDENCE) {
       await this.queueForReview(prediction, 'normal');
+      this.metricsService?.recordSelfLearningAction('pending_review');
       return { action: 'pending_review', message: `Queued for human review (${(confidence * 100).toFixed(1)}% confidence)` };
     }
-    
+
     // Low confidence - Priority review + Label Studio
     await this.queueForReview(prediction, 'priority');
     await this.sendToLabelStudio(prediction);
+    this.metricsService?.recordSelfLearningAction('label_studio');
     return { action: 'label_studio', message: `Sent to Label Studio for annotation (${(confidence * 100).toFixed(1)}% confidence)` };
   }
 

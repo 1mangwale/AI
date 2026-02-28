@@ -406,4 +406,164 @@ export class NluTrainingDataService {
       entities: s.entities,
     })).join('\n');
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // FALLBACK ANALYSIS & AUGMENTATION
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Analyze NLU fallback patterns — finds low-confidence and fallback samples,
+   * aggregates by provider and intent, and extracts common bigram patterns.
+   */
+  async getFallbackAnalysis(
+    days: number = 7,
+    limit: number = 50,
+  ): Promise<{
+    totalFallbacks: number;
+    byProvider: Record<string, number>;
+    byIntent: Array<{ intent: string; count: number; avgConfidence: number }>;
+    commonPatterns: Array<{ pattern: string; count: number }>;
+    recentSamples: any[];
+  }> {
+    const sinceDate = new Date(Date.now() - days * 86400000);
+
+    // Get fallback/low-confidence samples
+    const samples = await this.prisma.nluTrainingData.findMany({
+      where: {
+        createdAt: { gte: sinceDate },
+        OR: [
+          { confidence: { lt: 0.65 } },
+          { source: 'llm-fallback' },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    // Aggregate by provider
+    const byProvider: Record<string, number> = {};
+    for (const s of samples) {
+      byProvider[s.source] = (byProvider[s.source] || 0) + 1;
+    }
+
+    // Aggregate by intent with avg confidence
+    const intentMap = new Map<string, { count: number; totalConf: number }>();
+    for (const s of samples) {
+      const entry = intentMap.get(s.intent) || { count: 0, totalConf: 0 };
+      entry.count++;
+      entry.totalConf += s.confidence;
+      intentMap.set(s.intent, entry);
+    }
+    const byIntent = Array.from(intentMap.entries())
+      .map(([intent, { count, totalConf }]) => ({
+        intent,
+        count,
+        avgConfidence: totalConf / count,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20);
+
+    // Extract common bigram patterns from texts
+    const bigramCount = new Map<string, number>();
+    for (const s of samples) {
+      const words = s.text.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      for (let i = 0; i < words.length - 1; i++) {
+        const bigram = `${words[i]} ${words[i + 1]}`;
+        bigramCount.set(bigram, (bigramCount.get(bigram) || 0) + 1);
+      }
+    }
+    const commonPatterns = Array.from(bigramCount.entries())
+      .filter(([, count]) => count >= 2)
+      .map(([pattern, count]) => ({ pattern, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20);
+
+    return {
+      totalFallbacks: samples.length,
+      byProvider,
+      byIntent,
+      commonPatterns,
+      recentSamples: samples.slice(0, limit).map(s => ({
+        id: s.id,
+        text: s.text,
+        intent: s.intent,
+        confidence: s.confidence,
+        source: s.source,
+        createdAt: s.createdAt,
+      })),
+    };
+  }
+
+  /**
+   * Generate synthetic augmentation data for weak intents using vLLM.
+   * Calls the local vLLM server to produce paraphrased training samples.
+   */
+  async generateAugmentationData(
+    intent: string,
+    count: number = 10,
+    language: string = 'en',
+  ): Promise<{ samples: Array<{ text: string; intent: string }>; generated: number }> {
+    const vllmUrl = this.config.get('VLLM_URL', 'http://localhost:8002');
+
+    // Get existing samples for this intent as context
+    const existing = await this.prisma.nluTrainingData.findMany({
+      where: { intent, reviewStatus: 'approved' },
+      take: 10,
+      select: { text: true },
+    });
+
+    const exampleTexts = existing.map(e => e.text).join('\n- ');
+    const langHint = language === 'hi' ? 'Hindi (Devanagari script)' :
+                     language === 'hinglish' ? 'Hinglish (Hindi written in English)' :
+                     'English';
+
+    const prompt = `Generate ${count} unique, natural user messages in ${langHint} for the intent "${intent}" in a food delivery / e-commerce chatbot.
+
+Existing examples:
+- ${exampleTexts || 'No examples available'}
+
+Rules:
+- Each message should be 3-15 words
+- Vary vocabulary, phrasing, and formality
+- Include common misspellings and informal language
+- Return ONLY a JSON array of strings, nothing else
+
+Output:`;
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${vllmUrl}/v1/completions`,
+          {
+            model: 'Qwen/Qwen2.5-7B-Instruct-AWQ',
+            prompt,
+            max_tokens: 1024,
+            temperature: 0.8,
+            top_p: 0.9,
+          },
+          { timeout: 30000 },
+        ),
+      );
+
+      const text = response.data?.choices?.[0]?.text || '[]';
+      // Extract JSON array from response (LLM might wrap it in markdown)
+      const jsonMatch = text.match(/\[[\s\S]*?\]/);
+      if (!jsonMatch) {
+        this.logger.warn('vLLM augmentation: could not parse JSON array from response');
+        return { samples: [], generated: 0 };
+      }
+
+      const generated: string[] = JSON.parse(jsonMatch[0]);
+      const samples = generated
+        .filter(t => typeof t === 'string' && t.length > 2)
+        .slice(0, count)
+        .map(t => ({ text: t.trim(), intent }));
+
+      this.logger.log(`Generated ${samples.length} augmentation samples for intent "${intent}"`);
+      return { samples, generated: samples.length };
+    } catch (err) {
+      this.logger.error(`Augmentation generation failed: ${err.message}`);
+      return { samples: [], generated: 0 };
+    }
+  }
 }

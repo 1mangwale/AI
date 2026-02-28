@@ -1,7 +1,8 @@
-import { Controller, Post, Body, Get, Logger, HttpCode, HttpStatus, Optional } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Logger, HttpCode, HttpStatus, Optional } from '@nestjs/common';
 import { NluService } from '../services/nlu.service';
 import { EntityExtractorService } from '../services/entity-extractor.service';
 import { NerEntityExtractorService } from '../services/ner-entity-extractor.service';
+import { NluTrainingDataService } from '../services/nlu-training-data.service';
 import { ClassifyTextDto } from '../dto/classify-text.dto';
 import { ClassificationResultDto } from '../dto/classification-result.dto';
 import { SemanticFoodDetectorService } from '../services/semantic-food-detector.service';
@@ -17,6 +18,7 @@ export class NluController {
     private readonly foodDetector: SemanticFoodDetectorService,
     private readonly indicBertService: IndicBERTService,
     @Optional() private readonly nerExtractor?: NerEntityExtractorService,
+    @Optional() private readonly trainingDataService?: NluTrainingDataService,
   ) {}
 
   @Post('classify')
@@ -94,6 +96,44 @@ export class NluController {
     }
     
     return this.nerExtractor.getStatus();
+  }
+
+  /**
+   * Get NLU fallback analysis — low-confidence and fallback samples
+   */
+  @Get('fallback-analysis')
+  async getFallbackAnalysis(
+    @Query('days') days?: string,
+    @Query('limit') limit?: string,
+  ): Promise<any> {
+    if (!this.trainingDataService) {
+      return { error: 'Training data service not available' };
+    }
+    return this.trainingDataService.getFallbackAnalysis(
+      days ? parseInt(days, 10) : 7,
+      limit ? parseInt(limit, 10) : 50,
+    );
+  }
+
+  /**
+   * Generate augmentation data for weak intents using vLLM
+   */
+  @Post('generate-augmentation')
+  @HttpCode(HttpStatus.OK)
+  async generateAugmentation(
+    @Body() dto: { intent: string; count?: number; language?: string },
+  ): Promise<any> {
+    if (!this.trainingDataService) {
+      return { error: 'Training data service not available' };
+    }
+    if (!dto.intent) {
+      return { error: 'intent is required' };
+    }
+    return this.trainingDataService.generateAugmentationData(
+      dto.intent,
+      dto.count || 10,
+      dto.language || 'en',
+    );
   }
 
   @Get('health')

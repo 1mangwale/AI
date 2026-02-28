@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -9,6 +9,7 @@ import { PhpWalletService } from '../../php-integration/services/php-wallet.serv
 import { PhpCouponService } from '../../php-integration/services/php-coupon.service';
 import { PhpPaymentService } from '../../php-integration/services/php-payment.service';
 import { ZoneService } from '../../zones/services/zone.service';
+import { SearchAIIntegrationService } from '../../search/services/search-ai-integration.service';
 
 /**
  * MCP Tools Service
@@ -36,6 +37,7 @@ export class McpToolsService {
     private readonly couponService: PhpCouponService,
     private readonly paymentService: PhpPaymentService,
     private readonly zoneService: ZoneService,
+    @Optional() private readonly searchAI?: SearchAIIntegrationService,
   ) {
     this.phpBaseUrl = this.config.get('PHP_API_BASE_URL') || 'https://new.mangwale.com';
     this.searchApiUrl = this.config.get('SEARCH_API_URL') || 'http://localhost:3100';
@@ -598,6 +600,54 @@ export class McpToolsService {
     } catch (err) {
       this.logger.error(`getPaymentMethods failed: ${err.message}`);
       return { methods: [], error: 'Failed to fetch payment methods' };
+    }
+  }
+
+  // ─── Conversational Search (Tool #18) ─────────────────────
+
+  async conversationalSearch(params: {
+    query: string;
+    previous_query?: string;
+    previous_results?: Array<{ item_id: number; name: string; price: number }>;
+    module?: 'food' | 'ecommerce';
+    zone_id?: number;
+  }): Promise<any> {
+    if (!this.searchAI) {
+      return { error: 'Conversational search not available — Search AI integration not configured' };
+    }
+
+    const moduleMap = { food: 4, ecommerce: 5 };
+    const moduleId = params.module ? moduleMap[params.module] : 4;
+
+    try {
+      const result = await this.searchAI.conversationalSearch(
+        params.query,
+        {
+          previous_query: params.previous_query,
+          previous_results: params.previous_results,
+        },
+        {
+          module_id: moduleId,
+          zone_id: params.zone_id,
+        },
+      );
+
+      if (!result) {
+        // Fallback to regular search
+        return this.searchItems({ query: params.query, module: params.module });
+      }
+
+      return {
+        query: params.query,
+        understanding: result.understanding || {},
+        results: result.results || result.items || [],
+        refinement_applied: !!params.previous_query,
+        total: result.total || (result.results || result.items || []).length,
+      };
+    } catch (err) {
+      this.logger.error(`conversationalSearch failed: ${err.message}`);
+      // Graceful fallback to regular search
+      return this.searchItems({ query: params.query, module: params.module });
     }
   }
 

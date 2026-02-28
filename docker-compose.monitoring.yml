@@ -70,6 +70,23 @@ services:
       timeout: 10s
       retries: 3
 
+  # Loki - Log aggregation
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: mangwale-loki
+    ports:
+      - "3102:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # Node Exporter - System metrics (optional but recommended)
   node-exporter:
     image: prom/node-exporter:latest
@@ -92,6 +109,8 @@ volumes:
   grafana-data:
     driver: local
   alertmanager-data:
+    driver: local
+  loki-data:
     driver: local
 
 networks:

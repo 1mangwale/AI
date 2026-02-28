@@ -143,3 +143,67 @@ groups:
         annotations:
           summary: "High abandonment rate in {{ $labels.flow_name }}"
           description: "{{ $value | humanizePercentage }} of flows abandoned - UX issue?"
+
+  # ═══════════════════════════════════════════════════════════════
+  # NLU ALERTS
+  # ═══════════════════════════════════════════════════════════════
+  - name: nlu_alerts
+    interval: 30s
+    rules:
+      # High NLU Fallback Rate (>15% going to heuristic/LLM for 10 min)
+      - alert: HighNLUFallbackRate
+        expr: |
+          (
+            sum(rate(mangwale_intent_classifications_total{intent="unknown"}[10m]))
+            /
+            sum(rate(mangwale_intent_classifications_total[10m]))
+          ) > 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High NLU fallback rate"
+          description: "{{ $value | humanizePercentage }} of classifications are 'unknown' (threshold: >15%)"
+
+      # Low NLU Confidence (median <0.6)
+      - alert: LowNLUConfidence
+        expr: |
+          histogram_quantile(0.5, rate(mangwale_intent_confidence_bucket[10m])) < 0.6
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low median NLU confidence"
+          description: "Median confidence is {{ $value }} (threshold: <0.6)"
+
+  # ═══════════════════════════════════════════════════════════════
+  # MCP ALERTS
+  # ═══════════════════════════════════════════════════════════════
+  - name: mcp_alerts
+    interval: 30s
+    rules:
+      # High MCP Tool Error Rate (>10%)
+      - alert: HighMCPToolErrorRate
+        expr: |
+          (
+            sum(rate(mangwale_mcp_tool_errors_total[5m]))
+            /
+            sum(rate(mangwale_mcp_tool_calls_total[5m]))
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High MCP tool error rate"
+          description: "{{ $value | humanizePercentage }} of MCP tool calls are failing (threshold: >10%)"
+
+      # Slow MCP Tool Execution (p95 >5s)
+      - alert: SlowMCPToolExecution
+        expr: |
+          histogram_quantile(0.95, rate(mangwale_mcp_tool_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow MCP tool execution"
+          description: "p95 MCP tool duration is {{ $value }}s (threshold: >5s)"

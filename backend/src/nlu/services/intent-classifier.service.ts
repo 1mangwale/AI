@@ -4,6 +4,7 @@ import { IndicBERTService } from './indicbert.service';
 import { LlmIntentExtractorService } from './llm-intent-extractor.service';
 import { NluTrainingDataService } from './nlu-training-data.service';
 import { SelfLearningService } from '../../learning/services/self-learning.service';
+import { MetricsService } from '../../metrics/metrics.service';
 
 interface IntentResult {
   intent: string;
@@ -41,6 +42,7 @@ export class IntentClassifierService {
     private readonly llmIntentExtractor: LlmIntentExtractorService,
     @Optional() private readonly trainingDataService?: NluTrainingDataService,
     @Optional() private readonly selfLearningService?: SelfLearningService,
+    @Optional() private readonly metricsService?: MetricsService,
   ) {
     this.nluEnabled = this.config.get('NLU_AI_ENABLED', 'true') === 'true';
     this.llmFallbackEnabled = this.config.get('NLU_LLM_FALLBACK_ENABLED', 'true') === 'true';
@@ -53,9 +55,13 @@ export class IntentClassifierService {
     language: string = 'auto',
     context?: string,
   ): Promise<IntentResult> {
+    const stopTimer = this.metricsService?.startTimer();
+
     if (!this.nluEnabled) {
       this.logger.debug('NLU AI disabled, using heuristics');
-      return this.heuristicClassify(text);
+      const result = this.heuristicClassify(text);
+      if (stopTimer) this.metricsService.recordNluClassification(result.intent, result.confidence, 'heuristic', language, stopTimer());
+      return result;
     }
 
     // ========================================
@@ -66,6 +72,7 @@ export class IntentClassifierService {
     const priorityResult = this.priorityHeuristicCheck(text);
     if (priorityResult) {
       this.logger.log(`✓ Priority heuristic: ${priorityResult.intent} (${(priorityResult.confidence * 100).toFixed(0)}%)`);
+      if (stopTimer) this.metricsService.recordNluClassification(priorityResult.intent, priorityResult.confidence, 'heuristic-priority', language, stopTimer());
       return { ...priorityResult, language, provider: 'heuristic-priority' };
     }
 
@@ -99,6 +106,7 @@ export class IntentClassifierService {
           }).catch(err => this.logger.debug(`Training capture skipped: ${err.message}`));
         }
         
+        if (stopTimer) this.metricsService.recordNluClassification(corrected.intent, corrected.confidence, 'indicbert', language, stopTimer());
         return {
           intent: corrected.intent,
           confidence: corrected.confidence,
@@ -125,7 +133,8 @@ export class IntentClassifierService {
             // Apply food override safety net for LLM results
             const safeResult = this.applyFoodOrderOverride(text, llmResult.intent, llmResult.confidence);
             this.logger.log(`✓ LLM: ${safeResult.intent} (${(safeResult.confidence * 100).toFixed(1)}%)${safeResult.overridden ? ' [FOOD OVERRIDE]' : ''}`);
-            
+            if (stopTimer) this.metricsService.recordNluClassification(safeResult.intent, safeResult.confidence, 'llm', language, stopTimer());
+
             // Use SelfLearningService for proper routing (auto-approve/review/label-studio)
             if (!llmResult.needsClarification && this.selfLearningService) {
               this.selfLearningService.processPrediction({
@@ -154,6 +163,7 @@ export class IntentClassifierService {
       this.logger.debug('AI classification failed, using heuristics as last resort');
       const heuristicResult = this.heuristicClassify(text);
       this.logger.log(`✓ Heuristic fallback: ${heuristicResult.intent} (${(heuristicResult.confidence * 100).toFixed(1)}%)`);
+      if (stopTimer) this.metricsService.recordNluClassification(heuristicResult.intent, heuristicResult.confidence, 'heuristic', language, stopTimer());
       return heuristicResult;
       
     } catch (error) {
@@ -168,6 +178,7 @@ export class IntentClassifierService {
           ]);
           if (llmResult.intent && llmResult.confidence >= this.confidenceThreshold) {
             this.logger.log(`✓ LLM (after IndicBERT failure): ${llmResult.intent}`);
+            if (stopTimer) this.metricsService.recordNluClassification(llmResult.intent, llmResult.confidence, 'llm', language, stopTimer());
             return {
               intent: llmResult.intent,
               confidence: llmResult.confidence,
@@ -180,7 +191,9 @@ export class IntentClassifierService {
         }
       }
       
-      return this.heuristicClassify(text);
+      const fallbackResult = this.heuristicClassify(text);
+      if (stopTimer) this.metricsService.recordNluClassification(fallbackResult.intent, fallbackResult.confidence, 'heuristic', language, stopTimer());
+      return fallbackResult;
     }
   }
 

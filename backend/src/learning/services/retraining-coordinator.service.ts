@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { MetricsService } from '../../metrics/metrics.service';
 
 /**
  * Retraining Request
@@ -43,14 +44,18 @@ export class RetrainingCoordinatorService {
   private lastRetrainingRequest: number = 0;
   private isRetrainingInProgress: boolean = false;
 
+  private readonly webhookUrl: string;
+
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {
     this.trainingServerUrl = this.configService.get(
       'TRAINING_SERVER_URL',
       'http://localhost:8082',
     );
+    this.webhookUrl = this.configService.get('ALERT_WEBHOOK_URL', '');
     this.logger.log(`🎓 Retraining Coordinator initialized`);
     this.logger.log(`   Training Server: ${this.trainingServerUrl}`);
   }
@@ -160,6 +165,7 @@ export class RetrainingCoordinatorService {
       const estimatedTime = trainingResponse.data?.estimated_time;
 
       this.logger.log(`✅ Retraining job started: ${jobId}`);
+      this.notifyRetrainingStarted(request, jobId).catch(() => {});
 
       // Reset flag after a delay (training is async)
       setTimeout(() => {
@@ -175,6 +181,7 @@ export class RetrainingCoordinatorService {
     } catch (error) {
       this.isRetrainingInProgress = false;
       this.logger.error(`❌ Failed to trigger retraining: ${error.message}`);
+      this.notifyRetrainingFailed(request, error.message).catch(() => {});
       return {
         accepted: false,
         reason: `Failed to trigger retraining: ${error.message}`,
@@ -197,5 +204,54 @@ export class RetrainingCoordinatorService {
     const timeSinceLastRequest = now - this.lastRetrainingRequest;
     const remaining = this.cooldownMs - timeSinceLastRequest;
     return remaining > 0 ? remaining : 0;
+  }
+
+  /**
+   * Notify webhook that retraining has started
+   */
+  private async notifyRetrainingStarted(request: RetrainingRequest, jobId: string): Promise<void> {
+    if (!this.webhookUrl) return;
+    try {
+      await firstValueFrom(
+        this.httpService.post(this.webhookUrl, {
+          text: `🎓 NLU Retraining Started`,
+          attachments: [{
+            color: '#36A64F',
+            title: `Training Job: ${jobId}`,
+            fields: [
+              { title: 'Source', value: request.source, short: true },
+              { title: 'Priority', value: request.priority || 'normal', short: true },
+              { title: 'Reason', value: request.reason, short: false },
+            ],
+          }],
+        }, { timeout: 5000 }),
+      );
+    } catch (err) {
+      this.logger.debug(`Retraining start webhook failed: ${err.message}`);
+    }
+  }
+
+  /**
+   * Notify webhook that retraining has failed
+   */
+  private async notifyRetrainingFailed(request: RetrainingRequest, errorMsg: string): Promise<void> {
+    if (!this.webhookUrl) return;
+    try {
+      await firstValueFrom(
+        this.httpService.post(this.webhookUrl, {
+          text: `❌ NLU Retraining Failed`,
+          attachments: [{
+            color: '#FF0000',
+            title: `Source: ${request.source}`,
+            text: errorMsg,
+            fields: [
+              { title: 'Reason', value: request.reason, short: false },
+            ],
+          }],
+        }, { timeout: 5000 }),
+      );
+    } catch (err) {
+      this.logger.debug(`Retraining failure webhook failed: ${err.message}`);
+    }
   }
 }
