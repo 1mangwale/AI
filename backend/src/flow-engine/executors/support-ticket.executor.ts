@@ -61,10 +61,18 @@ export class SupportTicketExecutor implements ActionExecutor {
     const orderId = config.orderId || ctx.order_id;
     const conversationSummary = config.conversationSummary || ctx.conversation_summary;
 
-    // Determine priority based on issue type
+    // Determine priority based on issue type + sentiment
     let priority: 'low' | 'normal' | 'high' | 'urgent' = 'normal';
     if (issueType === 'payment' || issueType === 'payment_issue') priority = 'high';
     if (issueType === 'delivery' || issueType === 'delivery_issue') priority = 'high';
+
+    // Sentiment-based priority boost: frustrated/angry customers get urgent priority
+    const sentiment = ctx._sentiment;
+    const urgency = ctx._urgency || 0;
+    if (sentiment === 'negative' && urgency > 0.7) {
+      priority = 'urgent';
+      this.logger.log(`Priority escalated to URGENT — negative sentiment (urgency=${urgency})`);
+    }
 
     const ticket = await this.ticketService.createTicket({
       phone,
@@ -80,7 +88,10 @@ export class SupportTicketExecutor implements ActionExecutor {
     const supportPhone = this.ticketService.getSupportTeamPhone();
     if (supportPhone) {
       try {
-        const notificationMsg = this.ticketService.buildNotificationMessage(ticket);
+        let notificationMsg = this.ticketService.buildNotificationMessage(ticket);
+        if (priority === 'urgent' && sentiment === 'negative') {
+          notificationMsg = `[URGENT - Frustrated Customer]\n${notificationMsg}`;
+        }
         await this.whatsappService.sendText(supportPhone, notificationMsg);
         this.logger.log(`Support team notified at ${supportPhone} for ticket ${ticket.id}`);
       } catch (err) {

@@ -13,6 +13,7 @@ import { WeatherCampaignTriggerService } from '../broadcast/services/weather-cam
 import { EventTriggerService } from '../broadcast/services/event-trigger.service';
 import { AutoActionService } from './services/auto-action.service';
 import { ProactiveMessagingService } from '../broadcast/services/proactive-messaging.service';
+import { CartRecoveryService } from '../broadcast/services/cart-recovery.service';
 
 export interface SchedulerJob {
   jobName: string;
@@ -42,7 +43,8 @@ const JOB_DEFINITIONS: JobDefinition[] = [
   { jobName: 'find_reorder_candidates', cronExpression: '0 10 * * *', defaultEnabled: true, description: 'Find reorder nudge candidates (daily 10AM)' },
   { jobName: 'check_weather_triggers', cronExpression: '0 */2 * * *', defaultEnabled: false, description: 'Check weather campaign triggers (every 2h)' },
   { jobName: 'check_event_triggers', cronExpression: '0 8 * * *', defaultEnabled: true, description: 'Check event campaign triggers (daily 8AM)' },
-  { jobName: 'run_cart_recovery', cronExpression: '0 */3 * * *', defaultEnabled: true, description: 'Cart recovery nudges (every 3h)' },
+  { jobName: 'cart_recovery_scan', cronExpression: '*/30 * * * *', defaultEnabled: true, description: 'Detect abandoned carts (every 30 min)' },
+  { jobName: 'cart_recovery_nudge', cronExpression: '*/15 * * * *', defaultEnabled: true, description: 'Send cart recovery nudges (every 15 min)' },
   { jobName: 'run_auto_refund', cronExpression: '0 11 * * *', defaultEnabled: false, description: 'Auto-refund late orders (daily 11AM)' },
   { jobName: 'proactive_lunch_suggestions', cronExpression: '0 30 11 * * *', defaultEnabled: true, description: 'Send lunch meal suggestions via WhatsApp (daily 11:30AM)' },
   { jobName: 'proactive_dinner_suggestions', cronExpression: '0 30 18 * * *', defaultEnabled: true, description: 'Send dinner meal suggestions via WhatsApp (daily 6:30PM)' },
@@ -66,6 +68,7 @@ export class SchedulerService implements OnModuleInit {
     private readonly eventTrigger: EventTriggerService,
     private readonly autoAction: AutoActionService,
     private readonly proactiveMessaging: ProactiveMessagingService,
+    private readonly cartRecovery: CartRecoveryService,
   ) {}
 
   async onModuleInit() {
@@ -197,11 +200,17 @@ export class SchedulerService implements OnModuleInit {
     });
   }
 
-  @Cron('0 */3 * * *', { name: 'run_cart_recovery' })
-  async cronRunCartRecovery() {
-    await this.executeJob('run_cart_recovery', async () => {
-      await this.autoAction.maybeRunAction('cart_recovery', {});
-      return { status: 'triggered' };
+  @Cron('*/30 * * * *', { name: 'cart_recovery_scan' })
+  async cronCartRecoveryScan() {
+    await this.executeJob('cart_recovery_scan', async () => {
+      return this.cartRecovery.detectAbandonedCarts();
+    });
+  }
+
+  @Cron('*/15 * * * *', { name: 'cart_recovery_nudge' })
+  async cronCartRecoveryNudge() {
+    await this.executeJob('cart_recovery_nudge', async () => {
+      return this.cartRecovery.sendPendingNudges();
     });
   }
 
@@ -342,9 +351,11 @@ export class SchedulerService implements OnModuleInit {
         const events = await this.eventTrigger.getEventsToTrigger();
         return { eventsFound: events.length };
       },
-      run_cart_recovery: async () => {
-        await this.autoAction.maybeRunAction('cart_recovery', {});
-        return { status: 'triggered' };
+      cart_recovery_scan: async () => {
+        return this.cartRecovery.detectAbandonedCarts();
+      },
+      cart_recovery_nudge: async () => {
+        return this.cartRecovery.sendPendingNudges();
       },
       run_auto_refund: async () => {
         await this.autoAction.maybeRunAction('auto_refund_late', {});

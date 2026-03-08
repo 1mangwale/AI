@@ -9,6 +9,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { BroadcastService } from '../services/broadcast.service';
+import { CartRecoveryService } from '../services/cart-recovery.service';
 
 // ─── DTOs ────────────────────────────────────────────────────────
 
@@ -38,7 +39,10 @@ class QuickSendDto {
 export class BroadcastController {
   private readonly logger = new Logger(BroadcastController.name);
 
-  constructor(private readonly broadcastService: BroadcastService) {}
+  constructor(
+    private readonly broadcastService: BroadcastService,
+    private readonly cartRecoveryService: CartRecoveryService,
+  ) {}
 
   /**
    * GET /broadcast/campaigns — List all campaigns
@@ -148,5 +152,25 @@ export class BroadcastController {
       count: phones.length,
       sample: phones.slice(0, 5).map((p) => p.replace(/(\d{2})\d{6}(\d{2})/, '$1******$2')),
     };
+  }
+
+  // ─── Cart Recovery ──────────────────────────────────────────
+
+  /**
+   * GET /broadcast/cart-recovery/stats — Recovery metrics
+   */
+  @Get('cart-recovery/stats')
+  async getCartRecoveryStats() {
+    const stats = await this.cartRecoveryService.getRecoveryStats();
+    return { success: true, stats };
+  }
+
+  /**
+   * GET /broadcast/cart-recovery/pending — Pending recoveries
+   */
+  @Get('cart-recovery/pending')
+  async getPendingRecoveries() {
+    const records = await this.cartRecoveryService.getPendingRecoveries();
+    return { success: true, count: records.length, records };
   }
 }

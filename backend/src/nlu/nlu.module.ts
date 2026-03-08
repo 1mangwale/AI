@@ -74,6 +74,7 @@ import { LearningModule } from '../learning/learning.module'; // ✨ Self-learni
     EntityResolutionService, // ✨ Export for flow engine entity resolution
     SemanticFoodDetectorService, // 🍕 Export for intent routing
     SemanticParcelDetectorService, // 📦 Export for intent routing
+    ToneAnalyzerService, // 🎭 Export for sentiment-based routing
   ],
 })
 export class NluModule {}

@@ -8,6 +8,7 @@ import { FestivalCampaignService } from './services/festival-campaign.service';
 import { EventTriggerService } from './services/event-trigger.service';
 import { MealSuggestionService } from './services/meal-suggestion.service';
 import { ProactiveMessagingService } from './services/proactive-messaging.service';
+import { CartRecoveryService } from './services/cart-recovery.service';
 import { BroadcastController } from './controllers/broadcast.controller';
 import { CampaignTriggerController } from './controllers/campaign-trigger.controller';
 import { SessionModule } from '../session/session.module';
@@ -28,6 +29,7 @@ import { SessionModule } from '../session/session.module';
     EventTriggerService,
     MealSuggestionService,
     ProactiveMessagingService,
+    CartRecoveryService,
   ],
   exports: [
     BroadcastService,
@@ -38,6 +40,7 @@ import { SessionModule } from '../session/session.module';
     EventTriggerService,
     MealSuggestionService,
     ProactiveMessagingService,
+    CartRecoveryService,
   ],
 })
 export class BroadcastModule {}

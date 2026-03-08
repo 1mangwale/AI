@@ -11,6 +11,7 @@ import { OrderLearningService } from '../../order/services/order-learning.servic
 import { PricingValidatorService } from '../../common/validators/pricing.validator';
 import { AuthValidatorService } from '../../common/validators/auth.validator';
 import { ConversationEnrichmentService } from '../../personalization/conversation-enrichment.service';
+import { CartRecoveryService } from '../../broadcast/services/cart-recovery.service';
 
 /**
  * Order Executor
@@ -35,6 +36,7 @@ export class OrderExecutor implements ActionExecutor {
     private readonly authValidator: AuthValidatorService,
     @Optional() private readonly orderLearning?: OrderLearningService,
     @Optional() private readonly conversationEnrichment?: ConversationEnrichmentService,
+    @Optional() private readonly cartRecovery?: CartRecoveryService,
   ) {
     this.trackingBaseUrl = this.configService.get('tracking.baseUrl') || process.env.TRACKING_BASE_URL || 'https://track.mangwale.in';
   }
@@ -114,6 +116,12 @@ export class OrderExecutor implements ActionExecutor {
 
         // Phase 2: Record successful order
         await this.recordOrderInteraction(context, orderType, true);
+
+        // Track cart recovery conversion
+        const phone = context.data.phone || context.data._phone || (context as any)._phone;
+        if (phone && result.orderId) {
+          this.cartRecovery?.markRecovered(phone, String(result.orderId)).catch(() => {});
+        }
 
         return {
           success: true,

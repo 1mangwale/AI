@@ -9,6 +9,7 @@ import { MetricsService } from '../../metrics/metrics.service';
 import { PhpAuthService } from '../../php-integration/services/php-auth.service';
 import { OrderSyncService } from '../../personalization/order-sync.service';
 import { ProactiveMessagingService } from '../../broadcast/services/proactive-messaging.service';
+import { ToneAnalyzerService, ToneResult } from '../../nlu/services/tone-analyzer.service';
 
 /**
  * Input message structure for the gateway
@@ -91,6 +92,7 @@ export class MessageGatewayService {
     @Optional() private readonly phpAuthService?: PhpAuthService,
     @Optional() private readonly orderSyncService?: OrderSyncService,
     @Optional() private readonly proactiveMessaging?: ProactiveMessagingService,
+    @Optional() private readonly toneAnalyzer?: ToneAnalyzerService,
   ) {
     this.logger.log('✅ MessageGateway initialized with shared Redis');
   }
@@ -287,12 +289,27 @@ export class MessageGatewayService {
       session = await this.sessionService.getSession(input.identifier);
 
       // Step 3: Update session with channel and metadata
+      // Step 3b: Analyze tone/sentiment for routing decisions
+      let toneResult: ToneResult | null = null;
+      if (this.toneAnalyzer && input.message.length > 2) {
+        try {
+          toneResult = await this.toneAnalyzer.analyzeTone(input.message);
+        } catch {
+          // Non-critical — skip tone analysis on error
+        }
+      }
+
       await this.sessionService.saveSession(input.identifier, {
         ...session,
         data: {
           ...session.data,
           platform: input.channel,
           lastMessageAt: new Date().toISOString(),
+          ...(toneResult && toneResult.sentiment !== 'neutral' ? {
+            _sentiment: toneResult.sentiment,
+            _tone: toneResult.tone,
+            _urgency: toneResult.urgency,
+          } : {}),
         },
       });
 
