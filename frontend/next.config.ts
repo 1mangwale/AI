@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3200';
+// PHP Laravel backend — source of truth for orders, auth, payments, stores, delivery-man
+const phpBackendUrl = process.env.PHP_BACKEND_URL || 'https://new.mangwale.com';
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -58,6 +60,9 @@ const nextConfig: NextConfig = {
     'test.mangwale.ai',
     'chat.mangwale.ai',
     'admin.mangwale.ai',
+    'shop.mangwale.ai',
+    'vendor.mangwale.ai',
+    'rider.mangwale.ai',
     '192.168.0.156',
     '192.168.0.156:3005',
     'localhost',
@@ -92,12 +97,22 @@ const nextConfig: NextConfig = {
             },
           ],
         },
+        // shop.mangwale.ai - Root shows shop home
+        // Route groups like (shop) are transparent in URL — Next.js resolves / to the (shop) layout
+        // vendor.mangwale.ai and rider.mangwale.ai are handled similarly via middleware or redirects
       ],
       // afterFiles runs AFTER Next.js checks for page/API route files
       afterFiles: [
         // NOTE: WebSocket (/socket.io) is handled DIRECTLY by Traefik with higher priority
         // Do NOT proxy WebSocket through Next.js - it doesn't support WebSocket upgrades properly
         // Traefik route: chat-ws (priority 100) routes /socket.io to backend
+
+        // Commerce API — /napi/* → PHP backend (new.mangwale.com)
+        // Routes: /napi/v1/customer/*, /napi/v1/vendor/*, /napi/v1/delivery-man/*, /napi/v1/admin/*
+        {
+          source: '/napi/:path*',
+          destination: `${phpBackendUrl}/api/:path*`,
+        },
 
         // Search API stats (no /admin prefix on Search API)
         {

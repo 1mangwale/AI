@@ -9,6 +9,7 @@ import {
   StoreLocation,
   DeliveryAvailability,
   ZoneFilteredResult,
+  ModuleDeliveryRate,
 } from '../interfaces/zone.interface';
 
 /**
@@ -104,6 +105,7 @@ export class ZoneService {
           digital_payment: zoneData.digital_payment,
           offline_payment: zoneData.offline_payment || false,
         },
+        delivery_rates: this.extractDeliveryRates(zoneData),
       };
 
       this.logger.log(`✅ Zone detected: ${result.zone_name} (ID: ${result.zone_id})`);
@@ -328,6 +330,44 @@ export class ZoneService {
     }
 
     return zone.modules.map((m) => m.module_type);
+  }
+
+  /**
+   * Extract per-module delivery rates from zone-module pivot table.
+   * PHP stores rates in modules[].pivot, keyed by module ID.
+   */
+  private extractDeliveryRates(zone: Zone): Record<number, ModuleDeliveryRate> {
+    const rates: Record<number, ModuleDeliveryRate> = {};
+
+    if (!zone.modules || zone.modules.length === 0) {
+      return rates;
+    }
+
+    for (const m of zone.modules) {
+      // PHP returns rates in pivot sub-object; some interfaces flatten them
+      const pivot = m.pivot || m;
+      const perKm = parseFloat(String(pivot.per_km_shipping_charge ?? 0)) || 0;
+      const min = parseFloat(String(pivot.minimum_shipping_charge ?? 0)) || 0;
+      const max = parseFloat(String(pivot.maximum_shipping_charge ?? 0)) || null;
+      const chargeType = (pivot.delivery_charge_type as 'fixed' | 'distance') || 'distance';
+      const fixedCharge = parseFloat(String(pivot.fixed_shipping_charge ?? 0)) || null;
+
+      rates[m.id] = {
+        moduleId: m.id,
+        moduleName: m.module_name || m.module_type,
+        perKmCharge: perKm,
+        minCharge: min,
+        maxCharge: max,
+        chargeType,
+        fixedCharge,
+      };
+
+      this.logger.debug(
+        `📦 Zone ${zone.id} module ${m.id} (${m.module_name}): ₹${perKm}/km, min ₹${min}, max ₹${max ?? 'none'}, type=${chargeType}`,
+      );
+    }
+
+    return rates;
   }
 
   /**

@@ -364,7 +364,14 @@ export class WebhookController {
       ]);
 
       this.logger.log(`🎤 Transcription complete: "${transcription.text}" (confidence: ${transcription.confidence}, language: ${transcription.language})`);
-      
+
+      // Check ASR confidence — reject low-quality transcriptions
+      const confidenceThreshold = parseFloat(this.configService?.get('ASR_CONFIDENCE_THRESHOLD', '0.5') || '0.5');
+      if (transcription.confidence !== undefined && transcription.confidence < confidenceThreshold) {
+        this.logger.warn(`🎤 Low ASR confidence ${transcription.confidence} < ${confidenceThreshold} — rejecting transcription`);
+        return '';
+      }
+
       return transcription.text || '';
     } catch (error) {
       this.logger.error(`Voice message handling failed: ${error.message}`, error.stack);

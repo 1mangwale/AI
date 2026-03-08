@@ -122,9 +122,12 @@ export class InventoryExecutor implements ActionExecutor {
    * Check if store is open and accepting orders
    */
   private async checkStore(config: any, context: FlowContext): Promise<ActionExecutionResult> {
-    const storeId = this.resolve(context, config.storeIdPath) || 
-                    context.data.store_id || 
-                    context.data.restaurant_id;
+    const storeId = this.resolve(context, config.storeIdPath) ||
+                    context.data.store_id ||
+                    context.data.cart_store_id ||
+                    context.data.restaurant_id ||
+                    context.data.selected_items?.[0]?.storeId ||
+                    context.data.selected_items?.[0]?.store_id;
 
     if (!storeId) {
       return {

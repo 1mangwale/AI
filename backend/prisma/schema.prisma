@@ -2772,3 +2772,34 @@ model Order {
   @@index([createdAt], map: "idx_order_created")
   @@map("orders")
 }
+
+model ProactiveMessage {
+  id             String    @id @default(uuid())
+  phone          String    @db.VarChar(20)
+  userId         Int?      @map("user_id")
+  messageType    String    @map("message_type") @db.VarChar(50)
+  templateName   String    @map("template_name") @db.VarChar(100)
+  templateParams Json?     @map("template_params")
+  sentAt         DateTime  @default(now()) @map("sent_at") @db.Timestamp(6)
+  convertedAt    DateTime? @map("converted_at") @db.Timestamp(6)
+  orderId        Int?      @map("order_id")
+  mealContext    Json?     @map("meal_context")
+  waMessageId    String?   @map("wa_message_id") @db.VarChar(100)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([phone, sentAt])
+  @@index([userId, messageType, sentAt])
+  @@map("proactive_messages")
+}
+
+model ProactiveOptOut {
+  id         String   @id @default(uuid())
+  phone      String   @unique @db.VarChar(20)
+  userId     Int?     @map("user_id")
+  optedOutAt DateTime @default(now()) @map("opted_out_at") @db.Timestamp(6)
+  reason     String?  @db.VarChar(50)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([phone])
+  @@map("proactive_opt_outs")
+}

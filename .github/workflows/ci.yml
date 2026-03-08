@@ -1,0 +1,101 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'backend/package-lock.json'
+      - run: npm ci
+        working-directory: backend
+      - run: npm run lint
+        working-directory: backend
+      - run: npm run test -- --passWithNoTests --forceExit
+        working-directory: backend
+      - run: npm run build
+        working-directory: backend
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: 'frontend/pnpm-lock.yaml'
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm lint
+        working-directory: frontend
+      - run: pnpm build
+        working-directory: frontend
+
+  test-search:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'search/package-lock.json'
+      - run: npm ci
+        working-directory: search
+      - run: npx tsc -p tsconfig.build.json --noEmit
+        working-directory: search
+
+  docker-build:
+    needs: [test-backend, test-frontend, test-search]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -f backend/Dockerfile -t mangwale-backend:${{ github.sha }} backend/
+      - name: Build frontend image
+        run: docker build -f frontend/Dockerfile -t mangwale-frontend:${{ github.sha }} frontend/
+      - name: Build search image
+        run: docker build -f search/Dockerfile.api -t mangwale-search:${{ github.sha }} search/
+
+  deploy:
+    needs: [docker-build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd ~/Devs/MangwaleAI
+            git pull origin main
+
+            # Build and restart services
+            docker compose -f backend/docker-compose.dev.yml build mangwale-ai
+            docker compose -f backend/docker-compose.dev.yml up -d --no-deps mangwale-ai
+
+            # Health checks
+            sleep 10
+            curl -sf http://localhost:3200/health || (echo "Health check failed!" && exit 1)
+            curl -sf http://localhost:3200/mcp/health | grep -q '"tools":19' || (echo "MCP health check failed!" && exit 1)
+
+            echo "Deploy successful!"

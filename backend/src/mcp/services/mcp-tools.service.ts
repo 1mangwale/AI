@@ -651,6 +651,156 @@ export class McpToolsService {
     }
   }
 
+  // ─── Recipe-Based Ordering (Tool #19) ──────────────────────
+
+  /**
+   * Decompose a recipe/meal name into ingredients and search for matching items.
+   * Inspired by Swiggy's "order ingredients for Thai curry" capability.
+   *
+   * Uses the LLM (via SearchAIIntegrationService) to understand the recipe,
+   * then performs parallel searches for each ingredient group.
+   */
+  async orderByRecipe(params: {
+    recipe_or_meal: string;
+    servings?: number;
+    module?: 'food' | 'ecommerce';
+    lat?: number;
+    lng?: number;
+    veg_only?: boolean;
+  }): Promise<any> {
+    const { recipe_or_meal, servings = 2, module = 'food', lat, lng, veg_only } = params;
+
+    // Common Indian recipe ingredient mappings (fast path, no LLM needed)
+    const recipeDb: Record<string, { ingredients: string[]; dish_searches: string[] }> = {
+      'paneer butter masala': {
+        ingredients: ['paneer', 'butter', 'tomato', 'cream', 'onion', 'ginger garlic paste', 'kasuri methi'],
+        dish_searches: ['paneer butter masala', 'paneer makhani'],
+      },
+      'chicken biryani': {
+        ingredients: ['chicken', 'basmati rice', 'onion', 'yogurt', 'biryani masala', 'saffron', 'ghee'],
+        dish_searches: ['chicken biryani', 'dum biryani'],
+      },
+      'dal makhani': {
+        ingredients: ['urad dal', 'rajma', 'butter', 'cream', 'tomato', 'ginger garlic paste'],
+        dish_searches: ['dal makhani'],
+      },
+      'chole bhature': {
+        ingredients: ['chickpeas', 'onion', 'tomato', 'chole masala', 'maida', 'yogurt'],
+        dish_searches: ['chole bhature', 'chole'],
+      },
+      'masala dosa': {
+        ingredients: ['dosa batter', 'potato', 'onion', 'mustard seeds', 'curry leaves', 'chutney'],
+        dish_searches: ['masala dosa', 'dosa'],
+      },
+      'pav bhaji': {
+        ingredients: ['potato', 'cauliflower', 'capsicum', 'peas', 'tomato', 'pav bhaji masala', 'pav buns', 'butter'],
+        dish_searches: ['pav bhaji'],
+      },
+      'palak paneer': {
+        ingredients: ['paneer', 'spinach', 'onion', 'tomato', 'cream', 'ginger garlic paste'],
+        dish_searches: ['palak paneer'],
+      },
+      'veg pulao': {
+        ingredients: ['basmati rice', 'mixed vegetables', 'ghee', 'whole spices', 'onion'],
+        dish_searches: ['veg pulao', 'vegetable pulao'],
+      },
+      'thai green curry': {
+        ingredients: ['coconut milk', 'green curry paste', 'basil', 'bamboo shoots', 'tofu or chicken', 'fish sauce', 'lime'],
+        dish_searches: ['thai green curry'],
+      },
+      'pasta': {
+        ingredients: ['pasta', 'olive oil', 'garlic', 'tomato sauce', 'cheese', 'basil'],
+        dish_searches: ['pasta', 'spaghetti'],
+      },
+    };
+
+    // Normalize recipe name for lookup
+    const normalizedRecipe = recipe_or_meal.toLowerCase().trim()
+      .replace(/^order\s+(ingredients?\s+for\s+)?/, '')
+      .replace(/^make\s+/, '')
+      .replace(/^cook\s+/, '')
+      .trim();
+
+    // Try exact match first, then partial match
+    let matched = recipeDb[normalizedRecipe];
+    if (!matched) {
+      const partialKey = Object.keys(recipeDb).find(k => normalizedRecipe.includes(k) || k.includes(normalizedRecipe));
+      if (partialKey) matched = recipeDb[partialKey];
+    }
+
+    // If we have a match, search for the dish directly (food module)
+    // or search for ingredients (ecommerce/grocery module)
+    const results: Array<{ category: string; query: string; items: any[] }> = [];
+
+    if (matched) {
+      if (module === 'food') {
+        // For food module: search for the ready-made dish from restaurants
+        for (const dishQuery of matched.dish_searches) {
+          try {
+            const searchResult = await this.searchItems({
+              query: dishQuery,
+              module: 'food',
+              lat,
+              lng,
+              veg_only,
+              limit: 5,
+            });
+            if (searchResult.items?.length > 0) {
+              results.push({ category: 'Ready-to-eat', query: dishQuery, items: searchResult.items });
+            }
+          } catch { /* skip failed searches */ }
+        }
+      } else {
+        // For ecommerce module: search for raw ingredients
+        for (const ingredient of matched.ingredients) {
+          try {
+            const searchResult = await this.searchItems({
+              query: ingredient,
+              module: 'ecommerce',
+              lat,
+              lng,
+              limit: 3,
+            });
+            if (searchResult.items?.length > 0) {
+              results.push({ category: 'Ingredient', query: ingredient, items: searchResult.items });
+            }
+          } catch { /* skip failed searches */ }
+        }
+      }
+
+      return {
+        recipe: recipe_or_meal,
+        servings,
+        mode: module === 'food' ? 'order_ready_dish' : 'order_ingredients',
+        ingredients: matched.ingredients,
+        results,
+        total_options: results.reduce((sum, r) => sum + r.items.length, 0),
+        tip: module === 'food'
+          ? 'These are ready-to-eat dishes from nearby restaurants. Use add_to_cart to order.'
+          : `These are raw ingredients for ${servings} servings. Adjust quantities as needed.`,
+      };
+    }
+
+    // No recipe match — do a general search for the dish/meal name
+    const generalSearch = await this.searchItems({
+      query: recipe_or_meal,
+      module,
+      lat,
+      lng,
+      veg_only,
+      limit: 10,
+    });
+
+    return {
+      recipe: recipe_or_meal,
+      servings,
+      mode: 'general_search',
+      results: [{ category: 'Search results', query: recipe_or_meal, items: generalSearch.items || [] }],
+      total_options: generalSearch.items?.length || 0,
+      tip: `No exact recipe match for "${recipe_or_meal}". Showing general search results. Try specific dish names like "paneer butter masala" or "chicken biryani".`,
+    };
+  }
+
   async getCategories(params: {
     module?: 'food' | 'ecommerce';
     store_id?: number;

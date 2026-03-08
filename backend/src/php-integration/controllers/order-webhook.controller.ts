@@ -12,6 +12,7 @@ import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { VendorNotificationService } from '../services/vendor-notification.service';
 import { OrderDatabaseService } from '../services/order-database.service';
+import { RiderApiService } from '../services/rider-api.service';
 
 /**
  * Order Status Types from PHP Backend
@@ -113,11 +114,13 @@ export class OrderWebhookController {
   private riderQuestService: any = null;
   private adAttributionService: any = null;
   private messageService: any = null;
+  private proactiveMessagingService: any = null;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly vendorNotificationService: VendorNotificationService,
     private readonly orderDatabaseService: OrderDatabaseService,
+    private readonly riderApiService: RiderApiService,
     private readonly moduleRef: ModuleRef,
   ) {
     this.webhookSecret = this.configService.get<string>(
@@ -143,6 +146,12 @@ export class OrderWebhookController {
         const { MessageService } = await import('../../whatsapp/services/message.service');
         this.messageService = this.moduleRef.get(MessageService, { strict: false });
         if (this.messageService) this.logger.log('MessageService wired to order webhook');
+      } catch { /* optional dependency */ }
+
+      try {
+        const { ProactiveMessagingService } = await import('../../broadcast/services/proactive-messaging.service');
+        this.proactiveMessagingService = this.moduleRef.get(ProactiveMessagingService, { strict: false });
+        if (this.proactiveMessagingService) this.logger.log('ProactiveMessagingService wired to order webhook');
       } catch { /* optional dependency */ }
     }, 2000);
   }
@@ -274,6 +283,19 @@ export class OrderWebhookController {
 
     // Notify customer that order is being processed
     await this.notifyCustomerOrderReceived(payload);
+
+    // Dispatch to Vega Rider API for rider assignment
+    if (payload.order.order_type === 'delivery') {
+      const dispatchResult = await this.riderApiService.dispatchOrder(payload);
+      if (dispatchResult.success) {
+        this.logger.log(`🚴 Order #${payload.order.id} dispatched to Rider API → ${dispatchResult.shipmentId}`);
+      } else {
+        this.logger.warn(`⚠️ Rider dispatch failed for order #${payload.order.id}: ${dispatchResult.message}`);
+      }
+    }
+
+    // Track proactive message conversion
+    await this.trackProactiveConversion(payload);
   }
 
   /**
@@ -320,8 +342,9 @@ export class OrderWebhookController {
         break;
         
       case 'canceled':
-        // Order canceled - notify all parties
+        // Order canceled - notify all parties and cancel on Rider API
         await this.notifyOrderCanceled(payload);
+        await this.riderApiService.cancelOrder(payload.order.id, 'Order cancelled');
         break;
     }
   }
@@ -653,4 +676,24 @@ export class OrderWebhookController {
       this.logger.warn(`Failed to track order attribution: ${error.message}`);
     }
   }
+
+  /**
+   * Track if this order was influenced by a proactive WhatsApp message.
+   */
+  private async trackProactiveConversion(payload: OrderWebhookPayload): Promise<void> {
+    if (!this.proactiveMessagingService || !payload.customer?.phone) return;
+
+    try {
+      const converted = await this.proactiveMessagingService.trackConversion(
+        payload.customer.phone,
+        payload.order.id,
+      );
+      if (converted) {
+        this.logger.log(`📊 Proactive message conversion tracked for order #${payload.order.id}`);
+      }
+    } catch (error: any) {
+      this.logger.warn(`Failed to track proactive conversion: ${error.message}`);
+    }
+  }
+
 }

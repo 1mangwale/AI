@@ -2194,7 +2194,15 @@ Return ONLY the numeric ID, nothing else.`,
           id: 'still_waiting_msg',
           executor: 'response',
           config: {
-            message: '⏳ Waiting for your payment...\n\nOrder ID: #{{order_result.orderId}}\nAmount: ₹{{pricing.total_charge}}\n\n🔗 Pay here: {{order_result.paymentLink}}\n\nReply "payment done" after paying, or "cancel" to cancel.',
+            message: '⏳ Waiting for your payment...\n\nOrder ID: #{{order_result.orderId}}\nAmount: ₹{{pricing.total_charge}}\n\nClick the button below to pay, or reply "cancel" to cancel.',
+            metadata: {
+              action: 'open_payment_gateway',
+              payment_data: {
+                orderId: '{{order_result.orderId}}',
+                amount: '{{pricing.total_charge}}',
+                paymentLink: '{{order_result.paymentLink}}',
+              },
+            },
           },
           output: '_last_response',
         },

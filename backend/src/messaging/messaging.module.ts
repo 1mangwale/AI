@@ -45,6 +45,7 @@ import { ChannelRendererService } from './services/channel-renderer.service';
     NluModule, // ✨ NEW: For IndicBERTService (ML-based intent classification)
     PhpIntegrationModule, // 🔐 For PhpAuthService (auto-auth on WhatsApp/Telegram)
     PersonalizationModule, // 📦 For OrderSyncService (sync orders on auto-auth)
+    forwardRef(() => require("../broadcast/broadcast.module").BroadcastModule), // For ProactiveMessagingService (opt-out)
     forwardRef(() => FlowEngineModule), // For FlowEngineService
     forwardRef(() => AgentsModule), // For AgentOrchestratorService
     forwardRef(() => SmsModule), // For SmsProvider → SmsService (forwardRef: SmsModule→AgentsModule→MessagingModule)

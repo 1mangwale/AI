@@ -7,6 +7,7 @@ import Script from 'next/script'
 import { getChatWSClient } from '@/lib/websocket/chat-client'
 import type { ChatWebSocketClient, UserContextData, CartUpdateData } from '@/lib/websocket/chat-client'
 import { parseButtonsFromText } from '@/lib/utils/helpers'
+import React from 'react'
 import { ProductCard } from '@/components/chat/ProductCard'
 import { ParcelCard } from '@/components/chat/ParcelCard'
 import { VehicleCard } from '@/components/chat/VehicleCard'
@@ -57,6 +58,33 @@ const LocationPicker = dynamic(
 
 // Development mode flag
 const isDevelopment = process.env.NODE_ENV === 'development'
+
+/** Convert URLs in text to clickable <a> tags, preserving surrounding text */
+function linkifyText(text: string): React.ReactNode {
+  // Match http/https URLs
+  const urlRegex = /(https?:\/\/[^\s<>"')\]]+)/g
+  const parts = text.split(urlRegex)
+  if (parts.length === 1) return text // no URLs found
+
+  return parts.map((part, i) => {
+    if (urlRegex.test(part)) {
+      // Reset lastIndex since we reuse the regex
+      urlRegex.lastIndex = 0
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-600 underline hover:text-blue-800 break-all"
+        >
+          {part}
+        </a>
+      )
+    }
+    return part
+  })
+}
 
 // Format relative time for message timestamps
 function formatRelativeTime(timestamp: number): string {
@@ -1717,11 +1745,12 @@ function ChatContent() {
                   {/* Logo & Avatar combo */}
                   <div className="relative mb-4">
                     <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 bg-gradient-to-br from-orange-100 to-orange-50 rounded-full shadow-lg flex items-center justify-center border-4 border-orange-200 overflow-hidden relative animate-bounce-slow">
-                      <Image 
-                        src="/chotu-avatar.png" 
-                        alt="Chotu - Mangwale AI" 
-                        fill
-                        className="object-cover p-1"
+                      <Image
+                        src="/chotu-avatar.png"
+                        alt="Chotu - Mangwale AI"
+                        width={112}
+                        height={112}
+                        className="object-cover w-full h-full p-1"
                         onError={(e) => {
                           e.currentTarget.style.display = 'none'
                           if (e.currentTarget.parentElement) {
@@ -2033,7 +2062,7 @@ function ChatContent() {
                               ? 'bg-gradient-to-br from-green-500 to-green-600 text-white rounded-br-md'
                               : 'bg-gray-100 text-gray-800 rounded-bl-md'
                           }`}>
-                            <span className="whitespace-pre-wrap">{message.content}</span>
+                            <span className="whitespace-pre-wrap">{linkifyText(message.content)}</span>
                           </div>
                           )}
 

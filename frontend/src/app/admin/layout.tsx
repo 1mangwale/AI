@@ -25,6 +25,7 @@ import {
   User,
   Shield,
   Zap,
+  ShoppingBag,
 } from 'lucide-react';
 import { Breadcrumbs } from '@/components/shared/Breadcrumbs';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
@@ -56,6 +57,25 @@ const navigation: NavItem[] = [
     href: '/admin/dashboard',
     icon: LayoutDashboard,
     // visible to all roles
+  },
+  {
+    name: 'Commerce',
+    icon: ShoppingBag,
+    allowedRoles: MANAGER_PLUS,
+    children: [
+      { name: 'Stores', href: '/admin/commerce/stores' },
+      { name: 'Orders', href: '/admin/commerce/orders' },
+      { name: 'Items', href: '/admin/commerce/items' },
+      { name: 'Users', href: '/admin/commerce/users', allowedRoles: ADMIN_PLUS },
+      { name: 'Payments', href: '/admin/commerce/finance/payments' },
+      { name: 'Settlements', href: '/admin/commerce/finance/settlements' },
+      { name: 'Offline Payments', href: '/admin/commerce/finance/offline-payments' },
+      { name: 'Delivery Zones', href: '/admin/commerce/delivery/zones' },
+      { name: 'Delivery Tracking', href: '/admin/commerce/delivery/tracking' },
+      { name: 'Subscriptions', href: '/admin/commerce/subscriptions', allowedRoles: ADMIN_PLUS },
+      { name: 'Roles & Permissions', href: '/admin/commerce/roles', allowedRoles: ADMIN_PLUS },
+      { name: 'Business Settings', href: '/admin/commerce/settings', allowedRoles: ADMIN_PLUS },
+    ],
   },
   {
     name: 'mOS Command',

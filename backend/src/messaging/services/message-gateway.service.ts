@@ -8,6 +8,7 @@ import { ConversationLoggerService } from '../../database/conversation-logger.se
 import { MetricsService } from '../../metrics/metrics.service';
 import { PhpAuthService } from '../../php-integration/services/php-auth.service';
 import { OrderSyncService } from '../../personalization/order-sync.service';
+import { ProactiveMessagingService } from '../../broadcast/services/proactive-messaging.service';
 
 /**
  * Input message structure for the gateway
@@ -89,6 +90,7 @@ export class MessageGatewayService {
     @Optional() private readonly metricsService?: MetricsService,
     @Optional() private readonly phpAuthService?: PhpAuthService,
     @Optional() private readonly orderSyncService?: OrderSyncService,
+    @Optional() private readonly proactiveMessaging?: ProactiveMessagingService,
   ) {
     this.logger.log('✅ MessageGateway initialized with shared Redis');
   }
@@ -248,6 +250,12 @@ export class MessageGatewayService {
     const startTime = Date.now();
     const messageId = `msg_${uuidv4()}`;
 
+    // Check for STOP/START opt-out commands before any processing
+    const optResult = await this.handleOptOutCommand(input);
+    if (optResult) {
+      return { success: true, messageId, routedTo: 'opt_out_handler' };
+    }
+
     // Record message received
     this.metricsService?.recordMessageReceived(input.channel);
     this.metricsService?.recordAsyncRouting(input.channel);
@@ -353,6 +361,19 @@ export class MessageGatewayService {
    * 6. Return response with content
    */
   private async processMessageSync(input: MessageInput): Promise<MessageResponseWithContent> {
+
+    // Check for STOP/START opt-out commands before any processing
+    const optResult = await this.handleOptOutCommand(input);
+    if (optResult) {
+      return {
+        success: true,
+        messageId: `msg_${uuidv4()}`,
+        routedTo: 'opt_out_handler',
+        response: optResult,
+        buttons: [],
+      };
+    }
+
     const startTime = Date.now();
     const messageId = `msg_${uuidv4()}`;
 
@@ -816,4 +837,33 @@ export class MessageGatewayService {
   }
 
   // Redis cleanup handled by RedisModule
+
+  /**
+   * Handle STOP/START/UNSUBSCRIBE opt-out commands for proactive messaging.
+   * Returns response text if handled, null if not an opt-out command.
+   */
+  private async handleOptOutCommand(input: MessageInput): Promise<string | null> {
+    const msg = input.message?.trim().toUpperCase();
+    if (!msg) return null;
+
+    if (msg === 'STOP' || msg === 'UNSUBSCRIBE') {
+      if (this.proactiveMessaging) {
+        await this.proactiveMessaging.handleOptOut(input.identifier);
+      }
+      // Send confirmation via the channel
+      this.logger.log(`Opt-out recorded for ${input.identifier.substring(0, 10)}...`);
+      return 'You have been unsubscribed from meal suggestions. Send START to re-subscribe anytime.';
+    }
+
+    if (msg === 'START' || msg === 'SUBSCRIBE') {
+      if (this.proactiveMessaging) {
+        await this.proactiveMessaging.handleOptIn(input.identifier);
+      }
+      this.logger.log(`Opt-in recorded for ${input.identifier.substring(0, 10)}...`);
+      return 'Welcome back! You will now receive personalized meal suggestions. Send STOP to unsubscribe.';
+    }
+
+    return null;
+  }
+
 }

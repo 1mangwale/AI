@@ -11,7 +11,7 @@ import { SearchModule } from '../search/search.module';
 /**
  * MCP Module — Model Context Protocol Server
  *
- * Exposes Mangwale commerce capabilities as 17 MCP tools that AI assistants
+ * Exposes Mangwale commerce capabilities as 19 MCP tools that AI assistants
  * (Claude, ChatGPT, Gemini) can discover and use to help users order food,
  * browse restaurants, manage orders, and handle deliveries.
  *

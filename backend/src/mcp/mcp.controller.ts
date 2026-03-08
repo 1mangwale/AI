@@ -160,9 +160,9 @@ export class McpController {
     return {
       status: 'ok',
       server: 'mangwale-commerce',
-      version: '1.1.0',
+      version: '1.2.0',
       protocol: 'MCP (Model Context Protocol)',
-      tools: 18,
+      tools: 19,
       transports: ['sse', 'streamable-http'],
       active_sessions: {
         sse: this.sseTransports.size,

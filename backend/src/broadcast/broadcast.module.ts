@@ -6,6 +6,8 @@ import { ReorderService } from './services/reorder.service';
 import { WeatherCampaignTriggerService } from './services/weather-campaign-trigger.service';
 import { FestivalCampaignService } from './services/festival-campaign.service';
 import { EventTriggerService } from './services/event-trigger.service';
+import { MealSuggestionService } from './services/meal-suggestion.service';
+import { ProactiveMessagingService } from './services/proactive-messaging.service';
 import { BroadcastController } from './controllers/broadcast.controller';
 import { CampaignTriggerController } from './controllers/campaign-trigger.controller';
 import { SessionModule } from '../session/session.module';
@@ -24,6 +26,8 @@ import { SessionModule } from '../session/session.module';
     WeatherCampaignTriggerService,
     FestivalCampaignService,
     EventTriggerService,
+    MealSuggestionService,
+    ProactiveMessagingService,
   ],
   exports: [
     BroadcastService,
@@ -32,6 +36,8 @@ import { SessionModule } from '../session/session.module';
     WeatherCampaignTriggerService,
     FestivalCampaignService,
     EventTriggerService,
+    MealSuggestionService,
+    ProactiveMessagingService,
   ],
 })
 export class BroadcastModule {}

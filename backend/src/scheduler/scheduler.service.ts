@@ -12,6 +12,7 @@ import { ReorderService } from '../broadcast/services/reorder.service';
 import { WeatherCampaignTriggerService } from '../broadcast/services/weather-campaign-trigger.service';
 import { EventTriggerService } from '../broadcast/services/event-trigger.service';
 import { AutoActionService } from './services/auto-action.service';
+import { ProactiveMessagingService } from '../broadcast/services/proactive-messaging.service';
 
 export interface SchedulerJob {
   jobName: string;
@@ -43,6 +44,8 @@ const JOB_DEFINITIONS: JobDefinition[] = [
   { jobName: 'check_event_triggers', cronExpression: '0 8 * * *', defaultEnabled: true, description: 'Check event campaign triggers (daily 8AM)' },
   { jobName: 'run_cart_recovery', cronExpression: '0 */3 * * *', defaultEnabled: true, description: 'Cart recovery nudges (every 3h)' },
   { jobName: 'run_auto_refund', cronExpression: '0 11 * * *', defaultEnabled: false, description: 'Auto-refund late orders (daily 11AM)' },
+  { jobName: 'proactive_lunch_suggestions', cronExpression: '0 30 11 * * *', defaultEnabled: true, description: 'Send lunch meal suggestions via WhatsApp (daily 11:30AM)' },
+  { jobName: 'proactive_dinner_suggestions', cronExpression: '0 30 18 * * *', defaultEnabled: true, description: 'Send dinner meal suggestions via WhatsApp (daily 6:30PM)' },
 ];
 
 @Injectable()
@@ -62,6 +65,7 @@ export class SchedulerService implements OnModuleInit {
     private readonly weatherTrigger: WeatherCampaignTriggerService,
     private readonly eventTrigger: EventTriggerService,
     private readonly autoAction: AutoActionService,
+    private readonly proactiveMessaging: ProactiveMessagingService,
   ) {}
 
   async onModuleInit() {
@@ -107,7 +111,7 @@ export class SchedulerService implements OnModuleInit {
       }
 
       client.release();
-      this.logger.log('SchedulerService initialized with 11 job definitions');
+      this.logger.log('SchedulerService initialized with 13 job definitions');
     } catch (error: any) {
       this.logger.error(`Failed to initialize: ${error.message}`);
     }
@@ -206,6 +210,22 @@ export class SchedulerService implements OnModuleInit {
     await this.executeJob('run_auto_refund', async () => {
       await this.autoAction.maybeRunAction('auto_refund_late', {});
       return { status: 'triggered' };
+    });
+  }
+
+  @Cron('30 11 * * *', { name: 'proactive_lunch_suggestions' })
+  async cronProactiveLunch() {
+    await this.executeJob('proactive_lunch_suggestions', async () => {
+      const result = await this.proactiveMessaging.runMealTimeCampaign('lunch');
+      return result;
+    });
+  }
+
+  @Cron('30 18 * * *', { name: 'proactive_dinner_suggestions' })
+  async cronProactiveDinner() {
+    await this.executeJob('proactive_dinner_suggestions', async () => {
+      const result = await this.proactiveMessaging.runMealTimeCampaign('dinner');
+      return result;
     });
   }
 
@@ -329,6 +349,12 @@ export class SchedulerService implements OnModuleInit {
       run_auto_refund: async () => {
         await this.autoAction.maybeRunAction('auto_refund_late', {});
         return { status: 'triggered' };
+      },
+      proactive_lunch_suggestions: async () => {
+        return this.proactiveMessaging.runMealTimeCampaign('lunch');
+      },
+      proactive_dinner_suggestions: async () => {
+        return this.proactiveMessaging.runMealTimeCampaign('dinner');
       },
     };
 

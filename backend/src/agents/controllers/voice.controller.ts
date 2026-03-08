@@ -33,10 +33,10 @@ export class VoiceController {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
-    this.asrUrl = this.configService.get('ASR_SERVICE_URL', 'http://192.168.0.151:7001');
-    this.ttsUrl = this.configService.get('TTS_SERVICE_URL', 'http://192.168.0.151:7002');
-    this.orchestratorUrl = this.configService.get('VOICE_ORCHESTRATOR_URL', 'http://192.168.0.151:7000');
-    this.nerveUrl = this.configService.get('NERVE_SERVICE_URL', 'http://192.168.0.151:7003');
+    this.asrUrl = this.configService.get('ASR_SERVICE_URL', 'http://100.117.131.56:7001');
+    this.ttsUrl = this.configService.get('TTS_SERVICE_URL', 'http://100.117.131.56:7002');
+    this.orchestratorUrl = this.configService.get('VOICE_ORCHESTRATOR_URL', 'http://100.117.131.56:7000');
+    this.nerveUrl = this.configService.get('NERVE_SERVICE_URL', 'http://100.117.131.56:7003');
     this.logger.log(`Voice Controller initialized - ASR: ${this.asrUrl}, TTS: ${this.ttsUrl}`);
   }
 
@@ -129,7 +129,7 @@ export class VoiceController {
   }
 
   /**
-   * Get GPU info from both Jupiter (local) and Mercury (192.168.0.151)
+   * Get GPU info from both Jupiter (local) and Mercury (100.117.131.56)
    */
   private async getGpuInfo(): Promise<any[]> {
     const gpus: any[] = [];
@@ -156,15 +156,15 @@ export class VoiceController {
       this.logger.warn(`Failed to get local GPU info: ${e.message}`);
     }
 
-    // Mercury (192.168.0.151) GPU — NLU, NER, ASR, TTS
+    // Mercury (100.117.131.56) GPU — NLU, NER, ASR, TTS
     try {
       const raw = execSync(
-        'ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no ubuntu@192.168.0.151 "nvidia-smi --query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader,nounits"',
+        'ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no ubuntu@100.117.131.56 "nvidia-smi --query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader,nounits"',
         { timeout: 5000 },
       ).toString().trim();
       const parts = raw.split(',').map((s: string) => s.trim());
       gpus.push({
-        host: 'Mercury (192.168.0.151)',
+        host: 'Mercury (100.117.131.56)',
         name: parts[0],
         memoryTotal: `${parts[1]} MiB`,
         memoryUsed: `${parts[2]} MiB`,

@@ -55,6 +55,26 @@ export interface ZoneModule {
   maximum_cod_order_amount?: number;
   delivery_charge_type?: 'fixed' | 'distance';
   fixed_shipping_charge?: number;
+  pivot?: {
+    per_km_shipping_charge: number | null;
+    minimum_shipping_charge: number | null;
+    maximum_shipping_charge: number | null;
+    delivery_charge_type?: string;
+    fixed_shipping_charge?: number | null;
+  };
+}
+
+/**
+ * Per-module delivery rate extracted from zone-module pivot
+ */
+export interface ModuleDeliveryRate {
+  moduleId: number;
+  moduleName: string;
+  perKmCharge: number;
+  minCharge: number;
+  maxCharge: number | null;
+  chargeType: 'fixed' | 'distance';
+  fixedCharge: number | null;
 }
 
 /**
@@ -71,6 +91,8 @@ export interface ZoneDetectionResult {
     digital_payment: boolean;
     offline_payment: boolean;
   };
+  /** Per-module delivery rates from zone-module pivot table, keyed by module ID */
+  delivery_rates?: Record<number, ModuleDeliveryRate>;
 }
 
 /**

@@ -55,6 +55,7 @@ export interface RouterResponse {
 @Injectable()
 export class ContextRouterService implements OnModuleInit {
   private readonly logger = new Logger(ContextRouterService.name);
+  private ttsService: any = null;
   private readonly MESSAGE_CHANNEL = 'mangwale:messages';
   private readonly ROUTE_DEDUP_TTL = 10; // seconds - prevent duplicate processing of same messageId
   private readonly ROUTE_DEDUP_PREFIX = 'route_lock:';
@@ -725,8 +726,8 @@ export class ContextRouterService implements OnModuleInit {
       };
     }
 
-    // STEP 4a-3: Order again / reorder
-    if (intent.intent === 'order_again' || intent.intent === 'reorder') {
+    // STEP 4a-3: Order again / reorder — start food order flow with quick_reorder intent
+    if (intent.intent === 'order_again' || intent.intent === 'reorder' || intent.intent === 'quick_reorder') {
       // Clear active flow if any
       if (activeFlow) {
         await this.sessionService.updateSession(event.identifier, {
@@ -735,49 +736,14 @@ export class ContextRouterService implements OnModuleInit {
         });
       }
 
-      const authToken = session.data?.auth_token;
-      if (!authToken) {
-        return {
-          message: '🔐 Please login first to see your past orders.\n\nSay "login" to get started.',
-          buttons: [{ label: '🔐 Login', value: 'login', action: 'login' }],
-          routedTo: 'direct',
-          intent,
-        };
-      }
+      // Start food_order flow directly with quick_reorder intent
+      // The flow's check_trigger state routes quick_reorder -> load_reorder_cart
+      // which handles auth check, fetches visit-again items, and populates cart
+      const reorderIntent = { ...intent, intent: 'quick_reorder', confidence: 1.0 };
+      const flowResponse = await this.startNewFlowSync(event, session, reorderIntent);
+      if (flowResponse) return flowResponse;
 
-      // Try to get visit-again items
-      try {
-        const visitAgain = await this.phpOrderService?.getVisitAgain(authToken);
-        if (visitAgain?.success && visitAgain.items?.length > 0) {
-          const items = visitAgain.items.slice(0, 5);
-          // Group by primary store (most common storeId)
-          const storeCounts: Record<number, string> = {};
-          for (const item of items) {
-            storeCounts[item.storeId] = (storeCounts[item.storeId] || item.storeName);
-          }
-          const primaryStoreId = items
-            .map(i => i.storeId)
-            .reduce((a, b) => items.filter(i => i.storeId === a).length >= items.filter(i => i.storeId === b).length ? a : b);
-          const primaryStoreName = storeCounts[primaryStoreId] || 'your last restaurant';
-
-          const itemList = items
-            .map((item, i) => `${i + 1}. **${item.name}** — ₹${item.price}`)
-            .join('\n');
-
-          return {
-            message: `🔄 **Repeat Your Last Order**\n\n🏪 From **${primaryStoreName}**:\n\n${itemList}\n\nTap below to add these to your cart instantly!`,
-            buttons: [
-              { label: '✅ Add All to Cart', value: 'quick reorder confirm', action: 'quick_reorder' },
-              { label: '🔍 Order Something Else', value: 'order food', action: 'order_food' },
-            ],
-            routedTo: 'direct',
-            intent,
-          };
-        }
-      } catch (e) {
-        this.logger.warn(`Failed to fetch visit-again: ${e.message}`);
-      }
-
+      // Fallback if flow fails to start
       return {
         message: '🔄 No recent orders found. Start a new order?',
         buttons: [
@@ -2281,4 +2247,56 @@ export class ContextRouterService implements OnModuleInit {
     await this.redis.unsubscribe(this.MESSAGE_CHANNEL);
     this.logger.log('🔴 ContextRouter unsubscribed from message channel');
   }
+
+  /**
+   * Send TTS voice response back to WhatsApp.
+   * Non-blocking — failures are logged but don't affect text response.
+   */
+  private async sendVoiceResponse(to: string, text: string): Promise<void> {
+    try {
+      const maxLen = parseInt(this.configService.get('TTS_MAX_TEXT_LENGTH', '500'));
+      if (text.length > maxLen) {
+        this.logger.log(`Skipping TTS — text too long (${text.length} > ${maxLen})`);
+        return;
+      }
+
+      // Strip markdown/emoji for cleaner TTS output
+      const cleanText = text
+        .replace(/\*+/g, '') // bold markers
+        .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') // emoji
+        .replace(/#{1,3}\s/g, '') // headers
+        .replace(/\n{2,}/g, '. ') // double newlines to pause
+        .trim();
+
+      if (!cleanText || cleanText.length < 5) return;
+
+      // Call Mercury TTS directly via HTTP (avoids DI complexity)
+      const { default: axios } = await import('axios');
+      const ttsUrl = this.configService.get('TTS_SERVICE_URL', 'http://100.117.131.56:7002');
+
+      this.logger.log(`Generating TTS for WhatsApp voice response (${cleanText.length} chars)`);
+
+      const ttsResponse = await axios.post(`${ttsUrl}/synthesize`, {
+        text: cleanText,
+        language: 'auto',
+        format: 'ogg',
+      }, { responseType: 'arraybuffer', timeout: 15000 });
+
+      if (!ttsResponse.data || ttsResponse.data.length === 0) {
+        this.logger.warn('TTS returned no audio data');
+        return;
+      }
+
+      const audioBuffer = Buffer.from(ttsResponse.data);
+
+      // Upload to WhatsApp and send
+      const mediaId = await this.whatsappService.uploadMedia(audioBuffer, 'audio/ogg', 'voice.ogg');
+      await this.whatsappService.sendAudio(to, { id: mediaId });
+
+      this.logger.log(`Voice response sent to ${to.substring(0, 10)}...`);
+    } catch (error) {
+      this.logger.warn(`Voice response failed: ${error.message}`);
+    }
+  }
+
 }

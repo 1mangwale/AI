@@ -1456,7 +1456,7 @@ export class FlowEngineService {
     }
 
     // Address errors
-    if (lower.includes('address') || lower.includes('location') || lower.includes('zone')) {
+    if (lower.includes('address') || lower.includes('location') || lower.includes('zone') || lower.includes('store id')) {
       return 'I had trouble with the delivery address. Could you please share your location or type your address again?';
     }
 

@@ -19,6 +19,27 @@ export function middleware(request: NextRequest) {
     }
   }
   
+  // shop.mangwale.ai - Root shows shop home
+  if (hostname === 'shop.mangwale.ai' || hostname.startsWith('shop.mangwale.ai:')) {
+    if (request.nextUrl.pathname === '/') {
+      return NextResponse.rewrite(new URL('/shop', request.url))
+    }
+  }
+
+  // vendor.mangwale.ai - Root shows vendor dashboard
+  if (hostname === 'vendor.mangwale.ai' || hostname.startsWith('vendor.mangwale.ai:')) {
+    if (request.nextUrl.pathname === '/') {
+      return NextResponse.rewrite(new URL('/vendor/dashboard', request.url))
+    }
+  }
+
+  // rider.mangwale.ai - Root shows rider dashboard
+  if (hostname === 'rider.mangwale.ai' || hostname.startsWith('rider.mangwale.ai:')) {
+    if (request.nextUrl.pathname === '/') {
+      return NextResponse.rewrite(new URL('/rider/dashboard', request.url))
+    }
+  }
+
   // For mangwale.ai (root domain), show landing page at /landing
   if (hostname === 'mangwale.ai' || hostname.startsWith('mangwale.ai:')) {
     if (request.nextUrl.pathname === '/') {
@@ -39,6 +60,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - socket.io (websocket)
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|socket.io).*)',
+    '/((?!api|napi|_next/static|_next/image|favicon.ico|socket.io).*)',
   ],
 }

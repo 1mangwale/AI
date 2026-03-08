@@ -1,0 +1,210 @@
+{
+  "schema_version": "1.0.0",
+  "server": {
+    "name": "mangwale-commerce",
+    "version": "1.2.0",
+    "description": "Mangwale — India's hyperlocal food delivery, e-commerce & parcel platform. Order food from restaurants, shop products, and send parcels in Nashik and expanding cities.",
+    "vendor": "Mangwale Technologies",
+    "homepage": "https://mangwale.com",
+    "protocol": "MCP (Model Context Protocol)",
+    "sdk_version": "1.26.0"
+  },
+  "transports": {
+    "streamable_http": {
+      "url": "https://api.mangwale.com/mcp/stream",
+      "method": "POST",
+      "description": "Modern stateful transport (recommended). Send initialize request, receive mcp-session-id header for subsequent requests."
+    },
+    "sse": {
+      "url": "https://api.mangwale.com/mcp/sse",
+      "method": "GET",
+      "messages_url": "https://api.mangwale.com/mcp/messages",
+      "description": "Legacy SSE transport for backwards compatibility."
+    },
+    "health": {
+      "url": "https://api.mangwale.com/mcp/health",
+      "method": "GET",
+      "description": "Server health and status endpoint."
+    }
+  },
+  "authentication": {
+    "type": "otp",
+    "description": "Phone-based OTP authentication for transactional tools. Use send_otp → verify_otp to obtain an auth_token.",
+    "flow": [
+      "1. Call send_otp with phone number (+91XXXXXXXXXX)",
+      "2. User receives 6-digit OTP via SMS",
+      "3. Call verify_otp with phone + OTP to get auth_token",
+      "4. Pass auth_token to transactional tools"
+    ]
+  },
+  "capabilities": {
+    "services": ["food_delivery", "ecommerce", "parcel_delivery"],
+    "coverage": "Nashik, Maharashtra, India (expanding)",
+    "payment_methods": ["cash_on_delivery", "digital_payment", "wallet"],
+    "languages": ["en", "hi", "mr"],
+    "currency": "INR"
+  },
+  "tools": {
+    "discovery": {
+      "description": "Browse restaurants, search items, check coverage — no authentication required.",
+      "tools": [
+        {
+          "name": "search_restaurants",
+          "description": "Search for restaurants by query, location, cuisine, or dietary preference.",
+          "auth_required": false,
+          "cached": true,
+          "cache_ttl_seconds": 300
+        },
+        {
+          "name": "get_restaurant_menu",
+          "description": "Get the full menu of a restaurant grouped by category with prices and availability.",
+          "auth_required": false,
+          "cached": true,
+          "cache_ttl_seconds": 180
+        },
+        {
+          "name": "search_items",
+          "description": "Search for food items or products across all stores. Supports food and e-commerce modules.",
+          "auth_required": false,
+          "cached": true,
+          "cache_ttl_seconds": 300
+        },
+        {
+          "name": "check_serviceability",
+          "description": "Check if Mangwale delivers to a specific location by lat/lng.",
+          "auth_required": false,
+          "cached": false
+        },
+        {
+          "name": "get_coupons",
+          "description": "Get available discount coupons. Pass auth_token for personalized offers.",
+          "auth_required": false,
+          "cached": true,
+          "cache_ttl_seconds": 600
+        },
+        {
+          "name": "get_payment_methods",
+          "description": "Get available payment methods (COD, digital, wallet) by service module.",
+          "auth_required": false,
+          "cached": true,
+          "cache_ttl_seconds": 600
+        },
+        {
+          "name": "get_categories",
+          "description": "Get food or product categories. Optionally filter by a specific store.",
+          "auth_required": false,
+          "cached": true,
+          "cache_ttl_seconds": 600
+        },
+        {
+          "name": "conversational_search",
+          "description": "Context-aware multi-turn search. Handles follow-ups like 'cheaper ones', 'show more', 'veg only'.",
+          "auth_required": false,
+          "cached": true,
+          "cache_ttl_seconds": 60
+        },
+        {
+          "name": "order_by_recipe",
+          "description": "Order ingredients or dishes for a recipe/meal. Decomposes recipe name into searchable ingredients and finds matching items.",
+          "auth_required": false,
+          "cached": true,
+          "cache_ttl_seconds": 300
+        }
+      ]
+    },
+    "authentication": {
+      "description": "Phone-based OTP authentication flow.",
+      "tools": [
+        {
+          "name": "send_otp",
+          "description": "Send a one-time password to a phone number for authentication.",
+          "auth_required": false
+        },
+        {
+          "name": "verify_otp",
+          "description": "Verify OTP and get an auth_token for transactional tools.",
+          "auth_required": false
+        }
+      ]
+    },
+    "transactional": {
+      "description": "Cart, ordering, address, and wallet management — requires auth_token from verify_otp.",
+      "tools": [
+        {
+          "name": "add_to_cart",
+          "description": "Add food items to the shopping cart.",
+          "auth_required": true
+        },
+        {
+          "name": "place_order",
+          "description": "Place a food order with delivery address and payment method.",
+          "auth_required": true
+        },
+        {
+          "name": "get_addresses",
+          "description": "Get the user's saved delivery addresses.",
+          "auth_required": true
+        },
+        {
+          "name": "add_address",
+          "description": "Add a new delivery address with lat/lng coordinates.",
+          "auth_required": true
+        },
+        {
+          "name": "get_wallet_balance",
+          "description": "Check the user's Mangwale wallet balance.",
+          "auth_required": true
+        },
+        {
+          "name": "get_order_status",
+          "description": "Get current status and details of a specific order.",
+          "auth_required": true
+        },
+        {
+          "name": "get_order_history",
+          "description": "Get past orders with pagination and module filter.",
+          "auth_required": true
+        },
+        {
+          "name": "cancel_order",
+          "description": "Cancel an eligible order (pending/failed status only).",
+          "auth_required": true
+        }
+      ]
+    }
+  },
+  "example_conversations": [
+    {
+      "scenario": "Order food",
+      "steps": [
+        "User: 'I want to order biryani'",
+        "→ search_items({query: 'biryani'})",
+        "User: 'From the first restaurant'",
+        "→ get_restaurant_menu({store_id: 123})",
+        "User: 'Add chicken biryani and raita'",
+        "→ send_otp({phone: '+919876543210'})",
+        "→ verify_otp({phone: '+919876543210', otp: '123456'})",
+        "→ add_to_cart({auth_token: '...', items: [{id: 456, quantity: 1}, {id: 789, quantity: 1}]})",
+        "→ get_addresses({auth_token: '...'})",
+        "→ place_order({auth_token: '...', address_id: 1, payment_method: 'cash_on_delivery'})"
+      ]
+    },
+    {
+      "scenario": "Recipe-based ordering",
+      "steps": [
+        "User: 'Order ingredients for paneer butter masala'",
+        "→ order_by_recipe({recipe_or_meal: 'paneer butter masala', servings: 2})",
+        "→ Returns ingredient breakdown with matching items from nearby stores"
+      ]
+    },
+    {
+      "scenario": "Multi-turn search",
+      "steps": [
+        "User: 'Show me pizza options'",
+        "→ search_items({query: 'pizza'})",
+        "User: 'Cheaper ones under 300'",
+        "→ conversational_search({query: 'cheaper ones under 300', previous_query: 'pizza', previous_results: [...]})"
+      ]
+    }
+  ]
+}

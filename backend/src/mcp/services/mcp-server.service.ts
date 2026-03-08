@@ -14,7 +14,7 @@ import { MetricsService } from '../../metrics/metrics.service';
  * Wraps the @modelcontextprotocol/sdk Server and registers all Mangwale
  * commerce tools. The controller handles HTTP transport (SSE + POST).
  *
- * Tools exposed (17 total):
+ * Tools exposed (19 total):
  * Discovery (no auth):
  * - search_restaurants, get_restaurant_menu, search_items
  * - check_serviceability, get_coupons, get_payment_methods, get_categories
@@ -37,6 +37,7 @@ export class McpServerService implements OnModuleInit {
     get_payment_methods: 600,  // 10 min
     get_categories: 600,       // 10 min
     conversational_search: 60, // 1 min
+    order_by_recipe: 300,      // 5 min
   };
 
   constructor(
@@ -46,7 +47,7 @@ export class McpServerService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    this.logger.log('MCP Server Service initialized — 18 tools registered');
+    this.logger.log('MCP Server Service initialized — 19 tools registered');
   }
 
   /**
@@ -57,7 +58,7 @@ export class McpServerService implements OnModuleInit {
     const server = new Server(
       {
         name: 'mangwale-commerce',
-        version: '1.0.0',
+        version: '1.2.0',
       },
       {
         capabilities: {
@@ -352,6 +353,23 @@ export class McpServerService implements OnModuleInit {
             required: ['query'],
           },
         },
+        {
+          name: 'order_by_recipe',
+          description:
+            'Order ingredients or dishes for a recipe/meal. Given a recipe name (e.g., "paneer butter masala", "chicken biryani", "Thai green curry"), this tool decomposes it into ingredients and finds matching items from nearby restaurants or stores. For food module, returns ready-to-eat dishes; for ecommerce module, returns raw ingredients.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              recipe_or_meal: { type: 'string', description: 'Recipe or meal name (e.g., "paneer butter masala", "order ingredients for Thai curry", "dinner for 4")' },
+              servings: { type: 'number', description: 'Number of servings (default: 2)' },
+              module: { type: 'string', enum: ['food', 'ecommerce'], description: '"food" for ready-to-eat dishes, "ecommerce" for raw ingredients (default: food)' },
+              lat: { type: 'number', description: 'User latitude for nearby results' },
+              lng: { type: 'number', description: 'User longitude for nearby results' },
+              veg_only: { type: 'boolean', description: 'Vegetarian options only' },
+            },
+            required: ['recipe_or_meal'],
+          },
+        },
       ],
     }));
 
@@ -432,6 +450,9 @@ export class McpServerService implements OnModuleInit {
             break;
           case 'conversational_search':
             result = await this.tools.conversationalSearch(args as any);
+            break;
+          case 'order_by_recipe':
+            result = await this.tools.orderByRecipe(args as any);
             break;
           default:
             return {

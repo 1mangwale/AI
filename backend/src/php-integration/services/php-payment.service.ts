@@ -59,16 +59,25 @@ export class PhpPaymentService extends PhpApiService {
 
   /**
    * Get zone-specific delivery fee configuration from PHP.
-   * PHP's /api/v1/config returns delivery_management settings for the zone.
-   * These are the EXACT values PHP uses when computing the delivery charge
-   * at order placement time, so our preview will match.
+   *
+   * PHP's /api/v1/config does NOT return a `delivery_management` key.
+   * Instead, delivery rates come from the zone-module pivot table, fetched
+   * via /api/v1/config/get-zone-id. The zone executor now extracts these
+   * rates into context.data.delivery_zone.delivery_rates.
+   *
+   * This method is kept as a fallback: it calls /api/v1/config and reads
+   * the top-level `parcel_per_km_shipping_charge` / `admin_free_delivery`
+   * fields (the only delivery-related fields in that endpoint).
    */
   async getDeliveryConfig(zoneId: number, moduleId: number = 4): Promise<{
     success: boolean;
     minCharge?: number;
     perKmCharge?: number;
+    maxCharge?: number | null;
     freeDeliveryOverAmount?: number;
     freeDeliveryDistance?: number;
+    additionalCharge?: number;
+    additionalChargeName?: string;
     message?: string;
   }> {
     try {
@@ -80,19 +89,36 @@ export class PhpPaymentService extends PhpApiService {
       };
 
       const response: any = await this.get('/api/v1/config', {}, headers);
-      const dm = response?.delivery_management;
 
-      if (!dm) {
-        this.logger.warn('delivery_management not found in PHP config response');
-        return { success: false, message: 'delivery_management not in config' };
+      // PHP config returns global parcel rates + admin free delivery at top level
+      const adminFreeDelivery = response?.admin_free_delivery || {};
+      const freeOverAmount = adminFreeDelivery.status
+        ? parseFloat(adminFreeDelivery.free_delivery_over || 0)
+        : 0;
+
+      // For parcel module, use the global parcel rates from config
+      if (moduleId === 3) {
+        return {
+          success: true,
+          perKmCharge: parseFloat(response?.parcel_per_km_shipping_charge ?? 11.5),
+          minCharge: parseFloat(response?.parcel_minimum_shipping_charge ?? 40),
+          maxCharge: null,
+          freeDeliveryOverAmount: freeOverAmount,
+          freeDeliveryDistance: 0,
+          additionalCharge: response?.additional_charge_status === 1 ? parseFloat(response?.additional_charge ?? 0) : 0,
+          additionalChargeName: response?.additional_charge_name || '',
+        };
       }
 
+      // For food/ecom: config endpoint doesn't have per-module rates.
+      // Return success=false so caller uses zone pivot data from delivery_rates instead.
+      this.logger.debug(`Config endpoint has no per-module delivery rates for module ${moduleId} — use zone pivot data`);
       return {
-        success: true,
-        minCharge: parseFloat(dm.min_shipping_charge ?? dm.minimum_shipping_charge ?? 30),
-        perKmCharge: parseFloat(dm.shipping_per_km_charge ?? dm.per_km_shipping_charge ?? 10),
-        freeDeliveryOverAmount: parseFloat(dm.free_delivery_over_amount ?? 0),
-        freeDeliveryDistance: parseFloat(dm.free_delivery_distance ?? 0),
+        success: false,
+        freeDeliveryOverAmount: freeOverAmount,
+        additionalCharge: response?.additional_charge_status === 1 ? parseFloat(response?.additional_charge ?? 0) : 0,
+        additionalChargeName: response?.additional_charge_name || '',
+        message: 'Use zone pivot delivery_rates for food/ecom modules',
       };
     } catch (error) {
       this.logger.warn(`Failed to fetch delivery config: ${error.message}`);

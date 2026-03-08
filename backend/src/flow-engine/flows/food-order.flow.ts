@@ -5,7 +5,7 @@ export const foodOrderFlow: FlowDefinition = {
   name: 'Food Order Flow',
   description: 'Complete food ordering flow with search, selection, address, and payment',
   module: 'food',
-  trigger: 'order_food|browse_menu|browse_category|ask_recommendation|ask_famous|check_availability|ask_fastest_delivery',
+  trigger: 'order_food|browse_menu|browse_category|ask_recommendation|ask_famous|check_availability|ask_fastest_delivery|quick_reorder|order_again|reorder',
   version: '1.0.0',
   
   contextSchema: {
@@ -578,10 +578,101 @@ export const foodOrderFlow: FlowDefinition = {
         },
       ],
       transitions: {
-        success: 'show_current_cart',
-        no_items: 'show_recommendations',
+        success: 'reorder_check_multi_store',
+        no_items: 'reorder_no_history',
+        no_auth: 'check_auth_for_checkout',
         error: 'show_recommendations',
+        default: 'reorder_check_multi_store',
+      },
+    },
+
+    // Multi-store reorder: check if cart items span multiple stores
+    reorder_check_multi_store: {
+      type: 'decision',
+      description: 'Check if reorder items come from multiple stores',
+      conditions: [
+        {
+          expression: '(() => { const ids = new Set((context.cart_items || []).map(i => i.storeId || i.store_id)); return ids.size > 1; })()',
+          event: 'multi_store',
+        },
+      ],
+      transitions: {
+        multi_store: 'reorder_store_select',
         default: 'show_current_cart',
+      },
+    },
+
+    // Show store options for multi-store reorder
+    reorder_store_select: {
+      type: 'wait',
+      description: 'Let user pick which store to reorder from',
+      onEntry: [
+        {
+          id: 'build_store_options',
+          executor: 'response',
+          config: {
+            message: '🔄 Your recent orders span multiple restaurants. Which one would you like to reorder from?',
+            buttonsFromContext: {
+              source: 'cart_items',
+              groupBy: 'storeId',
+              labelField: 'storeName',
+              prefix: '🏪 ',
+              maxButtons: 3,
+            },
+          },
+          output: '_store_select_response',
+        },
+      ],
+      actions: [],
+      transitions: {
+        user_message: 'reorder_filter_to_store',
+        default: 'reorder_filter_to_store',
+      },
+    },
+
+    // Filter cart to selected store
+    reorder_filter_to_store: {
+      type: 'action',
+      description: 'Keep only items from the selected store in cart',
+      actions: [
+        {
+          id: 'filter_store_items',
+          executor: 'response',
+          config: {
+            skipResponse: true,
+            saveToContext: {
+              _reorder_store_filter: '{{_user_message}}',
+            },
+          },
+        },
+      ],
+      transitions: {
+        default: 'show_current_cart',
+      },
+    },
+
+    // No order history found
+    reorder_no_history: {
+      type: 'wait',
+      description: 'No previous orders found, suggest browsing',
+      onEntry: [
+        {
+          id: 'no_history_msg',
+          executor: 'response',
+          config: {
+            message: '🔄 No recent orders found! Let me help you find something delicious.',
+            buttons: [
+              { id: 'btn_browse', label: '🍽️ Browse Menu', value: 'browse_menu' },
+              { id: 'btn_search', label: '🔍 Search Food', value: 'order_food' },
+            ],
+          },
+        },
+      ],
+      transitions: {
+        browse_menu: 'check_show_collections',
+        order_food: 'check_search_query_exists',
+        user_message: 'check_search_query_exists',
+        default: 'check_search_query_exists',
       },
     },
 
@@ -5054,6 +5145,7 @@ Reply "confirm" to book the rider.`,
           config: {
             saveToContext: {
               payment_method: 'wallet',
+              payment_method_label: 'Wallet',
               payment_details: { method: 'WALLET', id: 'wallet' },
             },
           },
@@ -5137,6 +5229,7 @@ Reply "confirm" to book the rider.`,
           config: {
             saveToContext: {
               payment_method: 'partial_payment',
+              payment_method_label: 'Wallet + Online',
               payment_details: {
                 method: 'PARTIAL',
                 id: 'partial_payment',
@@ -5187,6 +5280,7 @@ Reply "confirm" to book the rider.`,
           config: {
             saveToContext: {
               payment_method: 'cash_on_delivery',
+              payment_method_label: 'Cash on Delivery',
               payment_details: { method: 'COD', id: 'cash_on_delivery' },
             },
           },
@@ -5220,6 +5314,7 @@ Reply "confirm" to book the rider.`,
           config: {
             saveToContext: {
               payment_method: 'digital_payment',
+              payment_method_label: 'Pay Online (UPI/Card)',
               payment_details: { method: 'ONLINE', id: 'digital_payment' },
             },
           },
@@ -5359,7 +5454,7 @@ Reply "confirm" to book the rider.`,
           id: 'summary_message',
           executor: 'response',
           config: {
-            message: '🛒 **Looks good! Here\'s your order summary** 😋\n\n{{cart_update_result.cartSummary}}\n\n🚚 Delivery Fee: ₹{{pricing.delivery_fee}} ({{distance}}km){{#if pricing.tax}}\n🧾 Tax: ₹{{pricing.tax}}{{/if}}{{#if surge_amount}}\n⚡ Surge ({{surge_title}}): ₹{{surge_amount}}{{/if}}\n{{#if coupon_discount}}🏷️ Coupon Discount: -₹{{coupon_discount}}\n{{/if}}💳 **Grand Total: ₹{{pricing.total}}{{#if surge_amount}} + ₹{{surge_amount}} surge{{/if}}**\n💸 Payment: {{payment_method}}\n\n📍 Delivering to: {{delivery_address.label}}\n{{delivery_address.address}}\n\n{{#if order_note}}📝 Note: {{order_note}}\n\n{{/if}}{{#if cart_update_result.isMultiStore}}📦 _{{cart_update_result.storeCount}} restaurants will prepare your order_\n\n{{/if}}_Ready to go? Hit confirm and I\'ll get it started!_ 🚀',
+            message: '🛒 **Looks good! Here\'s your order summary** 😋\n\n{{cart_update_result.cartSummary}}\n\n🚚 Delivery Fee: ₹{{pricing.delivery_fee}} ({{distance}}km){{#if pricing.tax}}\n🧾 Tax: ₹{{pricing.tax}}{{/if}}{{#if surge_amount}}\n⚡ Surge ({{surge_title}}): ₹{{surge_amount}}{{/if}}\n{{#if coupon_discount}}🏷️ Coupon Discount: -₹{{coupon_discount}}\n{{/if}}💳 **Grand Total: ₹{{pricing.total}}{{#if surge_amount}} + ₹{{surge_amount}} surge{{/if}}**\n💸 Payment: {{payment_method_label}}\n\n📍 Delivering to: {{delivery_address.label}}\n{{delivery_address.address}}\n\n{{#if order_note}}📝 Note: {{order_note}}\n\n{{/if}}{{#if cart_update_result.isMultiStore}}📦 _{{cart_update_result.storeCount}} restaurants will prepare your order_\n\n{{/if}}_Ready to go? Hit confirm and I\'ll get it started!_ 🚀',
             buttons: [
               { id: 'btn_confirm', label: '✅ Confirm Order', value: 'confirm' },
               { id: 'btn_note', label: '📝 Add Note to Restaurant', value: 'add_note' },
@@ -5438,7 +5533,7 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {
-        confirmed: 'check_order_type_final',
+        confirmed: 'cross_sell_gate',
         cancelled: 'cancelled',
         default: 'check_final_confirmation',
       },
@@ -5461,7 +5556,7 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {
-        matched: 'check_order_type_final',
+        matched: 'cross_sell_gate',
         not_matched: 'check_final_cancel',
         default: 'show_order_summary',
       },
@@ -5486,6 +5581,114 @@ Reply "confirm" to book the rider.`,
         matched: 'cancelled',
         not_matched: 'show_order_summary',
         default: 'show_order_summary',
+      },
+    },
+
+    // Cross-sell gate: only show once per order session
+    cross_sell_gate: {
+      type: 'decision',
+      description: 'Skip cross-sell if already shown this session',
+      conditions: [
+        {
+          expression: 'context._cross_sell_shown === true',
+          event: 'already_shown',
+        },
+      ],
+      transitions: {
+        already_shown: 'check_order_type_final',
+        default: 'fetch_cross_sell',
+      },
+    },
+
+    // Fetch cross-sell recommendations
+    fetch_cross_sell: {
+      type: 'action',
+      description: 'Get frequently-bought-together items for cross-sell',
+      actions: [
+        {
+          id: 'set_cross_sell_flag',
+          executor: 'response',
+          config: {
+            skipResponse: true,
+            saveToContext: { _cross_sell_shown: true },
+          },
+        },
+        {
+          id: 'get_cross_sell_items',
+          executor: 'recommendation',
+          config: { action: 'get_upsells', limit: 2, moduleId: 4 },
+          output: 'cross_sell_results',
+        },
+      ],
+      transitions: {
+        items_found: 'show_cross_sell',
+        no_items: 'check_order_type_final',
+        error: 'check_order_type_final',
+        default: 'check_order_type_final',
+      },
+    },
+
+    // Show cross-sell suggestions
+    show_cross_sell: {
+      type: 'wait',
+      description: 'Show cross-sell items before order placement',
+      onEntry: [
+        {
+          id: 'display_cross_sell',
+          executor: 'response',
+          config: {
+            message: '🤔 **Before we place your order...**\nCustomers who ordered this also loved:',
+            cardsPath: 'cross_sell_results.cards',
+            buttons: [
+              { id: 'btn_skip_cs', label: '⏩ No thanks, place order', value: 'skip_cross_sell' },
+            ],
+          },
+          output: '_cs_response',
+        },
+      ],
+      actions: [],
+      transitions: {
+        skip_cross_sell: 'check_order_type_final',
+        user_message: 'handle_cross_sell_selection',
+        default: 'check_order_type_final',
+      },
+    },
+
+    // Handle cross-sell item selection or skip
+    handle_cross_sell_selection: {
+      type: 'decision',
+      description: 'Check if user wants to add a cross-sell item or skip',
+      conditions: [
+        {
+          expression: '/^(no|nahi|nhi|skip|nah|place|confirm|done|order)$/i.test(String(_user_message || "").trim())',
+          event: 'skip',
+        },
+      ],
+      transitions: {
+        skip: 'check_order_type_final',
+        default: 'add_cross_sell_to_cart',
+      },
+    },
+
+    // Add cross-sell item to cart and re-show summary
+    add_cross_sell_to_cart: {
+      type: 'action',
+      description: 'Add selected cross-sell item to cart',
+      actions: [
+        {
+          id: 'add_cs_item',
+          executor: 'selection',
+          config: {
+            action: 'select_from_message',
+            source: 'cross_sell_results',
+          },
+          output: 'cs_selection',
+        },
+      ],
+      transitions: {
+        success: 'show_current_cart',
+        error: 'check_order_type_final',
+        default: 'check_order_type_final',
       },
     },
 
@@ -5521,7 +5724,7 @@ Reply "confirm" to book the rider.`,
           executor: 'inventory',
           config: {
             action: 'check_store',
-            storeIdPath: 'store_id', // InventoryExecutor also falls back to restaurant_id
+            storeIdPath: 'cart_store_id', // Cart manager saves store ID here (not store_id)
           },
           output: 'pre_order_store_check',
         },
@@ -5994,7 +6197,15 @@ Reply "confirm" to book the rider.`,
           id: 'food_still_waiting_msg',
           executor: 'response',
           config: {
-            message: '⏳ Waiting for your payment...\n\nOrder ID: #{{order_result.orderId}}\nAmount: ₹{{order_result.orderTotal}}\n\n🔗 Pay here: {{order_result.paymentLink}}\n\nReply "payment done" after paying, or "cancel" to cancel.',
+            message: '⏳ Waiting for your payment...\n\nOrder ID: #{{order_result.orderId}}\nAmount: ₹{{order_result.orderTotal}}\n\nClick the button below to pay, or reply "cancel" to cancel.',
+            metadata: {
+              action: 'open_payment_gateway',
+              payment_data: {
+                orderId: '{{order_result.orderId}}',
+                amount: '{{order_result.orderTotal}}',
+                paymentLink: '{{order_result.paymentLink}}',
+              },
+            },
           },
           output: '_last_response',
         },

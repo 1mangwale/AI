@@ -8,12 +8,16 @@ import { SessionService } from '../../session/session.service';
 /**
  * Pricing Executor
  *
- * For food/ecommerce orders: populates the PHP cart, then calls get-Tax so PHP
- * returns the REAL tax (from its own business settings). Delivery fee is also
- * read from PHP's config API. Falls back to local calculation if any step fails.
+ * Delivery fee source of truth: zone-module pivot table (from PHP zone API).
+ * The zone executor extracts per-module rates into context.data.delivery_zone.delivery_rates.
  *
- * For parcel: always local calculation (PHP parcel pricing is category-specific
- * and only computable at placement time).
+ * Module delivery rate structure (from zone pivot):
+ *   - Food (4):    per_km=₹11, min=₹25, max=₹45, type=distance
+ *   - Ecom (5):    per_km=₹11, min=₹25, max=₹45, type=distance
+ *   - Parcel (3):  null in zone → uses global config (₹11.5/km, min ₹40)
+ *
+ * For food/ecommerce: populates PHP cart → calls get-Tax for real tax.
+ * For parcel: uses PHP global config or parcel category rates.
  *
  * The actual order total is always calculated by PHP at placement time.
  * This executor produces the pre-confirmation preview shown to the user.
@@ -44,7 +48,7 @@ export class PricingExecutor implements ActionExecutor {
         output = await this.calculateViaPhpCart(config, context, type);
       }
 
-      // Parcel or fallback: local calculation
+      // Parcel or fallback: local calculation with zone rates
       if (!output) {
         if (type === 'food') {
           output = this.calculateFoodPricing(config, context);
@@ -73,10 +77,61 @@ export class PricingExecutor implements ActionExecutor {
   }
 
   /**
+   * Get delivery charge using zone pivot rates (primary) or local fallback.
+   * PHP stores per-module rates in the zone-module pivot table.
+   * The zone executor extracts these into context.data.delivery_zone.delivery_rates.
+   */
+  private getDeliveryChargeFromZone(
+    moduleId: number,
+    distance: number,
+    itemsTotal: number,
+    context: FlowContext,
+  ): { charge: number; source: string; maxCharge: number | null } {
+    // Primary: zone pivot delivery rates (set by zone executor)
+    const deliveryRates = context.data.delivery_zone?.delivery_rates;
+    const moduleRate = deliveryRates?.[moduleId];
+
+    if (moduleRate && moduleRate.perKmCharge > 0) {
+      let charge: number;
+
+      if (moduleRate.chargeType === 'fixed' && moduleRate.fixedCharge) {
+        charge = moduleRate.fixedCharge;
+      } else {
+        const rawCharge = distance * moduleRate.perKmCharge;
+        charge = Math.max(rawCharge, moduleRate.minCharge || 0);
+      }
+
+      // Apply maximum cap if set
+      if (moduleRate.maxCharge && charge > moduleRate.maxCharge) {
+        this.logger.debug(
+          `Delivery fee capped: ₹${charge.toFixed(2)} → ₹${moduleRate.maxCharge} (max for module ${moduleId})`,
+        );
+        charge = moduleRate.maxCharge;
+      }
+
+      this.logger.debug(
+        `Zone pivot delivery: module ${moduleId}, ${distance}km × ₹${moduleRate.perKmCharge}/km = ₹${charge} (min ₹${moduleRate.minCharge}, max ₹${moduleRate.maxCharge ?? 'none'})`,
+      );
+
+      return { charge, source: 'zone_pivot', maxCharge: moduleRate.maxCharge };
+    }
+
+    // Fallback: local env-var-based estimate
+    this.logger.debug(`No zone pivot rates for module ${moduleId} — using local fallback`);
+    const isEcom = moduleId === 5;
+    return {
+      charge: this.localDeliveryFee(distance, isEcom, itemsTotal),
+      source: 'local_fallback',
+      maxCharge: null,
+    };
+  }
+
+  /**
    * Proper PHP-backed pricing:
-   * 1. Populate PHP cart with the selected items
-   * 2. Call get-Tax (PHP reads cart, returns real tax + delivery from zone config)
-   * 3. Return real numbers to display in order summary
+   * 1. Get delivery charge from zone pivot rates
+   * 2. Populate PHP cart with the selected items
+   * 3. Call get-Tax (PHP reads cart, returns real tax)
+   * 4. Return real numbers to display in order summary
    */
   private async calculateViaPhpCart(
     config: any,
@@ -104,45 +159,9 @@ export class PricingExecutor implements ActionExecutor {
 
       const itemsTotal = items.reduce((s: number, i: any) => s + (i.price * (i.quantity || 1)), 0);
 
-      // Step 1: Get delivery charge from PHP zone config (same formula PHP uses at placement)
-      // Zone ID is set by the zone executor after user's address is confirmed
-      const zoneId = context.data.delivery_zone?.zoneId
-        || context.data.zone_id
-        || session?.data?.zone_id;
-
-      let deliveryCharge: number;
-
-      if (zoneId && this.phpPaymentService) {
-        const deliveryConfig = await this.phpPaymentService.getDeliveryConfig(zoneId, moduleId);
-
-        if (deliveryConfig.success) {
-          // Replicate PHP's DeliveryCharge calculation exactly:
-          // 1. Free delivery if order over threshold
-          // 2. Free delivery if distance under threshold
-          // 3. Otherwise: max(minCharge, distance × perKmCharge)
-          const freeOverAmount = deliveryConfig.freeDeliveryOverAmount ?? 0;
-          const freeUnderDistance = deliveryConfig.freeDeliveryDistance ?? 0;
-
-          if (freeOverAmount > 0 && itemsTotal >= freeOverAmount) {
-            deliveryCharge = 0;
-            this.logger.debug(`Free delivery: order ₹${itemsTotal} ≥ threshold ₹${freeOverAmount}`);
-          } else if (freeUnderDistance > 0 && distance <= freeUnderDistance) {
-            deliveryCharge = 0;
-            this.logger.debug(`Free delivery: distance ${distance}km ≤ threshold ${freeUnderDistance}km`);
-          } else {
-            const rawCharge = distance * (deliveryConfig.perKmCharge ?? 10);
-            deliveryCharge = Math.max(rawCharge, deliveryConfig.minCharge ?? 30);
-          }
-          this.logger.debug(`PHP zone ${zoneId} delivery config: ₹${deliveryCharge} (${distance}km)`);
-        } else {
-          // Config fetch failed — fall back to env vars
-          this.logger.warn(`Delivery config unavailable for zone ${zoneId}, using env fallback`);
-          deliveryCharge = this.localDeliveryFee(distance, isEcom, itemsTotal);
-        }
-      } else {
-        // No zone yet (user hasn't confirmed address) — local estimate
-        deliveryCharge = this.localDeliveryFee(distance, isEcom, itemsTotal);
-      }
+      // Step 1: Get delivery charge from zone pivot rates (set by zone executor)
+      const { charge: deliveryCharge, source: deliverySource } =
+        this.getDeliveryChargeFromZone(moduleId, distance, itemsTotal, context);
 
       // Step 2: Populate PHP cart so get-Tax reads real items
       const cartResult = await this.phpOrderService?.populateCartForPricing(authToken, items, moduleId);
@@ -170,7 +189,7 @@ export class PricingExecutor implements ActionExecutor {
       const freeShipping = isEcom && deliveryCharge === 0;
 
       this.logger.log(
-        `PHP cart pricing (${type}): items=₹${itemsTotal}, delivery=₹${deliveryCharge}, tax=₹${tax}, total=₹${total}`
+        `PHP cart pricing (${type}): items=₹${itemsTotal}, delivery=₹${deliveryCharge} [${deliverySource}], tax=₹${tax}, total=₹${total}`
       );
 
       return {
@@ -183,7 +202,7 @@ export class PricingExecutor implements ActionExecutor {
         subtotal: itemsTotal + deliveryCharge,
         tax,
         total,
-        source: 'php_cart',
+        source: deliverySource === 'zone_pivot' ? 'php_zone' : 'php_cart',
         breakdown: { items: itemsTotal, delivery: deliveryCharge, tax },
       };
     } catch (error) {
@@ -195,13 +214,20 @@ export class PricingExecutor implements ActionExecutor {
   /** Env-var-based delivery fee estimate, used when zone config is unavailable */
   private localDeliveryFee(distance: number, isEcom: boolean, itemsTotal: number): number {
     if (isEcom) {
-      const freeThreshold = this.configService?.get<number>('pricing.ecomFreeShippingThreshold') || 500;
-      const baseFee = this.configService?.get<number>('pricing.ecomShippingFee') || 40;
-      return itemsTotal > freeThreshold ? 0 : baseFee;
+      // Ecom fallback: use distance-based like food (₹11/km, min ₹25, max ₹45)
+      // Old code used flat ₹40 which was wrong
+      const feePerKm = parseFloat(process.env.DEFAULT_ECOM_DELIVERY_FEE_PER_KM) || 11;
+      const minFee = parseFloat(process.env.DEFAULT_ECOM_MIN_DELIVERY_FEE) || 25;
+      const maxFee = parseFloat(process.env.DEFAULT_ECOM_MAX_DELIVERY_FEE) || 45;
+      const raw = Math.max(distance * feePerKm, minFee);
+      return maxFee > 0 ? Math.min(raw, maxFee) : raw;
     }
-    const feePerKm = parseFloat(process.env.DEFAULT_DELIVERY_FEE_PER_KM) || 10;
-    const minFee = parseFloat(process.env.DEFAULT_MIN_DELIVERY_FEE) || 30;
-    return Math.max(distance * feePerKm, minFee);
+    // Food fallback: ₹11/km, min ₹25, max ₹45 (matching PHP zone 4)
+    const feePerKm = parseFloat(process.env.DEFAULT_DELIVERY_FEE_PER_KM) || 11;
+    const minFee = parseFloat(process.env.DEFAULT_MIN_DELIVERY_FEE) || 25;
+    const maxFee = parseFloat(process.env.DEFAULT_MAX_DELIVERY_FEE) || 45;
+    const raw = Math.max(distance * feePerKm, minFee);
+    return maxFee > 0 ? Math.min(raw, maxFee) : raw;
   }
 
   private calculateFoodPricing(config: any, context: FlowContext): any {
@@ -213,7 +239,8 @@ export class PricingExecutor implements ActionExecutor {
       return sum + (item.price * (item.quantity || 1));
     }, 0);
 
-    const deliveryFee = this.localDeliveryFee(distance, false, itemsTotal);
+    // Use zone pivot rates if available, else env-var fallback
+    const { charge: deliveryFee, source } = this.getDeliveryChargeFromZone(4, distance, itemsTotal, context);
     const subtotal = itemsTotal + deliveryFee;
     const foodGstRate = parseFloat(process.env.FOOD_GST_RATE) || 0; // 0% food GST
     const tax = Math.ceil(subtotal * foodGstRate);
@@ -226,15 +253,29 @@ export class PricingExecutor implements ActionExecutor {
       subtotal,
       tax,
       total,
-      source: 'local',
+      source,
       breakdown: { items: itemsTotal, delivery: deliveryFee, tax },
     };
   }
 
   private calculateParcelPricing(config: any, context: FlowContext): any {
     const distance = config.distance || context.data.distance || 0;
-    const perKmCharge = config.per_km_charge || context.data.per_km_charge || parseFloat(process.env.PARCEL_PER_KM_RATE) || 11.11;
-    const minimumCharge = config.minimum_charge || context.data.minimum_charge || parseFloat(process.env.PARCEL_MIN_CHARGE) || 44;
+
+    // Parcel: zone pivot may have null rates → use PHP global config values
+    const { charge: deliveryFee, source } = this.getDeliveryChargeFromZone(3, distance, 0, context);
+
+    let perKmCharge: number;
+    let minimumCharge: number;
+
+    if (source === 'zone_pivot') {
+      // Zone had parcel rates
+      perKmCharge = context.data.delivery_zone?.delivery_rates?.[3]?.perKmCharge || 11.5;
+      minimumCharge = context.data.delivery_zone?.delivery_rates?.[3]?.minCharge || 40;
+    } else {
+      // Use PHP global config or env vars (parcel zone rates are often null)
+      perKmCharge = config.per_km_charge || context.data.per_km_charge || parseFloat(process.env.PARCEL_PER_KM_RATE) || 11.5;
+      minimumCharge = config.minimum_charge || context.data.minimum_charge || parseFloat(process.env.PARCEL_MIN_CHARGE) || 40;
+    }
 
     const distanceCharge = Math.ceil(distance * perKmCharge);
     const subtotal = Math.max(minimumCharge, distanceCharge);
@@ -246,22 +287,25 @@ export class PricingExecutor implements ActionExecutor {
       distance,
       per_km_charge: perKmCharge,
       minimum_charge: minimumCharge,
+      delivery_fee: subtotal,
       subtotal,
       tax,
       total,
-      source: 'local',
+      source: source === 'zone_pivot' ? 'php_zone' : 'local',
     };
   }
 
   private calculateEcommercePricing(config: any, context: FlowContext): any {
     this.logger.debug('Using local ecommerce pricing estimate (PHP unavailable)');
     const items = config.items || context.data.cart_items || context.data.selected_items || [];
+    const distance = config.distance || context.data.distance || 0;
 
     const itemsTotal = items.reduce((sum: number, item: any) => {
       return sum + (item.price * (item.quantity || 1));
     }, 0);
 
-    const shippingFee = this.localDeliveryFee(0, true, itemsTotal);
+    // Use zone pivot rates if available (ecom = module 5)
+    const { charge: shippingFee, source } = this.getDeliveryChargeFromZone(5, distance, itemsTotal, context);
     const freeShipping = shippingFee === 0;
     const subtotal = itemsTotal + shippingFee;
     const tax = Math.ceil(subtotal * 0.18); // 18% GST fallback
@@ -277,7 +321,7 @@ export class PricingExecutor implements ActionExecutor {
       subtotal,
       tax,
       total,
-      source: 'local',
+      source,
     };
   }
 }

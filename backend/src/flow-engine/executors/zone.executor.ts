@@ -81,7 +81,11 @@ export class ZoneExecutor implements ActionExecutor {
               is_serviceable: zoneResult.is_serviceable,
               available_modules: zoneResult.available_modules || [],
               payment_methods: zoneResult.payment_methods || {},
+              delivery_rates: zoneResult.delivery_rates || {},
             };
+
+            // Save zone_id to top-level context so {{zone_id}} resolves everywhere
+            context.data.zone_id = zoneResult.zone_id;
 
             this.logger.debug(`Zone validation: VALID - ${output.zoneName} (ID: ${output.zoneId})`);
 
