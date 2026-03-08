@@ -35,6 +35,8 @@ export class AdExecutionService implements OnModuleInit {
           created_at TIMESTAMP DEFAULT NOW(),
           updated_at TIMESTAMP DEFAULT NOW()
         );
+        -- Add campaign_id if table was created before this column existed
+        ALTER TABLE ad_executions ADD COLUMN IF NOT EXISTS campaign_id UUID;
         CREATE INDEX IF NOT EXISTS idx_executions_status ON ad_executions(status);
         CREATE INDEX IF NOT EXISTS idx_executions_platform ON ad_executions(platform);
         CREATE INDEX IF NOT EXISTS idx_executions_campaign ON ad_executions(campaign_id);

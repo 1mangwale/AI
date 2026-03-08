@@ -52,6 +52,11 @@ export class ConversationMemoryService {
   private readonly indexName = 'conversation_memory_vectors';
   private enabled = true;
 
+  private consecutiveFailures = 0;
+  private readonly maxConsecutiveFailures = 3;
+  private circuitBreakerResetTime = 0;
+  private readonly circuitBreakerCooldownMs = 5 * 60 * 1000; // 5 minutes
+
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
@@ -59,21 +64,58 @@ export class ConversationMemoryService {
     private readonly embeddingService: UnifiedEmbeddingService,
   ) {
     this.opensearchUrl = this.configService.get('OPENSEARCH_URL');
-    this.logger.log(`🧠 Conversation Memory Service initialized`);
-    this.logger.log(`   OpenSearch: ${this.opensearchUrl}`);
-    this.logger.log(`   Index: ${this.indexName}`);
+    // Disable via env toggle
+    const enableMemory = this.configService.get('ENABLE_CONVERSATION_MEMORY', 'true');
+    if (enableMemory === 'false' || enableMemory === '0' || !this.opensearchUrl) {
+      this.enabled = false;
+      this.logger.warn(`🧠 Conversation Memory Service DISABLED (ENABLE_CONVERSATION_MEMORY=${enableMemory}, OPENSEARCH_URL=${this.opensearchUrl || 'not set'})`);
+    } else {
+      this.logger.log(`🧠 Conversation Memory Service initialized`);
+      this.logger.log(`   OpenSearch: ${this.opensearchUrl}`);
+      this.logger.log(`   Index: ${this.indexName}`);
+    }
+  }
+
+  /**
+   * Circuit breaker: disable service after consecutive failures, re-enable after cooldown
+   */
+  private isCircuitOpen(): boolean {
+    if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
+      if (Date.now() < this.circuitBreakerResetTime) {
+        return true; // Circuit still open
+      }
+      // Cooldown expired — reset and allow one attempt
+      this.consecutiveFailures = 0;
+      this.logger.log('🧠 Circuit breaker reset — retrying OpenSearch connection');
+    }
+    return false;
+  }
+
+  private recordFailure(error: Error): void {
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
+      this.circuitBreakerResetTime = Date.now() + this.circuitBreakerCooldownMs;
+      this.logger.warn(`🧠 Circuit breaker OPEN — ${this.consecutiveFailures} consecutive failures. Will retry in 5 minutes. Last error: ${error.message}`);
+    }
+  }
+
+  private recordSuccess(): void {
+    if (this.consecutiveFailures > 0) {
+      this.consecutiveFailures = 0;
+      this.logger.log('🧠 OpenSearch connection restored');
+    }
   }
 
   /**
    * Store a conversation turn in memory with embedding
    */
   async store(entry: ConversationMemoryEntry): Promise<string | null> {
-    if (!this.enabled) return null;
+    if (!this.enabled || this.isCircuitOpen()) return null;
 
     try {
       // Generate embedding for the content
       const embeddingResult = await this.embeddingService.embed(entry.content);
-      
+
       // Prepare document for OpenSearch
       const doc: any = {
         user_id: entry.userId,
@@ -105,10 +147,11 @@ export class ConversationMemoryService {
 
       const docId = response.data?._id;
       this.logger.debug(`📝 Stored memory: ${docId} (${embeddingResult.dimensions}d, ${entry.role})`);
-      
+      this.recordSuccess();
+
       return docId;
     } catch (error) {
-      this.logger.error(`Failed to store memory: ${error.message}`);
+      this.recordFailure(error);
       return null;
     }
   }
@@ -149,7 +192,7 @@ export class ConversationMemoryService {
       minScore?: number;
     } = {}
   ): Promise<MemorySearchResult[]> {
-    if (!this.enabled) return [];
+    if (!this.enabled || this.isCircuitOpen()) return [];
 
     try {
       const { userId, sessionId, tenantId, limit = 5, minScore = 0.7 } = options;
@@ -214,9 +257,10 @@ export class ConversationMemoryService {
         }));
 
       this.logger.debug(`🔍 Found ${results.length} similar memories for query`);
+      this.recordSuccess();
       return results;
     } catch (error) {
-      this.logger.error(`Failed to search memories: ${error.message}`);
+      this.recordFailure(error);
       return [];
     }
   }
@@ -228,7 +272,7 @@ export class ConversationMemoryService {
     sessionId: string,
     limit: number = 10
   ): Promise<ConversationMemoryEntry[]> {
-    if (!this.enabled) return [];
+    if (!this.enabled || this.isCircuitOpen()) return [];
 
     try {
       const searchQuery = {
@@ -263,7 +307,7 @@ export class ConversationMemoryService {
         metadata: hit._source.metadata,
       })).reverse(); // Return in chronological order
     } catch (error) {
-      this.logger.error(`Failed to get recent history: ${error.message}`);
+      this.recordFailure(error);
       return [];
     }
   }
@@ -316,7 +360,7 @@ export class ConversationMemoryService {
    * Delete memories for a session
    */
   async deleteSessionMemories(sessionId: string): Promise<number> {
-    if (!this.enabled) return 0;
+    if (!this.enabled || this.isCircuitOpen()) return 0;
 
     try {
       const response = await firstValueFrom(
@@ -342,7 +386,7 @@ export class ConversationMemoryService {
    * Delete all memories for a user (GDPR compliance)
    */
   async deleteUserMemories(userId: number): Promise<number> {
-    if (!this.enabled) return 0;
+    if (!this.enabled || this.isCircuitOpen()) return 0;
 
     try {
       const response = await firstValueFrom(

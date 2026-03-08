@@ -1,0 +1,92 @@
+{
+  "version": "3.0",
+  "screens": [
+    {
+      "id": "PAYMENT_OPTIONS",
+      "title": "Payment Method",
+      "data": {
+        "wallet_balance": { "type": "string", "__example__": "0" },
+        "order_total": { "type": "string", "__example__": "0" },
+        "payment_methods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": []
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Select Payment"
+          },
+          {
+            "type": "TextBody",
+            "text": "Order Total: ${data.order_total}"
+          },
+          {
+            "type": "TextSubheading",
+            "text": "Wallet Balance: ${data.wallet_balance}"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "payment_method",
+            "label": "Payment Method",
+            "required": true,
+            "data-source": "${data.payment_methods}"
+          },
+          {
+            "type": "Footer",
+            "label": "Confirm Payment",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "payment_method": "${form.payment_method}",
+                "screen": "PAYMENT_OPTIONS"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "SUCCESS",
+      "title": "Payment Selected",
+      "terminal": true,
+      "data": {
+        "payment_summary": { "type": "string", "__example__": "" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Payment Confirmed"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.payment_summary}"
+          },
+          {
+            "type": "Footer",
+            "label": "Done",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "payment_method": "${data.payment_summary}",
+                "screen": "SUCCESS"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

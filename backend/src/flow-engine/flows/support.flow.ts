@@ -376,26 +376,25 @@ Need more help?`,
       },
     },
 
-    // Create support ticket
+    // Create support ticket — persisted to DB + notifies support team via WhatsApp
     create_ticket: {
       type: 'action',
       description: 'Create a support ticket',
       actions: [
         {
-          id: 'generate_ticket',
-          executor: 'response',
+          id: 'persist_ticket',
+          executor: 'support_ticket',
           config: {
-            message: '',
+            action: 'create',
+            phone: '{{session.phone}}',
+            userId: '{{session.userId}}',
+            issueType: '{{issue_type}}',
+            description: '{{issue_description}}',
+            orderId: '{{order_id}}',
+            conversationSummary: '{{_user_message}}',
           },
           output: 'ticket_id',
-        },
-        {
-          id: 'log_ticket',
-          executor: 'response',
-          config: {
-            message: '',
-          },
-          output: 'ticket_log',
+          onError: 'continue',
         },
       ],
       transitions: {
@@ -587,7 +586,7 @@ JSON:`,
 **Ticket ID:** {{ticket_id}}
 **Issue:** {{issue_type}}
 
-Our support team will contact you shortly.
+A support agent has been notified and will reach out to you shortly.
 
 📞 **Direct Support:** +91-8888-XXXX-XX
 📧 **Email:** support@mangwale.com

@@ -310,6 +310,20 @@ export class ContextRouterService implements OnModuleInit {
     // We intentionally do NOT require 'action' — payment selection buttons only have 'value'
     // (e.g. "wallet", "cash_on_delivery") and would otherwise fall through to NLU misclassification.
     const isButtonClick = event.metadata?.type === 'button_click' && (event.metadata?.action || event.metadata?.value);
+    const isFlowResponse = event.metadata?.type === 'flow_response';
+
+    // 🎯 WhatsApp Flow completion: route directly to flow engine, skip NLU
+    // Flow responses come from nfm_reply (WhatsApp Flow forms) and must resume the
+    // active flow at its wait state (e.g., await_flow_address → process_flow_address)
+    if (activeFlow && isFlowResponse) {
+      this.logger.log(`📋 WhatsApp Flow response in active flow "${activeFlow}" — routing to flow engine`);
+      // Store flow response data in session so process_flow_* states can read it
+      if (event.metadata?.flowResponseData) {
+        await this.sessionService.setData(event.identifier, 'flow_response_data', event.metadata.flowResponseData);
+      }
+      const flowContinueIntent = { intent: 'flow_input', confidence: 1.0 };
+      return this.continueFlowSync(event, session, flowContinueIntent, 'flow_response');
+    }
 
     // 🎯 OPTIMIZATION: For button clicks within active flows, skip NLU entirely
     // The flow engine knows what buttons it showed and expects specific actions

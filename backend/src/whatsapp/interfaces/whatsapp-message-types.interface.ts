@@ -280,13 +280,45 @@ export interface FlowInteractive {
   };
 }
 
+// Single Product Message (SPM) — shows one product with image/price/description
+export interface ProductInteractive {
+  type: 'product';
+  body?: InteractiveBody;
+  footer?: InteractiveFooter;
+  action: {
+    catalog_id: string;
+    product_retailer_id: string;
+  };
+}
+
+// Multi-Product Message (MPM) — up to 30 products grouped in sections
+export interface ProductListSection {
+  title: string;                          // Section title (max 24 chars)
+  product_items: Array<{
+    product_retailer_id: string;          // Product SKU in Meta catalog
+  }>;
+}
+
+export interface ProductListInteractive {
+  type: 'product_list';
+  header: { type: 'text'; text: string }; // Required for product_list
+  body: InteractiveBody;
+  footer?: InteractiveFooter;
+  action: {
+    catalog_id: string;
+    sections: ProductListSection[];       // Max 10 sections, 30 products total
+  };
+}
+
 export type InteractiveContent =
   | ButtonInteractive
   | ListInteractive
   | CTAUrlInteractive
   | LocationRequestInteractive
   | AddressInteractive
-  | FlowInteractive;
+  | FlowInteractive
+  | ProductInteractive
+  | ProductListInteractive;
 
 export interface InteractiveMessage extends WhatsAppOutgoingMessage {
   type: 'interactive';

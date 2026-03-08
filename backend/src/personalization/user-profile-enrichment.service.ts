@@ -93,7 +93,7 @@ export class UserProfileEnrichmentService {
       return;
     }
     const mysqlPort = parseInt(process.env.MYSQL_PORT || '3306');
-    const mysqlUser = process.env.MYSQL_USER || 'root';
+    const mysqlUser = process.env.MYSQL_USERNAME || process.env.MYSQL_USER || 'root';
     const mysqlPassword = process.env.MYSQL_PASSWORD || 'root_password';
     const mysqlDatabase = process.env.MYSQL_DATABASE || 'mangwale_db';
 

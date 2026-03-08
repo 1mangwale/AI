@@ -8,6 +8,8 @@ import { WhatsAppCloudService } from './services/whatsapp-cloud.service';
 import { WhatsAppCatalogService } from './services/whatsapp-catalog.service';
 import { WhatsAppOrderFlowService } from './services/whatsapp-order-flow.service';
 import { WhatsAppFlowTokenService } from './services/whatsapp-flow-token.service';
+import { WhatsAppQuickOrderService } from './services/whatsapp-quick-order.service';
+import { WhatsAppFlowEncryptionService } from './services/whatsapp-flow-encryption.service';
 import { PhpIntegrationModule } from '../php-integration/php-integration.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { SessionModule } from '../session/session.module';
@@ -42,8 +44,8 @@ import { AdminModule } from '../admin/admin.module';
     AdminModule,
   ],
   controllers: [WebhookController, WhatsAppCommerceController, WhatsAppFlowController],
-  providers: [MessageService, WhatsAppCloudService, WhatsAppCatalogService, WhatsAppOrderFlowService, WhatsAppFlowTokenService],
-  exports: [MessageService, WhatsAppCloudService, WhatsAppCatalogService, WhatsAppOrderFlowService, WhatsAppFlowTokenService],
+  providers: [MessageService, WhatsAppCloudService, WhatsAppCatalogService, WhatsAppOrderFlowService, WhatsAppFlowTokenService, WhatsAppQuickOrderService, WhatsAppFlowEncryptionService],
+  exports: [MessageService, WhatsAppCloudService, WhatsAppCatalogService, WhatsAppOrderFlowService, WhatsAppFlowTokenService, WhatsAppQuickOrderService, WhatsAppFlowEncryptionService],
 })
 export class WhatsAppModule {}
 

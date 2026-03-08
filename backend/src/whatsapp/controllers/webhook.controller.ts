@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Query, Logger, HttpCode, Param, Delete, Headers, UnauthorizedException, RawBodyRequest, Req, UseGuards } from '@nestjs/common';
-import { SkipThrottle, Throttle } from '@nestjs/throttler';
+import { SkipThrottle } from '@nestjs/throttler';
 import { AdminAuthGuard } from '../../admin/guards/admin-auth.guard';
 import { SessionService } from '../../session/session.service';
 import { MessageService } from '../services/message.service';
@@ -16,7 +16,7 @@ import * as crypto from 'crypto';
 import { Request } from 'express';
 import { normalizePhoneNumber } from '../../common/utils/helpers';
 
-@SkipThrottle({ default: true })
+@SkipThrottle()
 @Controller('webhook/whatsapp')
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
@@ -91,8 +91,6 @@ export class WebhookController {
 
   @Post()
   @HttpCode(200)
-  @SkipThrottle({ default: false })
-  @Throttle({ default: { limit: 300, ttl: 60000 } }) // 300 requests per minute per IP
   async receive(
     @Body() payload: any,
     @Headers('x-hub-signature-256') hubSignature: string,
@@ -209,6 +207,34 @@ export class WebhookController {
         };
         messageText = `LOCATION:${locationData.latitude},${locationData.longitude}`;
         this.logger.log(`📍 Location from ${from}: ${locationData.latitude}, ${locationData.longitude}`);
+      } else if (type === 'image' || type === 'video' || type === 'document' || type === 'sticker') {
+        // 📷 MEDIA MESSAGE — acknowledge but can't process yet
+        this.logger.log(`📷 Media message (${type}) from ${from}`);
+        const mediaId = message[type]?.id;
+        const caption = message[type]?.caption || '';
+        if (caption) {
+          // If image has a caption, treat caption as the message text
+          messageText = caption;
+          this.logger.log(`📷 Media caption: "${caption}" — processing as text`);
+        } else {
+          await this.messageService.sendTextMessage(
+            from,
+            `I received your ${type}, but I can only process text and voice messages right now. Please type your request instead.`,
+          );
+          return;
+        }
+      } else if (type === 'order') {
+        // 🛒 WHATSAPP ORDER — customer sent cart from product catalog
+        this.logger.log(`🛒 Order message from ${from}`);
+        const orderData = message.order;
+        if (orderData?.product_items) {
+          messageText = `ORDER:${JSON.stringify(orderData.product_items)}`;
+          (message as any)._buttonAction = 'whatsapp_order';
+          (message as any)._buttonValue = JSON.stringify(orderData);
+          this.logger.log(`🛒 Order with ${orderData.product_items.length} items`);
+        } else {
+          messageText = 'I want to place an order';
+        }
       } else if (type === 'interactive') {
         // 🔘 INTERACTIVE MESSAGE - Button or List selection
         const interactive = message.interactive;

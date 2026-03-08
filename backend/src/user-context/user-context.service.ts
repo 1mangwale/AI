@@ -147,7 +147,7 @@ export class UserContextService {
     // MySQL connection (PHP backend)
     const mysqlHost = process.env.MYSQL_HOST;
     const mysqlPort = parseInt(process.env.MYSQL_PORT || '3306');
-    const mysqlUser = process.env.MYSQL_USER;
+    const mysqlUser = process.env.MYSQL_USERNAME || process.env.MYSQL_USER;
     const mysqlPassword = process.env.MYSQL_PASSWORD;
     const mysqlDatabase = process.env.MYSQL_DATABASE;
 

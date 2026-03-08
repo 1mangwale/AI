@@ -2716,5 +2716,5 @@ Return ONLY the numeric ID, nothing else.`,
   },
 
   initialState: 'check_trigger',
-  finalStates: ['finish', 'cancelled'],
+  finalStates: ['completed', 'cancelled'],
 };

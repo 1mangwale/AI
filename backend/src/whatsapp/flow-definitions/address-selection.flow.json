@@ -1,0 +1,145 @@
+{
+  "version": "3.0",
+  "screens": [
+    {
+      "id": "ADDRESS_LIST",
+      "title": "Select Address",
+      "data": {
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": []
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Delivery Address"
+          },
+          {
+            "type": "TextBody",
+            "text": "Select a saved address or add a new one"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "selected_address",
+            "label": "Saved Addresses",
+            "required": true,
+            "data-source": "${data.addresses}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "selected_address": "${form.selected_address}",
+                "screen": "ADDRESS_LIST"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "ADDRESS_NEW",
+      "title": "New Address",
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Add New Address"
+          },
+          {
+            "type": "TextInput",
+            "name": "house_number",
+            "label": "House / Flat / Building",
+            "required": true,
+            "input-type": "text"
+          },
+          {
+            "type": "TextInput",
+            "name": "street",
+            "label": "Street / Area",
+            "required": true,
+            "input-type": "text"
+          },
+          {
+            "type": "TextInput",
+            "name": "landmark",
+            "label": "Landmark (Optional)",
+            "required": false,
+            "input-type": "text"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "address_type",
+            "label": "Address Type",
+            "required": true,
+            "data-source": [
+              { "id": "home", "title": "Home" },
+              { "id": "work", "title": "Work" },
+              { "id": "other", "title": "Other" }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "Save & Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "house_number": "${form.house_number}",
+                "street": "${form.street}",
+                "landmark": "${form.landmark}",
+                "address_type": "${form.address_type}",
+                "screen": "ADDRESS_NEW"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "SUCCESS",
+      "title": "Address Saved",
+      "terminal": true,
+      "data": {
+        "address_summary": { "type": "string", "__example__": "" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Address Selected"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.address_summary}"
+          },
+          {
+            "type": "Footer",
+            "label": "Done",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "screen": "SUCCESS"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

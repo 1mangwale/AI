@@ -50,6 +50,8 @@ export class WhatsAppCatalogService implements OnModuleInit {
         );
         CREATE INDEX IF NOT EXISTS idx_catalog_store ON whatsapp_catalog_items(store_id);
         CREATE INDEX IF NOT EXISTS idx_catalog_category ON whatsapp_catalog_items(category);
+        ALTER TABLE whatsapp_catalog_items ADD COLUMN IF NOT EXISTS product_retailer_id VARCHAR(100);
+        CREATE INDEX IF NOT EXISTS idx_catalog_retailer_id ON whatsapp_catalog_items(product_retailer_id);
       `);
       client.release();
       this.logger.log('WhatsAppCatalogService initialized');
@@ -220,10 +222,85 @@ export class WhatsAppCatalogService implements OnModuleInit {
     });
   }
 
+  /**
+   * Send native product message (SPM/MPM) using Meta catalog.
+   * Falls back to list message if WHATSAPP_CATALOG_ID is not configured.
+   */
+  async sendNativeProductMessage(
+    phoneNumber: string,
+    options?: { storeId?: number; category?: string; limit?: number },
+  ): Promise<void> {
+    const catalogId = this.config.get<string>('WHATSAPP_CATALOG_ID');
+
+    if (!catalogId) {
+      // Fall back to interactive list message
+      this.logger.debug('No WHATSAPP_CATALOG_ID — falling back to list message');
+      await this.sendCatalogMessage(phoneNumber, options?.category, options?.storeId);
+      return;
+    }
+
+    const products = await this.getProducts({
+      category: options?.category,
+      storeId: options?.storeId,
+      limit: options?.limit || 30,
+    });
+
+    if (!products.length) {
+      await this.whatsapp.sendText(phoneNumber, 'No products available right now. Please check back later.');
+      return;
+    }
+
+    // Filter to products that have a product_retailer_id (synced with Meta catalog)
+    const catalogProducts = products.filter(p => p.productRetailerId);
+
+    if (!catalogProducts.length) {
+      // No products mapped to Meta catalog yet — fall back to list
+      this.logger.debug('No products with product_retailer_id — falling back to list message');
+      await this.sendCatalogMessage(phoneNumber, options?.category, options?.storeId);
+      return;
+    }
+
+    // Single product → SPM, multiple → MPM
+    if (catalogProducts.length === 1) {
+      await this.whatsapp.sendProduct(phoneNumber, {
+        catalogId,
+        productRetailerId: catalogProducts[0].productRetailerId,
+        body: catalogProducts[0].description || catalogProducts[0].name,
+      });
+      return;
+    }
+
+    // Group by category for MPM sections
+    const grouped: Record<string, any[]> = {};
+    for (const p of catalogProducts) {
+      const cat = p.category || 'Other';
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(p);
+    }
+
+    const sections = Object.entries(grouped)
+      .slice(0, 10)
+      .map(([category, items]) => ({
+        title: category.substring(0, 24),
+        product_items: items.slice(0, 30).map(item => ({
+          product_retailer_id: item.productRetailerId,
+        })),
+      }));
+
+    await this.whatsapp.sendProductList(phoneNumber, {
+      catalogId,
+      sections,
+      header: 'Our Menu',
+      body: `Browse ${catalogProducts.length} items`,
+      footer: 'Tap to add to cart',
+    });
+  }
+
   private mapRow(row: any) {
     return {
       id: row.id,
       waProductId: row.wa_product_id,
+      productRetailerId: row.product_retailer_id,
       name: row.name,
       description: row.description,
       price: parseFloat(row.price),

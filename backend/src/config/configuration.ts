@@ -24,7 +24,7 @@ export default () => ({
     host: process.env.MYSQL_HOST,
     port: parseInt(process.env.MYSQL_PORT, 10) || 3306,
     database: process.env.MYSQL_DATABASE,
-    user: process.env.MYSQL_USER,
+    user: process.env.MYSQL_USERNAME || process.env.MYSQL_USER,
     password: process.env.MYSQL_PASSWORD,
   },
   // NLU Configuration - Local IndicBERT service (NO ADMIN BACKEND)

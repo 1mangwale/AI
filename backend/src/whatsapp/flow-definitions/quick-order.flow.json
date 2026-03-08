@@ -1,0 +1,284 @@
+{
+  "version": "3.0",
+  "screens": [
+    {
+      "id": "RESTAURANT_SELECT",
+      "title": "Nearby Restaurants",
+      "data": {
+        "restaurants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": []
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Order Food"
+          },
+          {
+            "type": "TextBody",
+            "text": "Select a restaurant near you"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "restaurant_id",
+            "label": "Restaurants",
+            "required": true,
+            "data-source": "${data.restaurants}"
+          },
+          {
+            "type": "Footer",
+            "label": "View Menu",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "restaurant_id": "${form.restaurant_id}",
+                "screen": "RESTAURANT_SELECT"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "MENU_BROWSE",
+      "title": "Menu",
+      "data": {
+        "restaurant_name": { "type": "string", "__example__": "" },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "title": { "type": "string" },
+                    "description": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "__example__": []
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "${data.restaurant_name}"
+          },
+          {
+            "type": "TextBody",
+            "text": "Select items to add to cart"
+          },
+          {
+            "type": "CheckboxGroup",
+            "name": "selected_items",
+            "label": "Menu Items",
+            "required": true,
+            "data-source": "${data.categories}"
+          },
+          {
+            "type": "Footer",
+            "label": "Add to Cart",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "selected_items": "${form.selected_items}",
+                "screen": "MENU_BROWSE"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "CART_REVIEW",
+      "title": "Your Cart",
+      "data": {
+        "cart_summary": { "type": "string", "__example__": "" },
+        "subtotal": { "type": "string", "__example__": "0" },
+        "delivery_fee": { "type": "string", "__example__": "0" },
+        "total": { "type": "string", "__example__": "0" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Review Cart"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.cart_summary}"
+          },
+          {
+            "type": "TextSubheading",
+            "text": "Subtotal: ${data.subtotal}"
+          },
+          {
+            "type": "TextBody",
+            "text": "Delivery: ${data.delivery_fee}"
+          },
+          {
+            "type": "TextHeading",
+            "text": "Total: ${data.total}"
+          },
+          {
+            "type": "TextInput",
+            "name": "order_note",
+            "label": "Special Instructions (Optional)",
+            "required": false,
+            "input-type": "text"
+          },
+          {
+            "type": "Footer",
+            "label": "Proceed to Checkout",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "order_note": "${form.order_note}",
+                "screen": "CART_REVIEW"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "CHECKOUT",
+      "title": "Checkout",
+      "data": {
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": []
+        },
+        "payment_methods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": []
+        },
+        "total": { "type": "string", "__example__": "0" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Checkout"
+          },
+          {
+            "type": "TextBody",
+            "text": "Total: ${data.total}"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "address_id",
+            "label": "Delivery Address",
+            "required": true,
+            "data-source": "${data.addresses}"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "payment_method",
+            "label": "Payment Method",
+            "required": true,
+            "data-source": "${data.payment_methods}"
+          },
+          {
+            "type": "Footer",
+            "label": "Place Order",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "address_id": "${form.address_id}",
+                "payment_method": "${form.payment_method}",
+                "screen": "CHECKOUT"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "ORDER_CONFIRM",
+      "title": "Order Placed!",
+      "terminal": true,
+      "data": {
+        "order_id": { "type": "string", "__example__": "" },
+        "total": { "type": "string", "__example__": "0" },
+        "payment_label": { "type": "string", "__example__": "" },
+        "item_count": { "type": "string", "__example__": "0" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Order Confirmed!"
+          },
+          {
+            "type": "TextBody",
+            "text": "Order #${data.order_id}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.item_count} items - Total: ${data.total}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.payment_label}"
+          },
+          {
+            "type": "TextBody",
+            "text": "We'll notify you when the restaurant confirms!"
+          },
+          {
+            "type": "Footer",
+            "label": "Done",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "order_id": "${data.order_id}",
+                "screen": "ORDER_CONFIRM"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -18,6 +18,9 @@ import {
   CTAUrlInteractive,
   LocationRequestInteractive,
   FlowInteractive,
+  ProductInteractive,
+  ProductListInteractive,
+  ProductListSection,
   MessageResponse,
   ReplyButton,
   ListSection,
@@ -400,6 +403,80 @@ export class WhatsAppCloudService {
     if (options.header) {
       interactive.header = { type: 'text', text: options.header.substring(0, 60) };
     }
+    if (options.footer) {
+      interactive.footer = { text: options.footer.substring(0, 60) };
+    }
+
+    const message: InteractiveMessage = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive,
+    };
+
+    return this.sendMessage(message);
+  }
+
+  // ============================================
+  // PRODUCT MESSAGES (Native Catalog)
+  // ============================================
+
+  /**
+   * Send single product message (SPM)
+   * Shows one product card with image, price, description from Meta catalog
+   */
+  async sendProduct(to: string, options: {
+    catalogId: string;
+    productRetailerId: string;
+    body?: string;
+    footer?: string;
+  }): Promise<MessageResponse> {
+    const interactive: ProductInteractive = {
+      type: 'product',
+      action: {
+        catalog_id: options.catalogId,
+        product_retailer_id: options.productRetailerId,
+      },
+    };
+
+    if (options.body) {
+      interactive.body = { text: options.body.substring(0, 1024) };
+    }
+    if (options.footer) {
+      interactive.footer = { text: options.footer.substring(0, 60) };
+    }
+
+    const message: InteractiveMessage = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive,
+    };
+
+    return this.sendMessage(message);
+  }
+
+  /**
+   * Send multi-product message (MPM)
+   * Shows up to 30 products grouped in sections with images, prices from Meta catalog
+   */
+  async sendProductList(to: string, options: {
+    catalogId: string;
+    sections: ProductListSection[];
+    header: string;
+    body: string;
+    footer?: string;
+  }): Promise<MessageResponse> {
+    const interactive: ProductListInteractive = {
+      type: 'product_list',
+      header: { type: 'text', text: options.header.substring(0, 60) },
+      body: { text: options.body.substring(0, 1024) },
+      action: {
+        catalog_id: options.catalogId,
+        sections: options.sections.slice(0, 10), // Max 10 sections
+      },
+    };
+
     if (options.footer) {
       interactive.footer = { text: options.footer.substring(0, 60) };
     }

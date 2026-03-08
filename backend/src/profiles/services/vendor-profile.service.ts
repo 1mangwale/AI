@@ -61,7 +61,7 @@ export class VendorProfileService implements OnModuleInit {
     // Initialize MySQL pool for direct vendor queries
     const mysqlHost = this.configService.get('MYSQL_HOST');
     const mysqlPort = parseInt(this.configService.get('MYSQL_PORT', '3306'));
-    const mysqlUser = this.configService.get('MYSQL_USER', 'root');
+    const mysqlUser = this.configService.get('MYSQL_USERNAME') || this.configService.get('MYSQL_USER', 'root');
     const mysqlPassword = this.configService.get('MYSQL_PASSWORD');
     const mysqlDatabase = this.configService.get('MYSQL_DATABASE', 'mangwale_db');
     

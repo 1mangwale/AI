@@ -494,6 +494,7 @@ export const foodOrderFlow: FlowDefinition = {
         browse_menu: 'check_show_collections',  // Direct route for browse_menu button click
         view_cart: 'show_current_cart',          // Direct route for view_cart button click
         checkout: 'check_auth_for_checkout',     // Direct route for checkout button click
+        quick_order: 'check_quick_order_flow',   // Quick Order WhatsApp Flow
         user_message: 'understand_request',      // User typed something → NLU
         default: 'understand_request',           // Fallback for any other events
       },
@@ -6517,6 +6518,94 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {},
+    },
+
+    // =====================================================
+    // 🛒 QUICK ORDER — WhatsApp Flow-based ordering
+    // =====================================================
+
+    // Gate: check if WA_FLOW_QUICK_ORDER_ID is set and platform is WhatsApp
+    check_quick_order_flow: {
+      type: 'decision',
+      description: 'Check if Quick Order WhatsApp Flow is available',
+      conditions: [
+        {
+          expression: `context.platform === 'whatsapp' && !!('${process.env.WA_FLOW_QUICK_ORDER_ID || ''}')`,
+          event: 'flow_available',
+        },
+      ],
+      transitions: {
+        flow_available: 'send_quick_order_flow',
+        default: 'greet_user', // Fallback to standard flow if no Quick Order Flow ID
+      },
+    },
+
+    // Send the Quick Order WhatsApp Flow
+    send_quick_order_flow: {
+      type: 'action',
+      description: 'Launch Quick Order WhatsApp Flow',
+      actions: [
+        {
+          id: 'send_wa_quick_order',
+          executor: 'response',
+          config: {
+            message: 'Tap below to quickly order food from nearby restaurants!',
+            flow: {
+              flowId: process.env.WA_FLOW_QUICK_ORDER_ID || '',
+              flowType: 'quick_order',
+              ctaText: 'Quick Order',
+              body: 'Order food in a few taps',
+            },
+          },
+          output: '_quick_order_flow_result',
+        },
+      ],
+      transitions: {
+        flow_sent: 'await_flow_quick_order',
+        default: 'greet_user',
+        error: 'greet_user',
+      },
+    },
+
+    // Wait for Quick Order Flow response
+    await_flow_quick_order: {
+      type: 'wait',
+      description: 'Wait for Quick Order WhatsApp Flow completion',
+      actions: [],
+      transitions: {
+        flow_response: 'process_quick_order_result',
+        user_message: 'process_quick_order_result',
+        default: 'process_quick_order_result',
+      },
+    },
+
+    // Process the Quick Order result
+    process_quick_order_result: {
+      type: 'action',
+      description: 'Process completed Quick Order from WhatsApp Flow',
+      actions: [
+        {
+          id: 'load_quick_order_result',
+          executor: 'session',
+          config: {
+            action: 'get',
+            key: 'flow_response_data',
+          },
+          output: 'quick_order_data',
+        },
+        {
+          id: 'confirm_quick_order',
+          executor: 'response',
+          config: {
+            message: '{{#if quick_order_data.order_id}}Your order #{{quick_order_data.order_id}} has been placed! We\'ll notify you when the restaurant confirms. 🎉{{else}}Your quick order is being processed. We\'ll update you shortly!{{/if}}',
+          },
+        },
+      ],
+      transitions: {
+        success: 'completed',
+        default: 'completed',
+        error: 'greet_user',
+      },
     },
 
     cancelled: {

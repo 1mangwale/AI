@@ -1,0 +1,157 @@
+{
+  "version": "3.0",
+  "screens": [
+    {
+      "id": "ORDER_HISTORY",
+      "title": "Recent Orders",
+      "data": {
+        "orders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": []
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Reorder"
+          },
+          {
+            "type": "TextBody",
+            "text": "Select a previous order to reorder"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "selected_order",
+            "label": "Recent Orders",
+            "required": true,
+            "data-source": "${data.orders}"
+          },
+          {
+            "type": "Footer",
+            "label": "Reorder This",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "selected_order": "${form.selected_order}",
+                "screen": "ORDER_HISTORY"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "MODIFY_ORDER",
+      "title": "Modify Order",
+      "data": {
+        "order_summary": { "type": "string", "__example__": "" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": []
+        },
+        "total": { "type": "string", "__example__": "0" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Review Items"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.order_summary}"
+          },
+          {
+            "type": "CheckboxGroup",
+            "name": "selected_items",
+            "label": "Items to Reorder",
+            "required": true,
+            "data-source": "${data.items}",
+            "init-value": "${data.items}"
+          },
+          {
+            "type": "TextSubheading",
+            "text": "Estimated Total: ${data.total}"
+          },
+          {
+            "type": "Footer",
+            "label": "Confirm Reorder",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "selected_items": "${form.selected_items}",
+                "screen": "MODIFY_ORDER"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "REORDER_CONFIRM",
+      "title": "Order Placed!",
+      "terminal": true,
+      "data": {
+        "order_id": { "type": "string", "__example__": "" },
+        "total": { "type": "string", "__example__": "0" },
+        "payment_label": { "type": "string", "__example__": "" },
+        "item_count": { "type": "string", "__example__": "0" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Reorder Placed!"
+          },
+          {
+            "type": "TextBody",
+            "text": "Order #${data.order_id}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.item_count} items - Total: ${data.total}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.payment_label}"
+          },
+          {
+            "type": "TextBody",
+            "text": "We'll notify you when the restaurant confirms!"
+          },
+          {
+            "type": "Footer",
+            "label": "Done",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "order_id": "${data.order_id}",
+                "screen": "REORDER_CONFIRM"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -242,9 +242,24 @@ export class WhatsAppFlowTemplateService {
    * Build a reorder interactive message showing previous order items.
    * Uses list message for item selection with quick reorder option.
    */
-  getReorderFlow(data: ReorderData): WhatsAppInteractiveMessage {
+  getReorderFlow(data: ReorderData): WhatsAppInteractiveMessage | { flow: any; body: string } {
     const { lastOrder } = data;
 
+    // If WA_FLOW_REORDER_ID is set, use WhatsApp Flow CTA instead of list message
+    const reorderFlowId = this.configService.get<string>('WA_FLOW_REORDER_ID');
+    if (reorderFlowId) {
+      return {
+        flow: {
+          flowId: reorderFlowId,
+          flowType: 'quick_reorder',
+          ctaText: 'Quick Reorder',
+          body: `Reorder from ${lastOrder.storeName} — ${lastOrder.items.length} items, Rs ${lastOrder.total.toFixed(2)}`,
+        },
+        body: `Tap below to quickly reorder from ${lastOrder.storeName}`,
+      };
+    }
+
+    // Fallback: standard list-based reorder
     let bodyText = `*Reorder from ${lastOrder.storeName}*\n\n`;
     bodyText += `Your last order (#${lastOrder.id}):\n`;
 

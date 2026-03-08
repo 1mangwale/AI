@@ -50,6 +50,8 @@ import { AdExecutionExecutor } from './executors/ad-execution.executor';
 import { ApprovalGateExecutor } from './executors/approval-gate.executor';
 import { WhatsAppNotifyExecutor } from './executors/whatsapp-notify.executor';
 import { BroadcastExecutor } from './executors/broadcast.executor';
+// Support
+import { SupportTicketExecutor } from './executors/support-ticket.executor';
 // Phase 7: Voice & RAG
 import { VoiceExecutor } from './executors/voice.executor';
 import { QueryRewriterService } from './services/query-rewriter.service';
@@ -87,6 +89,7 @@ import { AuthValidatorService } from '../common/validators/auth.validator';
 import { AddressValidatorService } from '../common/validators/address.validator';
 import { BroadcastModule } from '../broadcast/broadcast.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { SupportModule } from '../support/support.module';
 
 @Module({
   imports: [
@@ -108,6 +111,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     forwardRef(() => AgentsModule), // Use forwardRef to avoid circular dependency
     forwardRef(() => BroadcastModule), // For BroadcastExecutor
     forwardRef(() => WhatsAppModule), // For WhatsAppNotifyExecutor
+    SupportModule, // For SupportTicketExecutor
   ],
   controllers: [FlowBuilderController, FlowsController],
   providers: [
@@ -172,6 +176,8 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     ApprovalGateExecutor,
     WhatsAppNotifyExecutor,
     BroadcastExecutor,
+    // Support
+    SupportTicketExecutor,
     // Phase 7: Voice & RAG
     VoiceExecutor,
     QueryRewriterService,
@@ -235,6 +241,8 @@ export class FlowEngineModule {
     private readonly approvalGateExecutor: ApprovalGateExecutor,
     private readonly whatsAppNotifyExecutor: WhatsAppNotifyExecutor,
     private readonly broadcastExecutor: BroadcastExecutor,
+    // Support
+    private readonly supportTicketExecutor: SupportTicketExecutor,
     // Phase 7: Voice
     private readonly voiceExecutor: VoiceExecutor,
   ) {
@@ -282,6 +290,8 @@ export class FlowEngineModule {
     this.executorRegistry.register(approvalGateExecutor);
     this.executorRegistry.register(whatsAppNotifyExecutor);
     this.executorRegistry.register(broadcastExecutor);
+    // Support
+    this.executorRegistry.register(supportTicketExecutor);
     // Phase 7: Voice
     this.executorRegistry.register(voiceExecutor);
   }
