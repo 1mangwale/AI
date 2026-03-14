@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PhpApiService } from './php-api.service';
 import { ConfigService } from '@nestjs/config';
+import { CircuitBreakerService } from '../../common/services/circuit-breaker.service';
 
 /**
  * PHP Review Service
@@ -39,8 +40,8 @@ export interface Rating {
 
 @Injectable()
 export class PhpReviewService extends PhpApiService {
-  constructor(configService: ConfigService) {
-    super(configService);
+  constructor(configService: ConfigService, circuitBreaker: CircuitBreakerService) {
+    super(configService, circuitBreaker);
   }
 
   /**

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PhpApiService } from './php-api.service';
+import { CircuitBreakerService } from '../../common/services/circuit-breaker.service';
 import { User } from '../../common/interfaces/common.interface';
 import { normalizePhoneNumber } from '../../common/utils/helpers';
 import * as mysql from 'mysql2/promise';
@@ -17,9 +18,9 @@ export class PhpAuthService extends PhpApiService {
   // MySQL pool for direct user lookup (WhatsApp auto-auth)
   private mysqlPool: mysql.Pool | null = null;
 
-  constructor(configService: ConfigService) {
-    super(configService);
-    
+  constructor(configService: ConfigService, circuitBreaker: CircuitBreakerService) {
+    super(configService, circuitBreaker);
+
     // Initialize MySQL pool for direct user queries
     this.initMySQLPool(configService);
   }

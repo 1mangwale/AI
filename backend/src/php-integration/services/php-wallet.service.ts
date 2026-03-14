@@ -1,6 +1,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PhpApiService } from './php-api.service';
+import { CircuitBreakerService } from '../../common/services/circuit-breaker.service';
 import { REDIS_CLIENT } from '../../redis/redis.module';
 import Redis from 'ioredis';
 
@@ -19,9 +20,10 @@ export class PhpWalletService extends PhpApiService {
 
   constructor(
     configService: ConfigService,
+    circuitBreaker: CircuitBreakerService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
-    super(configService);
+    super(configService, circuitBreaker);
   }
 
   /** Derive a short cache key suffix from the bearer token */

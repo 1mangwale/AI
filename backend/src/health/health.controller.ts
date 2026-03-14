@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PhpApiService } from '../php-integration/services/php-api.service';
 import { PrismaService } from '../database/prisma.service';
 import { SessionService } from '../session/session.service';
+import { CircuitBreakerService } from '../common/services/circuit-breaker.service';
 import * as http from 'http';
 import * as https from 'https';
 
@@ -30,6 +31,7 @@ export class HealthController {
     private readonly prismaService: PrismaService,
     private readonly sessionService: SessionService,
     private readonly configService: ConfigService,
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {
     this.asrServiceUrl = this.configService.get<string>('ASR_SERVICE_URL', 'http://localhost:7001');
     this.ttsServiceUrl = this.configService.get<string>('TTS_SERVICE_URL', 'http://localhost:7002');
@@ -141,7 +143,8 @@ export class HealthController {
           latency: ttsHealth.latency,
           ...(ttsHealth.error && { error: 'Service unavailable' }),
         },
-      }
+      },
+      circuitBreakers: this.circuitBreaker.getAllStatus(),
     };
   }
 

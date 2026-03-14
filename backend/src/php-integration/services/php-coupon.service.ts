@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PhpApiService } from './php-api.service';
 import { ConfigService } from '@nestjs/config';
+import { CircuitBreakerService } from '../../common/services/circuit-breaker.service';
 
 /**
  * PHP Coupon Service
@@ -41,8 +42,8 @@ export interface CouponApplyResult {
 
 @Injectable()
 export class PhpCouponService extends PhpApiService {
-  constructor(configService: ConfigService) {
-    super(configService);
+  constructor(configService: ConfigService, circuitBreaker: CircuitBreakerService) {
+    super(configService, circuitBreaker);
   }
 
   /**

@@ -2,10 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import * as https from 'https';
+import { CircuitBreakerService } from '../../common/services/circuit-breaker.service';
 
 /**
  * Base PHP API Service
- * Handles HTTP client configuration and common methods
+ * Handles HTTP client configuration, circuit breaker protection, and retry logic.
+ * All child services (PhpPaymentService, PhpOrderService, etc.) inherit this automatically.
  */
 @Injectable()
 export class PhpApiService {
@@ -13,8 +15,16 @@ export class PhpApiService {
   protected readonly httpClient: AxiosInstance;
   protected readonly baseUrl: string;
 
+  private readonly timeoutMap: Record<string, number> = {
+    payment: 45000,
+    search: 8000,
+    auth: 15000,
+    default: 30000,
+  };
+
   constructor(
     protected readonly configService: ConfigService,
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {
     this.logger = new Logger(PhpApiService.name);
     // Prefer central configuration (src/config/configuration.ts -> php.baseUrl/php.timeout)
@@ -108,30 +118,47 @@ export class PhpApiService {
   }
 
   /**
-   * Make POST request
+   * Get timeout for a URL based on the endpoint type.
+   */
+  private getTimeoutForUrl(url: string): number {
+    if (url.includes('payment') || url.includes('razor')) return this.timeoutMap.payment;
+    if (url.includes('search') || url.includes('menu')) return this.timeoutMap.search;
+    if (url.includes('otp') || url.includes('login') || url.includes('auth')) return this.timeoutMap.auth;
+    return this.timeoutMap.default;
+  }
+
+  /**
+   * Make POST request (circuit-breaker protected, no retry — mutations aren't idempotent)
    */
   protected async post(url: string, data?: any, headers?: any): Promise<any> {
     this.logger.log(`📤 POST ${url} - Data: ${JSON.stringify(data)}`);
-    const config: any = {};
+    const timeout = this.getTimeoutForUrl(url);
+    const config: any = { timeout };
     if (headers) config.headers = headers;
-    
-    const response = await this.httpClient.post(url, data, config);
-    this.logger.log(`📥 Response from ${url}: ${JSON.stringify(response).substring(0, 200)}`);
-    return response;
+
+    return this.circuitBreaker.execute('php-backend', async () => {
+      const response = await this.httpClient.post(url, data, config);
+      this.logger.log(`📥 Response from ${url}: ${JSON.stringify(response).substring(0, 200)}`);
+      return response;
+    });
   }
 
   /**
-   * Make GET request
+   * Make GET request (circuit-breaker protected, retries up to 2x with exponential backoff)
    */
   protected async get(url: string, params?: any, headers?: any): Promise<any> {
-    const config: any = { params };
+    const timeout = this.getTimeoutForUrl(url);
+    const config: any = { params, timeout };
     if (headers) config.headers = headers;
-    return this.httpClient.get(url, config);
+
+    return this.circuitBreaker.execute('php-backend', async () => {
+      return this.retryRequest(() => this.httpClient.get(url, config), 2);
+    });
   }
 
   /**
-   * Make authenticated request with token
-   * Note: PHP backend requires 'X-localization' header for all authenticated endpoints
+   * Make authenticated request with token (circuit-breaker protected).
+   * Read ops (GET/DELETE) retry once; write ops (POST/PUT) do not retry.
    */
   protected async authenticatedRequest(
     method: 'get' | 'post' | 'put' | 'delete',
@@ -140,23 +167,51 @@ export class PhpApiService {
     data?: any,
     customHeaders?: Record<string, string>,
   ): Promise<any> {
+    const timeout = this.getTimeoutForUrl(url);
     const config: any = {
       method,
       url,
+      timeout,
       headers: {
         Authorization: `Bearer ${token}`,
-        'X-localization': 'en', // PHP backend requires this for all authenticated requests
-        ...customHeaders,  // Merge custom headers (moduleId, zoneId, etc.)
+        'X-localization': 'en',
+        ...customHeaders,
       },
     };
 
-    // For GET/DELETE requests, data should be sent as query params, not request body
     if (method === 'get' || method === 'delete') {
       config.params = data;
     } else {
       config.data = data;
     }
 
-    return this.httpClient.request(config);
+    const isReadOp = method === 'get' || method === 'delete';
+
+    return this.circuitBreaker.execute('php-backend', async () => {
+      if (isReadOp) {
+        return this.retryRequest(() => this.httpClient.request(config), 1);
+      }
+      return this.httpClient.request(config);
+    });
+  }
+
+  /**
+   * Retry a request with exponential backoff.
+   * Does NOT retry 401 (auth expired) or 404 (not found).
+   */
+  private async retryRequest<T>(fn: () => Promise<T>, maxRetries: number): Promise<T> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        const status = error.response?.status ?? (error as any).statusCode;
+        if (attempt === maxRetries || status === 401 || status === 404) {
+          throw error;
+        }
+        const delay = Math.pow(2, attempt) * 500; // 500ms, 1s
+        this.logger.warn(`PHP API retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
   }
 }

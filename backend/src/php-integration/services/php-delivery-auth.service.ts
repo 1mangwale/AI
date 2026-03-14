@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PhpApiService } from './php-api.service';
+import { CircuitBreakerService } from '../../common/services/circuit-breaker.service';
 
 /**
  * Delivery Man User Interface
@@ -36,8 +37,8 @@ export interface DeliveryManUser {
 export class PhpDeliveryAuthService extends PhpApiService {
   protected logger = new Logger(PhpDeliveryAuthService.name);
 
-  constructor(configService: ConfigService) {
-    super(configService);
+  constructor(configService: ConfigService, circuitBreaker: CircuitBreakerService) {
+    super(configService, circuitBreaker);
   }
 
   /**

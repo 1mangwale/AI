@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PhpApiService } from './php-api.service';
 import { ConfigService } from '@nestjs/config';
+import { CircuitBreakerService } from '../../common/services/circuit-breaker.service';
 
 /**
  * PHP Wishlist Service
@@ -13,8 +14,8 @@ import { ConfigService } from '@nestjs/config';
  */
 @Injectable()
 export class PhpWishlistService extends PhpApiService {
-  constructor(configService: ConfigService) {
-    super(configService);
+  constructor(configService: ConfigService, circuitBreaker: CircuitBreakerService) {
+    super(configService, circuitBreaker);
   }
 
   /**

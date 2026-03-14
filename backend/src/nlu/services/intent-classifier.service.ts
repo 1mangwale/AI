@@ -694,6 +694,35 @@ export class IntentClassifierService {
       return { intent: 'checkout', confidence: Math.max(confidence, 0.85), corrected: true };
     }
 
+    // ========== greet → order_food correction ==========
+    // Hindi greetings containing food words get misclassified as greet
+    // "bhai biryani bhejo", "yaar pizza order karo" → greet (wrong) → should be order_food
+    if (intent === 'greet' && isLowConfidence) {
+      const foodOrderPattern = /\b(order|bhejo|karo|de\s*do|chahiye|manga|lao|do)\b/i;
+      if (foodMenuKeywords.test(lower) && foodOrderPattern.test(lower)) {
+        this.logger.warn(`🔄 [POST-CORRECTION] "${text}" was greet(${confidence.toFixed(2)}) → order_food (food + action keywords)`);
+        return { intent: 'order_food', confidence: Math.max(confidence, 0.80), corrected: true };
+      }
+    }
+
+    // ========== track_order / order_status unification ==========
+    // "mera order kahan hai", "order status", "where is my order" → track_order
+    // These two intents overlap heavily — normalize to order_tracking flow trigger
+    if (intent === 'order_status' && isLowConfidence) {
+      const trackingKeywords = /\b(kahan|where|track|status|update|kitna\s*time|delivery|arriving|eta|pahunch)\b/i;
+      if (trackingKeywords.test(lower)) {
+        this.logger.warn(`🔄 [POST-CORRECTION] "${text}" was order_status(${confidence.toFixed(2)}) → track_order`);
+        return { intent: 'track_order', confidence: Math.max(confidence, 0.80), corrected: true };
+      }
+    }
+
+    // ========== ask_price → search_product correction ==========
+    // "kitne ka hai phone cover", "price of shoes" → ask_price (wrong) → search_product
+    if (intent === 'ask_price' && hasProductKeyword) {
+      this.logger.warn(`🔄 [POST-CORRECTION] "${text}" was ask_price(${confidence.toFixed(2)}) → search_product (product keyword)`);
+      return { intent: 'search_product', confidence: Math.max(confidence, 0.80), corrected: true };
+    }
+
     // ========== view_cart correction ==========
     // Only allow view_cart if there's actually a cart-related keyword
     if (intent === 'view_cart' && isLowConfidence) {

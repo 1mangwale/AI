@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PhpApiService } from './php-api.service';
+import { CircuitBreakerService } from '../../common/services/circuit-breaker.service';
 import { Order, Address } from '../../common/interfaces/common.interface';
 
 /**
@@ -9,8 +10,8 @@ import { Order, Address } from '../../common/interfaces/common.interface';
  */
 @Injectable()
 export class PhpOrderService extends PhpApiService {
-  constructor(configService: ConfigService) {
-    super(configService);
+  constructor(configService: ConfigService, circuitBreaker: CircuitBreakerService) {
+    super(configService, circuitBreaker);
   }
 
   /**

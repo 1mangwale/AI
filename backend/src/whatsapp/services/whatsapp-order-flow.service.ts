@@ -1,8 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import * as mysql from 'mysql2/promise';
 import { WhatsAppCloudService } from './whatsapp-cloud.service';
+import { PhpPaymentService } from '../../php-integration/services/php-payment.service';
 
 interface CartItem {
   productId: string;
@@ -20,6 +21,7 @@ export class WhatsAppOrderFlowService implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     private readonly whatsapp: WhatsAppCloudService,
+    @Optional() private readonly phpPayment?: PhpPaymentService,
   ) {}
 
   async onModuleInit() {
@@ -209,9 +211,24 @@ export class WhatsAppOrderFlowService implements OnModuleInit {
     );
 
     let paymentLink: string | undefined;
-    if (method === 'upi') {
-      // TODO: integrate real UPI payment gateway
-      paymentLink = `upi://pay?pa=mangwale@upi&pn=Mangwale&am=${order.total}&tn=Order-${orderId.substring(0, 8)}`;
+    if (method === 'upi' || method === 'digital' || method === 'online') {
+      // Use Razorpay payment gateway (user selects UPI/card/netbanking on the Razorpay checkout page)
+      try {
+        const authToken = await this.resolveAuthToken(order.phone_number);
+        if (authToken && this.phpPayment) {
+          const result = await this.phpPayment.initializeRazorpay(
+            authToken,
+            order.php_order_id || parseInt(orderId),
+            parseFloat(order.total),
+          );
+          if (result?.paymentLink) {
+            paymentLink = result.paymentLink;
+            this.logger.log(`Razorpay payment link generated for order ${orderId}`);
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`Razorpay init failed for order ${orderId}: ${err.message} — no payment link sent`);
+      }
     }
 
     const updated = await this.getRawOrder(orderId);
@@ -432,6 +449,23 @@ export class WhatsAppOrderFlowService implements OnModuleInit {
     );
 
     return { byStatus: rows, ...totals };
+  }
+
+  /**
+   * Look up the PHP auth token for a phone number from the sessions table.
+   * Returns null if no authenticated session exists.
+   */
+  private async resolveAuthToken(phoneNumber: string): Promise<string | null> {
+    try {
+      const { rows } = await this.pgPool.query(
+        `SELECT data FROM sessions WHERE phone_number = $1 AND data->>'auth_token' IS NOT NULL ORDER BY updated_at DESC LIMIT 1`,
+        [phoneNumber],
+      );
+      return rows[0]?.data?.auth_token || null;
+    } catch (err) {
+      this.logger.warn(`Failed to resolve auth token for ${phoneNumber}: ${err.message}`);
+      return null;
+    }
   }
 
   // ------- helpers -------

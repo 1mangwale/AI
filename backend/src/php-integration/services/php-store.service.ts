@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PhpApiService } from './php-api.service';
+import { CircuitBreakerService } from '../../common/services/circuit-breaker.service';
 
 @Injectable()
 export class PhpStoreService extends PhpApiService {
-  constructor(configService: ConfigService) {
-    super(configService);
+  constructor(configService: ConfigService, circuitBreaker: CircuitBreakerService) {
+    super(configService, circuitBreaker);
   }
 
   /**
