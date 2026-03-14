@@ -1,92 +1,130 @@
 {
-  "dashboard": {
-    "title": "Mangwale AI - API Performance Dashboard",
-    "tags": ["mangwale", "api", "performance"],
-    "timezone": "UTC",
-    "panels": [
-      {
-        "id": 1,
-        "title": "Messages Received (Total)",
-        "type": "graph",
-        "datasource": "Prometheus",
-        "targets": [
-          {
-            "expr": "rate(mangwale_messages_received_total[5m])",
-            "legendFormat": "{{channel}} - {{module}}"
-          }
-        ],
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
-      },
-      {
-        "id": 2,
-        "title": "Message Processing Success Rate",
-        "type": "graph",
-        "datasource": "Prometheus",
-        "targets": [
-          {
-            "expr": "rate(mangwale_messages_processed_total{status=\"success\"}[5m])",
-            "legendFormat": "{{channel}} - Success"
-          }
-        ],
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
-      },
-      {
-        "id": 3,
-        "title": "Message Processing Latency (p99)",
-        "type": "graph",
-        "datasource": "Prometheus",
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.99, mangwale_message_processing_duration_seconds_bucket)",
-            "legendFormat": "p99"
-          }
-        ],
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-        "yaxes": [
-          { "label": "Seconds", "format": "s" }
-        ]
-      },
-      {
-        "id": 4,
-        "title": "Message Processing Latency (p95)",
-        "type": "graph",
-        "datasource": "Prometheus",
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.95, mangwale_message_processing_duration_seconds_bucket)",
-            "legendFormat": "p95"
-          }
-        ],
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-        "yaxes": [
-          { "label": "Seconds", "format": "s" }
-        ]
-      },
-      {
-        "id": 5,
-        "title": "Deduplicated Messages",
-        "type": "graph",
-        "datasource": "Prometheus",
-        "targets": [
-          {
-            "expr": "rate(mangwale_messages_deduplicated_total[5m])",
-            "legendFormat": "Duplicates/sec"
-          }
-        ],
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
-      },
-      {
-        "id": 6,
-        "title": "System Status",
-        "type": "stat",
-        "datasource": "Prometheus",
-        "targets": [
-          {
-            "expr": "up{job=\"mangwale-api\"}"
-          }
-        ],
-        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 16 }
+  "title": "Mangwale AI - API Performance Dashboard",
+  "tags": [
+    "mangwale",
+    "api",
+    "performance"
+  ],
+  "timezone": "UTC",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Messages Received (Total)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(mangwale_messages_received_total[5m])",
+          "legendFormat": "{{channel}} - {{module}}"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
       }
-    ]
-  }
+    },
+    {
+      "id": 2,
+      "title": "Message Processing Success Rate",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(mangwale_messages_processed_total{status=\"success\"}[5m])",
+          "legendFormat": "{{channel}} - Success"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "id": 3,
+      "title": "Message Processing Latency (p99)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, mangwale_message_processing_duration_seconds_bucket)",
+          "legendFormat": "p99"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "yaxes": [
+        {
+          "label": "Seconds",
+          "format": "s"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Message Processing Latency (p95)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, mangwale_message_processing_duration_seconds_bucket)",
+          "legendFormat": "p95"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "yaxes": [
+        {
+          "label": "Seconds",
+          "format": "s"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Deduplicated Messages",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(mangwale_messages_deduplicated_total[5m])",
+          "legendFormat": "Duplicates/sec"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 6,
+      "title": "System Status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "up{job=\"mangwale-api\"}"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 16
+      }
+    }
+  ]
 }

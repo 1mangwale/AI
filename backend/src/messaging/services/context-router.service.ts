@@ -1797,6 +1797,13 @@ export class ContextRouterService implements OnModuleInit {
     if (flowId) {
       this.logger.log(`🚀 Starting new flow: ${flowId} (intent: ${intent.intent}, reason: ${routeDecision?.reason || 'direct lookup'})`);
 
+      // Clear conversational search context when switching to a non-search flow
+      const isSearchFlow = flowId === 'food_order_v1' || flowId === 'ecommerce_order_v1';
+      if (!isSearchFlow && session?.data?._search_context) {
+        delete session.data._search_context;
+        this.logger.debug('Cleared _search_context (switching to non-search flow)');
+      }
+
       try {
         // Extract auth data from session to pass to flow
         const sessionData = session?.data || {};

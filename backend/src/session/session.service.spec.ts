@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { SessionService, Session } from './session.service';
+import { REDIS_CLIENT } from '../redis/redis.module';
 
 // Mock Redis
 const mockRedis = {
@@ -13,14 +14,32 @@ const mockRedis = {
   rpush: jest.fn(),
   lrange: jest.fn(),
   expire: jest.fn(),
+  ttl: jest.fn().mockResolvedValue(-1),
+  scan: jest.fn().mockResolvedValue(['0', []]),
   ping: jest.fn(),
+  lpop: jest.fn().mockResolvedValue(null),
   on: jest.fn(),
+  connect: jest.fn().mockResolvedValue(undefined),
+  disconnect: jest.fn().mockResolvedValue(undefined),
+  duplicate: jest.fn().mockReturnThis(),
+  status: 'ready',
+  pipeline: jest.fn().mockReturnValue({
+    get: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    setex: jest.fn().mockReturnThis(),
+    del: jest.fn().mockReturnThis(),
+    expire: jest.fn().mockReturnThis(),
+    exec: jest.fn().mockResolvedValue([]),
+  }),
+  multi: jest.fn().mockReturnValue({
+    get: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    setex: jest.fn().mockReturnThis(),
+    del: jest.fn().mockReturnThis(),
+    expire: jest.fn().mockReturnThis(),
+    exec: jest.fn().mockResolvedValue([]),
+  }),
 };
-
-// Mock ioredis module
-jest.mock('ioredis', () => {
-  return jest.fn().mockImplementation(() => mockRedis);
-});
 
 describe('SessionService', () => {
   let service: SessionService;
@@ -47,6 +66,10 @@ describe('SessionService', () => {
       providers: [
         SessionService,
         {
+          provide: REDIS_CLIENT,
+          useValue: mockRedis,
+        },
+        {
           provide: ConfigService,
           useValue: mockConfigService,
         },
@@ -67,8 +90,6 @@ describe('SessionService', () => {
     });
 
     it('should initialize with config values', () => {
-      expect(mockConfigService.get).toHaveBeenCalledWith('redis.host');
-      expect(mockConfigService.get).toHaveBeenCalledWith('redis.port');
       expect(mockConfigService.get).toHaveBeenCalledWith('session.ttl');
     });
   });
@@ -213,7 +234,9 @@ describe('SessionService', () => {
 
       await service.setStep('+1234567890', 'menu');
 
-      const savedData = JSON.parse(mockRedis.setex.mock.calls[0][2]);
+      // Check the last setex call (saveSession may trigger multiple writes)
+      const lastCall = mockRedis.setex.mock.calls[mockRedis.setex.mock.calls.length - 1];
+      const savedData = JSON.parse(lastCall[2]);
       expect(savedData.currentStep).toBe('menu');
     });
 
@@ -400,7 +423,8 @@ describe('SessionService', () => {
         { phoneNumber: '+1', currentStep: 'a', data: {}, createdAt: 1, updatedAt: 1 },
         { phoneNumber: '+2', currentStep: 'b', data: {}, createdAt: 2, updatedAt: 2 },
       ];
-      mockRedis.keys.mockResolvedValue(['session:+1', 'session:+2']);
+      // Service uses redis.scan instead of redis.keys
+      mockRedis.scan.mockResolvedValue(['0', ['session:+1', 'session:+2']]);
       mockRedis.get
         .mockResolvedValueOnce(JSON.stringify(sessions[0]))
         .mockResolvedValueOnce(JSON.stringify(sessions[1]));
@@ -437,19 +461,18 @@ describe('SessionService', () => {
   });
 
   describe('getBotMessages', () => {
-    it('should return and clear messages', async () => {
+    it('should return messages', async () => {
       const messages = [
         JSON.stringify({ message: 'Hello!', timestamp: Date.now() }),
         JSON.stringify({ message: 'How can I help?', timestamp: Date.now() }),
       ];
       mockRedis.lrange.mockResolvedValue(messages);
-      mockRedis.del.mockResolvedValue(1);
 
       const result = await service.getBotMessages('+1234567890');
 
       expect(result).toHaveLength(2);
       expect(result[0].message).toBe('Hello!');
-      expect(mockRedis.del).toHaveBeenCalledWith('bot_messages:+1234567890');
+      // getBotMessages no longer deletes messages; caller must explicitly acknowledge
     });
 
     it('should return empty array when no messages', async () => {

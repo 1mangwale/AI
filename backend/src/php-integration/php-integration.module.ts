@@ -18,6 +18,7 @@ import { PhpDeliveryAuthService } from './services/php-delivery-auth.service';
 import { UserTypeDetectorService } from './services/user-type-detector.service';
 import { VendorNotificationService } from './services/vendor-notification.service';
 import { PhpWishlistService } from './services/php-wishlist.service';
+import { PhpPersonalizationService } from './services/php-personalization.service';
 import { OrderDatabaseService } from './services/order-database.service';
 import { RiderApiService } from './services/rider-api.service';
 import { OrderWebhookController } from './controllers/order-webhook.controller';
@@ -51,6 +52,7 @@ import { RoutingModule } from '../routing/routing.module';
     UserTypeDetectorService,
     VendorNotificationService,
     PhpWishlistService,
+    PhpPersonalizationService,
     OrderDatabaseService,
     RiderApiService,
   ],
@@ -72,6 +74,7 @@ import { RoutingModule } from '../routing/routing.module';
     UserTypeDetectorService,
     VendorNotificationService,
     PhpWishlistService,
+    PhpPersonalizationService,
     OrderDatabaseService,
     RiderApiService,
   ],

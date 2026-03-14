@@ -8,6 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { FlowContextService } from './flow-context.service';
 import { StateMachineEngine } from './state-machine.engine';
 import { ExecutorRegistryService } from './executor-registry.service';
+import { InputValidatorService } from './executors/input-validator.service';
 import { PrismaService } from '../database/prisma.service';
 import { FlowDefinition } from './types/flow.types';
 
@@ -422,6 +423,7 @@ describe('Flow Engine E2E Integration Tests', () => {
         FlowContextService,
         StateMachineEngine,
         ExecutorRegistryService,
+        InputValidatorService,
         { provide: PrismaService, useValue: mockPrismaService },
       ],
     }).compile();

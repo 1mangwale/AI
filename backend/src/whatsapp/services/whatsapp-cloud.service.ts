@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../../redis/redis.module';
 import {
   TextMessage,
   ImageMessage,
@@ -42,16 +44,27 @@ export class WhatsAppCloudService {
   private readonly apiVersion: string;
   private readonly baseUrl: string;
 
+  // Rate limiter: token bucket (80 msgs/sec, well under Meta's 1000/sec)
+  private rateLimitTokens = 80;
+  private readonly RATE_LIMIT_CAPACITY = 80;
+  private readonly RATE_LIMIT_REFILL_RATE = 80;
+  private lastRefillTime = Date.now();
+
+  // 24-hour session window
+  private readonly SESSION_WINDOW_TTL = 25 * 60 * 60; // 25h (1h buffer)
+  private readonly SESSION_WINDOW_KEY = 'wa:last_msg:';
+
   constructor(
     private configService: ConfigService,
     private httpService: HttpService,
+    @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
   ) {
     this.phoneNumberId = this.configService.get('whatsapp.phoneNumberId');
     this.accessToken = this.configService.get('whatsapp.accessToken');
     this.apiVersion = this.configService.get('whatsapp.apiVersion') || 'v24.0';
     this.baseUrl = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}`;
-    
-    this.logger.log(`✅ WhatsApp Cloud Service initialized (API ${this.apiVersion})`);
+
+    this.logger.log(`✅ WhatsApp Cloud Service initialized (API ${this.apiVersion}, rate limiter + 24h window)`);
   }
 
   // ============================================
@@ -656,13 +669,26 @@ export class WhatsAppCloudService {
   // ============================================
 
   private async sendMessage(message: any): Promise<MessageResponse> {
+    // 24-hour window check for non-template messages
+    const isTemplate = message.type === 'template';
+    if (!isTemplate && message.to) {
+      const withinWindow = await this.isWithin24hWindow(message.to);
+      if (!withinWindow) {
+        this.logger.warn(`⏰ 24h window expired for ${message.to} — non-template message blocked. Use template instead.`);
+        throw new Error(`24-hour messaging window expired for ${message.to}. Use a template message.`);
+      }
+    }
+
+    // Rate limiting
+    await this.acquireRateLimitToken();
+
     return this.sendToApi(message);
   }
 
   private async sendToApi(payload: any): Promise<any> {
     try {
       this.logger.debug(`📤 WhatsApp API payload: ${JSON.stringify(payload).substring(0, 500)}`);
-      
+
       const response = await firstValueFrom(
         this.httpService.post(`${this.baseUrl}/messages`, payload, {
           headers: {
@@ -678,6 +704,82 @@ export class WhatsAppCloudService {
       const errorData = error.response?.data?.error || error.message;
       this.logger.error(`❌ WhatsApp API error: ${JSON.stringify(errorData)}`);
       throw error;
+    }
+  }
+
+  // ============================================
+  // RATE LIMITING
+  // ============================================
+
+  /**
+   * Token bucket rate limiter — blocks until a token is available
+   */
+  private async acquireRateLimitToken(): Promise<void> {
+    this.refillTokens();
+
+    if (this.rateLimitTokens >= 1) {
+      this.rateLimitTokens -= 1;
+      return;
+    }
+
+    // Wait and retry with exponential backoff (max 5 retries)
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const delay = Math.min(100 * Math.pow(2, attempt), 2000);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      this.refillTokens();
+      if (this.rateLimitTokens >= 1) {
+        this.rateLimitTokens -= 1;
+        return;
+      }
+    }
+
+    this.logger.warn('Rate limit exhausted after 5 retries — sending anyway');
+  }
+
+  private refillTokens(): void {
+    const now = Date.now();
+    const elapsed = (now - this.lastRefillTime) / 1000;
+    this.rateLimitTokens = Math.min(
+      this.RATE_LIMIT_CAPACITY,
+      this.rateLimitTokens + elapsed * this.RATE_LIMIT_REFILL_RATE,
+    );
+    this.lastRefillTime = now;
+  }
+
+  // ============================================
+  // 24-HOUR SESSION WINDOW
+  // ============================================
+
+  /**
+   * Record inbound message timestamp (call from webhook controller)
+   */
+  async recordInboundMessage(phoneNumber: string): Promise<void> {
+    if (!this.redis) return;
+    try {
+      await this.redis.setex(
+        `${this.SESSION_WINDOW_KEY}${phoneNumber}`,
+        this.SESSION_WINDOW_TTL,
+        String(Date.now()),
+      );
+    } catch (err) {
+      this.logger.debug(`Failed to record inbound timestamp: ${err.message}`);
+    }
+  }
+
+  /**
+   * Check if phone number is within the 24-hour messaging window
+   */
+  async isWithin24hWindow(phoneNumber: string): Promise<boolean> {
+    if (!this.redis) return true; // If no Redis, allow (fail open)
+    try {
+      const timestamp = await this.redis.get(`${this.SESSION_WINDOW_KEY}${phoneNumber}`);
+      if (!timestamp) return false;
+
+      const ageMs = Date.now() - parseInt(timestamp, 10);
+      return ageMs < 24 * 60 * 60 * 1000; // 24 hours in ms
+    } catch (err) {
+      this.logger.debug(`Failed to check 24h window: ${err.message}`);
+      return true; // Fail open
     }
   }
 

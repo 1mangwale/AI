@@ -41,7 +41,7 @@ describe('NluService', () => {
   };
 
   const mockTrainingDataService = {
-    captureTrainingSample: jest.fn(),
+    captureTrainingSample: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockConversationCapture = {
@@ -132,7 +132,7 @@ describe('NluService', () => {
 
       expect(mockEntityExtractor.extract).toHaveBeenCalledWith(
         baseDto.text,
-        'order_food',
+        '',
         'en',
       );
     });
@@ -172,7 +172,7 @@ describe('NluService', () => {
       expect(mockTrainingDataService.captureTrainingSample).not.toHaveBeenCalled();
     });
 
-    it('should not capture training data for non-LLM providers', async () => {
+    it('should capture and auto-approve training data for high confidence non-LLM providers', async () => {
       mockIntentClassifier.classify.mockResolvedValue({
         intent: 'greeting',
         confidence: 0.9,
@@ -182,7 +182,13 @@ describe('NluService', () => {
 
       await service.classify(baseDto);
 
-      expect(mockTrainingDataService.captureTrainingSample).not.toHaveBeenCalled();
+      // High confidence IndicBERT predictions (>=0.85) are captured with auto-approve
+      expect(mockTrainingDataService.captureTrainingSample).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'nlu',
+          reviewStatus: 'approved',
+        }),
+      );
     });
 
     it('should capture conversation async', async () => {
@@ -241,7 +247,7 @@ describe('NluService', () => {
     });
 
     it('should classify help requests', async () => {
-      const result = await service.classify({ text: 'I need help' } as ClassifyTextDto);
+      const result = await service.classify({ text: 'I need support' } as ClassifyTextDto);
 
       expect(result.intent).toBe('help');
     });

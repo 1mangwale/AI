@@ -10,6 +10,8 @@ import { BroadcastModule } from '../broadcast/broadcast.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { OrderFlowModule } from '../order-flow/order-flow.module';
 import { SmartDiscountService } from '../demand/services/smart-discount.service';
+import { LearningModule } from '../learning/learning.module';
+import { NluModule } from '../nlu/nlu.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { SmartDiscountService } from '../demand/services/smart-discount.service'
     AnalyticsModule,
     DemandModule,
     BroadcastModule,
+    LearningModule,
+    NluModule,
     forwardRef(() => WhatsAppModule),
     forwardRef(() => OrderFlowModule),
   ],

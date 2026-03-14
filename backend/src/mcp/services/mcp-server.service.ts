@@ -14,7 +14,7 @@ import { MetricsService } from '../../metrics/metrics.service';
  * Wraps the @modelcontextprotocol/sdk Server and registers all Mangwale
  * commerce tools. The controller handles HTTP transport (SSE + POST).
  *
- * Tools exposed (19 total):
+ * Tools exposed (20 total):
  * Discovery (no auth):
  * - search_restaurants, get_restaurant_menu, search_items
  * - check_serviceability, get_coupons, get_payment_methods, get_categories
@@ -38,6 +38,7 @@ export class McpServerService implements OnModuleInit {
     get_categories: 600,       // 10 min
     conversational_search: 60, // 1 min
     order_by_recipe: 300,      // 5 min
+    get_recommendations: 300,  // 5 min
   };
 
   constructor(
@@ -47,7 +48,7 @@ export class McpServerService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    this.logger.log('MCP Server Service initialized — 19 tools registered');
+    this.logger.log('MCP Server Service initialized — 20 tools registered');
   }
 
   /**
@@ -370,6 +371,25 @@ export class McpServerService implements OnModuleInit {
             required: ['recipe_or_meal'],
           },
         },
+        {
+          name: 'get_recommendations',
+          description:
+            'Get personalized item recommendations for the authenticated user. Supports three types: "hybrid" (collaborative + content-based), "reorder" (based on past orders), and "complementary" (items that pair well). Requires auth_token.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              auth_token: { type: 'string', description: 'Bearer token from verify_otp' },
+              type: {
+                type: 'string',
+                enum: ['hybrid', 'reorder', 'complementary'],
+                description: 'Type of recommendations: "hybrid" (default, mixed), "reorder" (past order items), "complementary" (items that pair well)',
+              },
+              zone_id: { type: 'number', description: 'Zone ID for location-based recommendations' },
+              limit: { type: 'number', description: 'Max results (default: 10)' },
+            },
+            required: ['auth_token'],
+          },
+        },
       ],
     }));
 
@@ -453,6 +473,9 @@ export class McpServerService implements OnModuleInit {
             break;
           case 'order_by_recipe':
             result = await this.tools.orderByRecipe(args as any);
+            break;
+          case 'get_recommendations':
+            result = await this.tools.getRecommendations(args as any);
             break;
           default:
             return {

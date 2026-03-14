@@ -8,6 +8,7 @@ import { PhpAddressService } from '../../php-integration/services/php-address.se
 import { PhpWalletService } from '../../php-integration/services/php-wallet.service';
 import { PhpCouponService } from '../../php-integration/services/php-coupon.service';
 import { PhpPaymentService } from '../../php-integration/services/php-payment.service';
+import { PhpPersonalizationService } from '../../php-integration/services/php-personalization.service';
 import { ZoneService } from '../../zones/services/zone.service';
 import { SearchAIIntegrationService } from '../../search/services/search-ai-integration.service';
 
@@ -36,6 +37,7 @@ export class McpToolsService {
     private readonly walletService: PhpWalletService,
     private readonly couponService: PhpCouponService,
     private readonly paymentService: PhpPaymentService,
+    private readonly personalizationService: PhpPersonalizationService,
     private readonly zoneService: ZoneService,
     @Optional() private readonly searchAI?: SearchAIIntegrationService,
   ) {
@@ -799,6 +801,74 @@ export class McpToolsService {
       total_options: generalSearch.items?.length || 0,
       tip: `No exact recipe match for "${recipe_or_meal}". Showing general search results. Try specific dish names like "paneer butter masala" or "chicken biryani".`,
     };
+  }
+
+  // ─── Personalization Tools (Tool #20) ─────────────────────
+
+  /**
+   * Get personalized recommendations based on type.
+   * Requires authentication (auth_token from verify_otp).
+   */
+  async getRecommendations(params: {
+    auth_token: string;
+    type?: 'hybrid' | 'reorder' | 'complementary';
+    zone_id?: number;
+    limit?: number;
+  }): Promise<any> {
+    if (!params.auth_token) {
+      return { error: 'auth_token is required. Use send_otp + verify_otp to authenticate.' };
+    }
+
+    const type = params.type || 'hybrid';
+    const limit = params.limit || 10;
+    const zoneId = params.zone_id || 4; // default zone
+
+    try {
+      let items: any[];
+
+      switch (type) {
+        case 'reorder':
+          items = await this.personalizationService.getReorderSuggestions(
+            params.auth_token,
+            limit,
+          );
+          break;
+        case 'complementary':
+          items = await this.personalizationService.getComplementaryItems(
+            params.auth_token,
+            zoneId,
+            limit,
+          );
+          break;
+        case 'hybrid':
+        default:
+          items = await this.personalizationService.getRecommendations(
+            params.auth_token,
+            zoneId,
+            limit,
+          );
+          break;
+      }
+
+      return {
+        type,
+        recommendations: (items || []).map((item: any) => ({
+          id: item.id || item.item_id,
+          name: item.name || item.item_name,
+          description: item.description || '',
+          price: item.price,
+          store_id: item.store_id,
+          store_name: item.store_name || '',
+          image: item.image || item.image_url || '',
+          rating: item.avg_rating || item.rating || 0,
+          reason: item.reason || item.recommendation_reason || '',
+        })),
+        total: (items || []).length,
+      };
+    } catch (err) {
+      this.logger.error(`getRecommendations failed: ${err.message}`);
+      return { recommendations: [], total: 0, error: 'Failed to fetch recommendations' };
+    }
   }
 
   async getCategories(params: {

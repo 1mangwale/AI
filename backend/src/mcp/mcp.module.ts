@@ -4,6 +4,7 @@ import { McpController } from './mcp.controller';
 import { McpServerService } from './services/mcp-server.service';
 import { McpToolsService } from './services/mcp-tools.service';
 import { McpCacheService } from './services/mcp-cache.service';
+import { McpOpenApiService } from './services/mcp-openapi.service';
 import { PhpIntegrationModule } from '../php-integration/php-integration.module';
 import { ZonesModule } from '../zones/zones.module';
 import { SearchModule } from '../search/search.module';
@@ -35,6 +36,6 @@ import { SearchModule } from '../search/search.module';
     SearchModule,
   ],
   controllers: [McpController],
-  providers: [McpServerService, McpToolsService, McpCacheService],
+  providers: [McpServerService, McpToolsService, McpCacheService, McpOpenApiService],
 })
 export class McpModule {}

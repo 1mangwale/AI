@@ -4,18 +4,25 @@ import * as mysql from 'mysql2/promise';
 
 /**
  * User Profile Enrichment Service
- * 
- * Builds comprehensive user profiles in PostgreSQL by:
- * 1. Syncing user data from MySQL (PHP backend) on first login
- * 2. Analyzing order history to detect patterns
- * 3. Calculating preferences (cuisines, price range, meal times)
- * 4. Updating profile after each order
- * 
- * This enables personalized AI interactions with:
- * - Knowledge of user's favorite items/stores
- * - Dietary preferences detection
- * - Price sensitivity analysis
- * - Order frequency patterns
+ *
+ * Builds comprehensive user profiles in PostgreSQL for NLU-specific features.
+ *
+ * ARCHITECTURE NOTE (Phase 9):
+ * PHP backend has its own ProfileComputeService that builds user profiles
+ * (preferred_categories, stores, dietary, segment) from the same order data.
+ * PHP serves these via GET /api/v1/customer/profile/summary.
+ *
+ * This NestJS service should focus on NLU-specific enrichment fields that
+ * PHP does NOT compute:
+ * - conversation_style, nlu_preferences, personality_traits
+ * - Items/stores discovered via conversational search (not app browsing)
+ *
+ * For standard profile data (categories, stores, price sensitivity), prefer
+ * calling PHP's profile/summary API via PhpPersonalizationService instead of
+ * re-analyzing MySQL order history here.
+ *
+ * The MySQL order analysis below is kept as a fallback for when PHP
+ * personalization endpoints are unavailable, but PHP is the primary source.
  */
 
 export interface OrderPatterns {

@@ -1,0 +1,173 @@
+{
+  "id": null,
+  "uid": "flow-engine",
+  "title": "Flow Engine",
+  "tags": [
+    "mangwale",
+    "flows"
+  ],
+  "timezone": "Asia/Kolkata",
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Flow Executions (rate/min)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(mangwale_flow_executions_total[5m])) by (flow) * 60",
+          "legendFormat": "{{flow}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Active Flows",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "mangwale_active_flows",
+          "legendFormat": "Active"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Active Sessions",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "mangwale_active_sessions",
+          "legendFormat": "Sessions"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Flow Completion vs Drop-off Rate",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(mangwale_flow_completions_total[5m])) * 60",
+          "legendFormat": "Completions/min"
+        },
+        {
+          "expr": "sum(rate(mangwale_flow_dropoffs_total[5m])) * 60",
+          "legendFormat": "Drop-offs/min"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Flow Duration (p50 / p95)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, rate(mangwale_flow_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(mangwale_flow_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Drop-offs by State",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (state) (increase(mangwale_flow_dropoffs_total[1h])))",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      }
+    },
+    {
+      "id": 7,
+      "title": "Messages by Channel",
+      "type": "piechart",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "sum by (channel) (increase(mangwale_channel_messages_total[24h]))",
+          "legendFormat": "{{channel}}"
+        }
+      ]
+    }
+  ]
+}

@@ -164,6 +164,9 @@ export class WebhookController {
 
       this.logger.log(`📩 Message from ${from}: ${type}`);
 
+      // Record inbound timestamp for 24h session window tracking
+      this.whatsappCloudService.recordInboundMessage(from).catch(() => {});
+
       // Mark as read via Cloud API (shows blue ticks immediately)
       this.whatsappCloudService.markAsRead(messageId).catch(() => {});
       

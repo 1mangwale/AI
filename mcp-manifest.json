@@ -27,6 +27,16 @@
       "description": "Server health and status endpoint."
     }
   },
+  "setup": {
+    "claude_desktop": {
+      "mcpServers": {
+        "mangwale": {
+          "url": "https://api.mangwale.com/mcp/stream",
+          "transport": "streamable-http"
+        }
+      }
+    }
+  },
   "authentication": {
     "type": "otp",
     "description": "Phone-based OTP authentication for transactional tools. Use send_otp → verify_otp to obtain an auth_token.",

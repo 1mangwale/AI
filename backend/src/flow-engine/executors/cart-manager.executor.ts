@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ActionExecutor, ActionExecutionResult, FlowContext } from '../types/flow.types';
+import { CartPersistenceService } from '../../session/services/cart-persistence.service';
 
 interface FoodVariation {
   type: string;
@@ -20,6 +21,7 @@ interface CartItem {
   storeLng?: number;
   variation?: FoodVariation[];
   variationLabel?: string;
+  specialInstruction?: string;
 }
 
 /**
@@ -40,22 +42,44 @@ export class CartManagerExecutor implements ActionExecutor {
   readonly name = 'cart_manager';
   private readonly logger = new Logger(CartManagerExecutor.name);
 
+  constructor(
+    @Optional() private readonly cartPersistence?: CartPersistenceService,
+  ) {}
+
   async execute(
     config: Record<string, any>,
     context: FlowContext
   ): Promise<ActionExecutionResult> {
     try {
       const operation = config.operation || 'add';
-      
+      let result: ActionExecutionResult;
+
+      // Restore cart from persistence if starting fresh (no cart in context)
+      if (operation === 'add' && this.cartPersistence && context._system?.sessionId) {
+        const existingCart = (context.data.cart_items as any[]) || [];
+        if (existingCart.length === 0) {
+          const persisted = await this.cartPersistence.getCart(context._system?.sessionId);
+          if (persisted && persisted.length > 0) {
+            context.data.cart_items = persisted;
+            context.data.selected_items = persisted;
+            this.logger.log(`🔄 Restored ${persisted.length} items from persisted cart`);
+          }
+        }
+      }
+
       switch (operation) {
         case 'add':
-          return this.addToCart(config, context);
+          result = this.addToCart(config, context);
+          break;
         case 'remove':
-          return this.removeFromCart(config, context);
+          result = this.removeFromCart(config, context);
+          break;
         case 'clear':
-          return this.clearCart(context);
+          result = this.clearCart(context);
+          break;
         case 'validate':
-          return this.validateCart(config, context);
+          result = this.validateCart(config, context);
+          break;
         default:
           return {
             success: false,
@@ -63,6 +87,16 @@ export class CartManagerExecutor implements ActionExecutor {
             event: 'error',
           };
       }
+
+      // Persist cart after mutations (non-blocking)
+      if (this.cartPersistence && context._system?.sessionId && ['add', 'remove', 'clear'].includes(operation)) {
+        const cartItems = result.output?.cart_data || result.output?.cart_items || [];
+        this.cartPersistence.saveCart(context._system?.sessionId, cartItems, context._system?.flowId).catch(err =>
+          this.logger.debug(`Cart persistence failed (non-fatal): ${err.message}`),
+        );
+      }
+
+      return result;
     } catch (error) {
       this.logger.error(`Cart operation failed: ${error.message}`, error.stack);
       return {
@@ -97,23 +131,32 @@ export class CartManagerExecutor implements ActionExecutor {
     // Items with different variations are treated as separate line items
     const updatedCart = [...existingCart];
     
+    // Attach special instructions from NER if available and item doesn't already have one
+    const globalInstruction = (context.data.special_instructions as string) || (context.data.order_note as string) || '';
+
     for (const newItem of newItems) {
+      // Attach special instruction from NER PREF entity if item doesn't have its own
+      if (!newItem.specialInstruction && globalInstruction) {
+        newItem.specialInstruction = globalInstruction;
+      }
+
       const variationKey = newItem.variationLabel || '';
       const existingIndex = updatedCart.findIndex(
         item => item.itemId === newItem.itemId && (item.variationLabel || '') === variationKey
       );
-      
+
       if (existingIndex >= 0) {
-        // Update quantity of existing item
+        // Update quantity of existing item (keep existing instruction, or add new one)
         updatedCart[existingIndex] = {
           ...updatedCart[existingIndex],
           quantity: updatedCart[existingIndex].quantity + newItem.quantity,
+          specialInstruction: updatedCart[existingIndex].specialInstruction || newItem.specialInstruction,
         };
         this.logger.debug(`Updated quantity: ${newItem.itemName} now has ${updatedCart[existingIndex].quantity}`);
       } else {
         // Add new item
         updatedCart.push(newItem);
-        this.logger.debug(`Added to cart: ${newItem.itemName} x${newItem.quantity}`);
+        this.logger.debug(`Added to cart: ${newItem.itemName} x${newItem.quantity}${newItem.specialInstruction ? ` (${newItem.specialInstruction})` : ''}`);
       }
     }
 

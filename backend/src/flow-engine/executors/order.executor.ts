@@ -449,6 +449,9 @@ export class OrderExecutor implements ActionExecutor {
    * Normalize order_note / preference to a plain string.
    * NER returns preference as an array (e.g., ["no tarri", "extra spicy"]).
    * PHP's order_note field expects a single string.
+   *
+   * Also builds per-item instruction summary from cart items:
+   * "Missal Pav x5: no oil | Samosa x3: extra chutney"
    */
   private resolveOrderNote(...sources: any[]): string | undefined {
     for (const src of sources) {
@@ -457,6 +460,30 @@ export class OrderExecutor implements ActionExecutor {
       if (typeof src === 'string' && src.trim()) return src.trim();
     }
     return undefined;
+  }
+
+  /**
+   * Build order note by combining per-item special instructions from cart
+   * with the global order_note. Per-item instructions take precedence.
+   */
+  private buildOrderNoteWithItemInstructions(
+    cartItems: any[],
+    globalNote: string | undefined,
+  ): string | undefined {
+    const itemNotes = (cartItems || [])
+      .filter((item: any) => item.specialInstruction)
+      .map((item: any) => `${item.itemName} x${item.quantity}: ${item.specialInstruction}`);
+
+    if (itemNotes.length > 0) {
+      const combined = itemNotes.join(' | ');
+      // If there's also a global note that differs from item notes, append it
+      if (globalNote && !itemNotes.some(n => n.includes(globalNote))) {
+        return `${combined} | Note: ${globalNote}`;
+      }
+      return combined;
+    }
+
+    return globalNote;
   }
 
   /**
@@ -503,7 +530,9 @@ export class OrderExecutor implements ActionExecutor {
     // but we still record/forward user preference when available.
     const paymentMethod = this.resolvePaymentMethod(config, context, 'digital_payment');
     // Check order_note from config, context data, or extracted_food special_instructions
-    const orderNote = this.resolveOrderNote(config.order_note, context.data.order_note, context.data.extracted_food?.special_instructions);
+    const globalNote = this.resolveOrderNote(config.order_note, context.data.order_note, context.data.extracted_food?.special_instructions);
+    // Build final note: per-item instructions (if any) take precedence over global note
+    const orderNote = this.buildOrderNoteWithItemInstructions(items, globalNote);
 
     if (!items || items.length === 0) {
       return {
@@ -682,7 +711,10 @@ export class OrderExecutor implements ActionExecutor {
     const orderGroups = config.orderGroups || context.data.cart_validation?.orderGroups || [];
     const deliveryAddress = config.delivery_address || context.data.delivery_address;
     const paymentMethod = this.resolvePaymentMethod(config, context, 'digital_payment');
-    const orderNote = this.resolveOrderNote(config.order_note, context.data.order_note, context.data.extracted_food?.special_instructions);
+    const globalNote = this.resolveOrderNote(config.order_note, context.data.order_note, context.data.extracted_food?.special_instructions);
+    // Per-group: each store order gets its own per-item instructions
+    const allItems = orderGroups.flatMap((g: any) => g.items || []);
+    const orderNote = this.buildOrderNoteWithItemInstructions(allItems, globalNote);
 
     if (!orderGroups || orderGroups.length === 0) {
       return {
@@ -957,7 +989,8 @@ export class OrderExecutor implements ActionExecutor {
         message: 'Payment method is required. Please select a payment method before placing the order.',
       };
     }
-    const orderNote = this.resolveOrderNote(config.order_note, context.data.order_note);
+    const globalNote = this.resolveOrderNote(config.order_note, context.data.order_note);
+    const orderNote = this.buildOrderNoteWithItemInstructions(items, globalNote);
 
     if (!items || items.length === 0) {
       return {

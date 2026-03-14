@@ -31,10 +31,17 @@ describe('OrderEventsWebhookController', () => {
       },
     };
 
+    const securityAlerts = {
+      logSecurityEvent: jest.fn().mockResolvedValue(undefined),
+      reportAnomaly: jest.fn().mockResolvedValue(undefined),
+      paymentWebhookSignatureFailure: jest.fn(),
+    };
+
     // Direct instantiation to avoid NestJS module resolution of all transitive deps
     controller = new OrderEventsWebhookController(
       configService as any,
       orchestrationService as any,
+      securityAlerts as any,
     );
   });
 

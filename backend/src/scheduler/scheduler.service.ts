@@ -14,6 +14,8 @@ import { EventTriggerService } from '../broadcast/services/event-trigger.service
 import { AutoActionService } from './services/auto-action.service';
 import { ProactiveMessagingService } from '../broadcast/services/proactive-messaging.service';
 import { CartRecoveryService } from '../broadcast/services/cart-recovery.service';
+import { SelfLearningService } from '../learning/services/self-learning.service';
+import { NluTrainingDataService } from '../nlu/services/nlu-training-data.service';
 
 export interface SchedulerJob {
   jobName: string;
@@ -48,6 +50,8 @@ const JOB_DEFINITIONS: JobDefinition[] = [
   { jobName: 'run_auto_refund', cronExpression: '0 11 * * *', defaultEnabled: false, description: 'Auto-refund late orders (daily 11AM)' },
   { jobName: 'proactive_lunch_suggestions', cronExpression: '0 30 11 * * *', defaultEnabled: true, description: 'Send lunch meal suggestions via WhatsApp (daily 11:30AM)' },
   { jobName: 'proactive_dinner_suggestions', cronExpression: '0 30 18 * * *', defaultEnabled: true, description: 'Send dinner meal suggestions via WhatsApp (daily 6:30PM)' },
+  { jobName: 'nlu_fallback_review', cronExpression: '0 4 * * *', defaultEnabled: true, description: 'Auto-approve consistent low-confidence NLU predictions (daily 4AM)' },
+  { jobName: 'nlu_auto_augment', cronExpression: '0 5 * * 1', defaultEnabled: true, description: 'Generate synthetic training data for weak intents (weekly Mon 5AM)' },
 ];
 
 @Injectable()
@@ -69,6 +73,8 @@ export class SchedulerService implements OnModuleInit {
     private readonly autoAction: AutoActionService,
     private readonly proactiveMessaging: ProactiveMessagingService,
     private readonly cartRecovery: CartRecoveryService,
+    private readonly selfLearning: SelfLearningService,
+    private readonly nluTrainingData: NluTrainingDataService,
   ) {}
 
   async onModuleInit() {
@@ -114,7 +120,7 @@ export class SchedulerService implements OnModuleInit {
       }
 
       client.release();
-      this.logger.log('SchedulerService initialized with 13 job definitions');
+      this.logger.log(`SchedulerService initialized with ${JOB_DEFINITIONS.length} job definitions`);
     } catch (error: any) {
       this.logger.error(`Failed to initialize: ${error.message}`);
     }
@@ -235,6 +241,20 @@ export class SchedulerService implements OnModuleInit {
     await this.executeJob('proactive_dinner_suggestions', async () => {
       const result = await this.proactiveMessaging.runMealTimeCampaign('dinner');
       return result;
+    });
+  }
+
+  @Cron('0 4 * * *', { name: 'nlu_fallback_review' })
+  async cronNluFallbackReview() {
+    await this.executeJob('nlu_fallback_review', async () => {
+      return this.selfLearning.processLowConfidencePredictions();
+    });
+  }
+
+  @Cron('0 5 * * 1', { name: 'nlu_auto_augment' })
+  async cronNluAutoAugment() {
+    await this.executeJob('nlu_auto_augment', async () => {
+      return this.nluTrainingData.generateWeeklyAugmentation();
     });
   }
 
@@ -366,6 +386,12 @@ export class SchedulerService implements OnModuleInit {
       },
       proactive_dinner_suggestions: async () => {
         return this.proactiveMessaging.runMealTimeCampaign('dinner');
+      },
+      nlu_fallback_review: async () => {
+        return this.selfLearning.processLowConfidencePredictions();
+      },
+      nlu_auto_augment: async () => {
+        return this.nluTrainingData.generateWeeklyAugmentation();
       },
     };
 

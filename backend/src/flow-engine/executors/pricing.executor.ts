@@ -116,12 +116,16 @@ export class PricingExecutor implements ActionExecutor {
       return { charge, source: 'zone_pivot', maxCharge: moduleRate.maxCharge };
     }
 
-    // Fallback: local env-var-based estimate
-    this.logger.debug(`No zone pivot rates for module ${moduleId} — using local fallback`);
+    // Fallback: local env-var-based estimate — CONSUMER PRICE ESTIMATE ONLY
+    // PHP is the source of truth for consumer prices. This fallback is used only when:
+    // 1. User is not yet authenticated (no zone config fetched)
+    // 2. Zone config didn't include rates for this module
+    // The actual order total is always calculated by PHP at placement time.
+    this.logger.warn(`No zone pivot rates for module ${moduleId} — using local estimate (PHP will recalculate at order placement)`);
     const isEcom = moduleId === 5;
     return {
-      charge: this.localDeliveryFee(distance, isEcom, itemsTotal),
-      source: 'local_fallback',
+      charge: this.localDeliveryFeeEstimate(distance, isEcom, itemsTotal),
+      source: 'local_estimate',
       maxCharge: null,
     };
   }
@@ -211,8 +215,14 @@ export class PricingExecutor implements ActionExecutor {
     }
   }
 
-  /** Env-var-based delivery fee estimate, used when zone config is unavailable */
-  private localDeliveryFee(distance: number, isEcom: boolean, itemsTotal: number): number {
+  /**
+   * Local delivery fee ESTIMATE — used only as pre-auth fallback.
+   * PHP is the sole source of truth for consumer-facing prices.
+   * This method exists because zone config requires an authenticated session.
+   * The actual delivery fee is always recalculated by PHP at order placement.
+   * @internal Do not use for final pricing — always prefer calculateViaPhpCart()
+   */
+  private localDeliveryFeeEstimate(distance: number, isEcom: boolean, itemsTotal: number): number {
     if (isEcom) {
       // Ecom fallback: use distance-based like food (₹11/km, min ₹25, max ₹45)
       // Old code used flat ₹40 which was wrong
@@ -230,8 +240,9 @@ export class PricingExecutor implements ActionExecutor {
     return maxFee > 0 ? Math.min(raw, maxFee) : raw;
   }
 
+  /** @internal Local estimate only — PHP recalculates at placement. Used when user is not yet authenticated. */
   private calculateFoodPricing(config: any, context: FlowContext): any {
-    this.logger.debug('Using local food pricing estimate (no auth token or PHP unavailable)');
+    this.logger.warn('Using local food pricing ESTIMATE — PHP will recalculate at order placement');
     const items = config.items || context.data.selected_items || [];
     const distance = config.distance || context.data.distance || 0;
 
@@ -295,8 +306,9 @@ export class PricingExecutor implements ActionExecutor {
     };
   }
 
+  /** @internal Local estimate only — PHP recalculates at placement. Used when user is not yet authenticated. */
   private calculateEcommercePricing(config: any, context: FlowContext): any {
-    this.logger.debug('Using local ecommerce pricing estimate (PHP unavailable)');
+    this.logger.warn('Using local ecommerce pricing ESTIMATE — PHP will recalculate at order placement');
     const items = config.items || context.data.cart_items || context.data.selected_items || [];
     const distance = config.distance || context.data.distance || 0;
 

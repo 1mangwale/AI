@@ -13,7 +13,7 @@ import { farewellFlow } from './farewell.flow';
 import { chitchatFlow } from './chitchat.flow';
 import { feedbackFlow } from './feedback.flow';
 import { parcelDeliveryFlow } from './parcel-delivery.flow';
-import { foodOrderFlow } from './food-order.flow';
+import { foodOrderFlow } from './food-order';
 import { ecommerceOrderFlow } from './ecommerce-order.flow';
 import { profileFlow } from './profile.flow';
 import { authFlow } from './auth.flow';

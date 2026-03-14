@@ -346,6 +346,61 @@ export class SelfLearningService {
   }
 
   /**
+   * Process low-confidence predictions for auto-approval.
+   * Groups by input text — if same text classified identically ≥3 times
+   * with confidence >0.70, auto-approves it as training data.
+   */
+  async processLowConfidencePredictions(): Promise<{
+    reviewed: number;
+    autoApproved: number;
+    stillPending: number;
+  }> {
+    this.logger.log('🔍 Processing low-confidence predictions...');
+
+    try {
+      // Find texts that were classified identically ≥3 times with confidence 0.65-0.85
+      const candidates = await this.prisma.$queryRaw<any[]>`
+        SELECT text, intent, COUNT(*)::int as occurrences, AVG(confidence)::float as avg_conf
+        FROM nlu_training_data
+        WHERE status = 'pending_review'
+          AND confidence >= 0.65
+          AND confidence < ${this.HIGH_CONFIDENCE}
+          AND created_at > NOW() - INTERVAL '7 days'
+        GROUP BY text, intent
+        HAVING COUNT(*) >= 3 AND AVG(confidence) >= 0.70
+        ORDER BY COUNT(*) DESC
+        LIMIT 100
+      `;
+
+      let autoApproved = 0;
+
+      for (const candidate of candidates) {
+        // Auto-approve: consistent classification across multiple occurrences
+        await this.prisma.$executeRaw`
+          UPDATE nlu_training_data
+          SET status = 'auto_approved', auto_approved_at = NOW()
+          WHERE text = ${candidate.text} AND intent = ${candidate.intent} AND status = 'pending_review'
+        `;
+        autoApproved++;
+        this.metricsService?.recordSelfLearningAction('auto_approved_batch');
+      }
+
+      // Count remaining pending
+      const pendingResult = await this.prisma.$queryRaw<any[]>`
+        SELECT COUNT(*)::int as cnt FROM nlu_training_data WHERE status = 'pending_review'
+      `;
+      const stillPending = pendingResult[0]?.cnt || 0;
+
+      this.logger.log(`🔍 Low-confidence review: ${candidates.length} candidates, ${autoApproved} auto-approved, ${stillPending} still pending`);
+
+      return { reviewed: candidates.length, autoApproved, stillPending };
+    } catch (error) {
+      this.logger.error(`❌ Low-confidence processing failed: ${error.message}`);
+      return { reviewed: 0, autoApproved: 0, stillPending: 0 };
+    }
+  }
+
+  /**
    * Automatic retraining check (Daily at 2 AM)
    * Checks if model needs retraining and delegates to RetrainingCoordinator
    */

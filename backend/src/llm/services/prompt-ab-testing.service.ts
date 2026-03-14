@@ -358,7 +358,7 @@ export class PromptAbTestingService {
     }
 
     // Determine winner based on metrics
-    const { winner, confidence } = this.calculateWinner(variantStats, experiment.confidenceLevel);
+    const { winner, confidence } = this.calculateWinner(variantStats, Number(experiment.confidenceLevel));
 
     return {
       experimentId: experiment.id,

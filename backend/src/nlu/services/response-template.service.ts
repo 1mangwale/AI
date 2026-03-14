@@ -8,7 +8,7 @@ interface ResponseTemplateConfig {
   template: string;
   variables: string[];
   priority: number;
-  conditions: Record<string, any>;
+  conditions?: Record<string, any>;
 }
 
 @Injectable()
@@ -48,7 +48,7 @@ export class ResponseTemplateService {
         template: t.template,
         variables: t.variables,
         priority: t.priority,
-        conditions: t.conditions as Record<string, any>,
+        conditions: (t as any).conditions as Record<string, any> | undefined,
       }));
 
       this.templateCache.set(cacheKey, configs);
@@ -112,7 +112,7 @@ export class ResponseTemplateService {
         template: t.template,
         variables: t.variables,
         priority: t.priority,
-        conditions: t.conditions as Record<string, any>,
+        conditions: (t as any).conditions as Record<string, any> | undefined,
       }));
     } catch (error) {
       this.logger.error(`Failed to fetch all templates: ${error.message}`);

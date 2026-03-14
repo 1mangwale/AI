@@ -21,7 +21,7 @@ scrape_configs:
   # Mangwale API Server
   - job_name: 'mangwale-api'
     static_configs:
-      - targets: ['mangwale_backend:3200']
+      - targets: ['host.docker.internal:3200']
     metrics_path: '/metrics'
     scrape_interval: 5s
     scrape_timeout: 5s

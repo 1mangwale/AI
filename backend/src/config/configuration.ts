@@ -64,15 +64,18 @@ export default () => ({
     defaultLongitude: parseFloat(process.env.DEFAULT_LONGITUDE) || 73.7898,
     fallbackZones: JSON.parse(process.env.FALLBACK_ZONES || '[{"name":"Nashik City","zoneId":4,"minLat":19.9,"maxLat":20.1,"minLng":73.6,"maxLng":73.9},{"name":"Pune City","zoneId":5,"minLat":18.4,"maxLat":18.7,"minLng":73.7,"maxLng":74.0},{"name":"Mumbai","zoneId":6,"minLat":18.87,"maxLat":19.3,"minLng":72.7,"maxLng":73.1}]'),
   },
+  // Pricing config — VENDOR-SIDE only.
+  // Consumer-facing prices (delivery fees, tax) come from PHP zone config + order placement.
+  // These values are used by FeeCalculatorService for commission/settlement calculations.
   pricing: {
     platformFee: parseFloat(process.env.PLATFORM_FEE) || 5,
+    // GST rates for vendor commission calculation (not consumer display)
     foodGstRate: parseFloat(process.env.FOOD_GST_RATE) || 0.05,
     parcelGstRate: parseFloat(process.env.PARCEL_GST_RATE) || 0.18,
-    defaultDeliveryFeePerKm: parseFloat(process.env.DEFAULT_DELIVERY_FEE_PER_KM) || 10,
-    defaultMinDeliveryFee: parseFloat(process.env.DEFAULT_MIN_DELIVERY_FEE) || 30,
+    // Parcel pricing (used when PHP zone config has null parcel rates)
     parcelPerKmRate: parseFloat(process.env.PARCEL_PER_KM_RATE) || 11.11,
     parcelMinCharge: parseFloat(process.env.PARCEL_MIN_CHARGE) || 44,
-    ecomShippingFee: parseFloat(process.env.ECOM_SHIPPING_FEE) || 40,
+    // Ecommerce free shipping threshold (promotional logic)
     ecomFreeShippingThreshold: parseFloat(process.env.ECOM_FREE_SHIPPING_THRESHOLD) || 500,
   },
   mlServices: {

@@ -392,6 +392,40 @@ export class SearchExecutor implements ActionExecutor {
         }
       }
 
+      // 💬 CONVERSATIONAL SEARCH: Check for multi-turn search context
+      const searchCtx = context.data._search_context;
+      const isConversationalTurn = searchCtx && searchCtx.turn > 0 &&
+        (Date.now() - searchCtx.timestamp) < 10 * 60 * 1000; // <10 min
+
+      if (isConversationalTurn && this.searchAI && query) {
+        try {
+          this.logger.log(`💬 Conversational search (turn ${searchCtx.turn + 1}): "${query}" (prev: "${searchCtx.lastQuery}")`);
+          const convResult = await this.searchAI.conversationalSearch(query, {
+            previous_query: searchCtx.lastQuery,
+            previous_filters: searchCtx.lastFilters,
+            previous_results: (searchCtx.lastResults || []).slice(0, 5).map((r: any) => ({
+              item_id: r.id, name: r.name, price: r.rawPrice || r.price,
+            })),
+          }, {
+            module_id: index.includes('food') ? 4 : 5,
+            zone_id: config.zone_id || context.data.zone_id,
+          });
+
+          if (convResult?.understanding) {
+            const u = convResult.understanding;
+            if (u.correctedQuery) query = u.correctedQuery;
+            // Merge conversational filters into config.filters
+            const convFilters = u.filters || convResult.filters || {};
+            if (convFilters.veg !== undefined) config.filters = [...(config.filters || []), { field: 'veg', operator: 'equals', value: convFilters.veg ? 1 : 0 }];
+            if (convFilters.max_price) config.filters = [...(config.filters || []), { field: 'price', operator: 'lte', value: convFilters.max_price }];
+            if (convFilters.min_price) config.filters = [...(config.filters || []), { field: 'price', operator: 'gte', value: convFilters.min_price }];
+            this.logger.log(`💬 Conversational refined: "${query}" + ${Object.keys(convFilters).length} filters`);
+          }
+        } catch (err) {
+          this.logger.debug(`Conversational search failed (non-fatal): ${err.message}`);
+        }
+      }
+
       const limit = config.limit || config.size || 10;
       const filters = config.filters ? [...config.filters] : [];
       const lat = config.lat;
@@ -1343,6 +1377,17 @@ export class SearchExecutor implements ActionExecutor {
           lat: typeof lat === 'string' ? parseFloat(lat) : lat,
           lon: typeof lng === 'string' ? parseFloat(String(lng)) : (lng as number),
         }).catch(() => {});
+      }
+
+      // 💬 Store search context for multi-turn conversational search
+      if (query && output.hasResults) {
+        context.data._search_context = {
+          lastQuery: query,
+          lastFilters: filters.reduce((acc: Record<string, any>, f: any) => { acc[f.field] = f.value; return acc; }, {}),
+          lastResults: (output.cards || []).slice(0, 5),
+          turn: (searchCtx?.turn || 0) + 1,
+          timestamp: Date.now(),
+        };
       }
 
       return {

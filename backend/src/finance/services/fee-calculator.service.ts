@@ -1,12 +1,21 @@
 /**
- * Fee Calculator Service
+ * Fee Calculator Service — VENDOR-SIDE CALCULATIONS ONLY
  *
- * Handles all fee/tax calculations for orders:
+ * Handles fee/tax calculations for VENDOR PAYOUTS and PLATFORM REVENUE:
  * - Platform commission
  * - GST (5% food, 18% services) split into CGST + SGST
  * - TDS 1% per Section 194-O (e-commerce aggregator withholding)
- * - Delivery charges with distance-based pricing and surge
+ * - Delivery charge estimates for vendor settlement
  * - Net vendor payout computation
+ *
+ * IMPORTANT: This service does NOT compute consumer-facing prices.
+ * Consumer prices (delivery fees, tax shown to user) come from PHP:
+ * - Zone pivot delivery rates: GET /api/v1/config/get-zone-id
+ * - Tax calculation: POST /api/v1/customer/order/get-Tax
+ * - Final total: computed at order placement by PHP
+ *
+ * The delivery charge constants below are for vendor payout estimation only.
+ * They may differ from consumer-facing rates set in PHP admin panel.
  *
  * India-specific tax rules applied throughout.
  */
@@ -199,7 +208,10 @@ export class FeeCalculatorService {
   }
 
   /**
-   * Calculate delivery charge based on distance, module type, and surge.
+   * Estimate delivery charge for vendor payout calculation.
+   *
+   * NOTE: This is for VENDOR SETTLEMENT, not consumer-facing display.
+   * Consumer delivery fees come from PHP zone config (GET /api/v1/config/get-zone-id).
    *
    * Formula: base + (perKm * distance) * surgeMultiplier
    * Clamped between min and max charges.

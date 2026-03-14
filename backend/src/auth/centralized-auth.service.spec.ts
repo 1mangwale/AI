@@ -1,11 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { 
-  CentralizedAuthService, 
-  AuthenticatedUser, 
-  AuthEvent 
+import {
+  CentralizedAuthService,
+  AuthenticatedUser,
+  AuthEvent
 } from './centralized-auth.service';
 import { PhpAuthService } from '../php-integration/services/php-auth.service';
+import { PrismaService } from '../database/prisma.service';
+import { UserProfileEnrichmentService } from '../personalization/user-profile-enrichment.service';
+import { REDIS_CLIENT, REDIS_PUBLISHER } from '../redis/redis.module';
 
 // Mock Redis
 const mockRedis = {
@@ -17,14 +20,39 @@ const mockRedis = {
   sadd: jest.fn(),
   smembers: jest.fn(),
   expire: jest.fn(),
+  ttl: jest.fn().mockResolvedValue(-1),
+  keys: jest.fn().mockResolvedValue([]),
   publish: jest.fn(),
   on: jest.fn(),
+  connect: jest.fn().mockResolvedValue(undefined),
+  disconnect: jest.fn().mockResolvedValue(undefined),
+  duplicate: jest.fn().mockReturnThis(),
+  status: 'ready',
+  pipeline: jest.fn().mockReturnValue({
+    get: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    setex: jest.fn().mockReturnThis(),
+    del: jest.fn().mockReturnThis(),
+    expire: jest.fn().mockReturnThis(),
+    exec: jest.fn().mockResolvedValue([]),
+  }),
+  multi: jest.fn().mockReturnValue({
+    get: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    setex: jest.fn().mockReturnThis(),
+    del: jest.fn().mockReturnThis(),
+    expire: jest.fn().mockReturnThis(),
+    exec: jest.fn().mockResolvedValue([]),
+  }),
 };
 
-// Mock ioredis module
-jest.mock('ioredis', () => {
-  return jest.fn().mockImplementation(() => mockRedis);
-});
+const mockRedisPublisher = {
+  publish: jest.fn().mockResolvedValue(1),
+  on: jest.fn(),
+  connect: jest.fn().mockResolvedValue(undefined),
+  disconnect: jest.fn().mockResolvedValue(undefined),
+  status: 'ready',
+};
 
 describe('CentralizedAuthService', () => {
   let service: CentralizedAuthService;
@@ -49,9 +77,25 @@ describe('CentralizedAuthService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
 
+    const mockPrismaService = {
+      authSession: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), findMany: jest.fn() },
+    };
+    const mockProfileEnrichment = {
+      enrichProfile: jest.fn().mockResolvedValue({}),
+      getEnrichedProfile: jest.fn().mockResolvedValue(null),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CentralizedAuthService,
+        {
+          provide: REDIS_CLIENT,
+          useValue: mockRedis,
+        },
+        {
+          provide: REDIS_PUBLISHER,
+          useValue: mockRedisPublisher,
+        },
         {
           provide: ConfigService,
           useValue: mockConfigService,
@@ -59,6 +103,14 @@ describe('CentralizedAuthService', () => {
         {
           provide: PhpAuthService,
           useValue: mockPhpAuthService,
+        },
+        {
+          provide: PrismaService,
+          useValue: mockPrismaService,
+        },
+        {
+          provide: UserProfileEnrichmentService,
+          useValue: mockProfileEnrichment,
         },
       ],
     }).compile();
@@ -152,7 +204,7 @@ describe('CentralizedAuthService', () => {
     it('should authenticate a new user', async () => {
       mockRedis.get.mockResolvedValue(null);
       mockRedis.setex.mockResolvedValue('OK');
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       const result = await service.authenticateUser(
         '+919876543210',
@@ -171,7 +223,7 @@ describe('CentralizedAuthService', () => {
       expect(result.token).toBe('token123');
       expect(result.channels).toContain('web');
       expect(mockRedis.setex).toHaveBeenCalled();
-      expect(mockRedis.publish).toHaveBeenCalledWith(
+      expect(mockRedisPublisher.publish).toHaveBeenCalledWith(
         'auth:events',
         expect.any(String),
       );
@@ -189,7 +241,7 @@ describe('CentralizedAuthService', () => {
       };
       mockRedis.get.mockResolvedValue(JSON.stringify(existingAuth));
       mockRedis.setex.mockResolvedValue('OK');
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       const result = await service.authenticateUser(
         '+919876543210',
@@ -218,7 +270,7 @@ describe('CentralizedAuthService', () => {
       };
       mockRedis.get.mockResolvedValue(JSON.stringify(existingAuth));
       mockRedis.setex.mockResolvedValue('OK');
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       const result = await service.authenticateUser(
         '+919876543210',
@@ -232,12 +284,12 @@ describe('CentralizedAuthService', () => {
   });  describe('logoutUser', () => {
     it('should fully logout when no channel specified', async () => {
       mockRedis.del.mockResolvedValue(1);
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       await service.logoutUser('+919876543210');
 
       expect(mockRedis.del).toHaveBeenCalledWith('auth:919876543210');
-      expect(mockRedis.publish).toHaveBeenCalled();
+      expect(mockRedisPublisher.publish).toHaveBeenCalled();
     });
 
     it('should remove only specific channel', async () => {
@@ -252,7 +304,7 @@ describe('CentralizedAuthService', () => {
       };
       mockRedis.get.mockResolvedValue(JSON.stringify(existingAuth));
       mockRedis.setex.mockResolvedValue('OK');
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       await service.logoutUser('+919876543210', 'web');
 
@@ -278,7 +330,7 @@ describe('CentralizedAuthService', () => {
       mockRedis.get.mockResolvedValue(JSON.stringify(existingAuth));
       mockRedis.setex.mockResolvedValue('OK');
       mockRedis.del.mockResolvedValue(1);
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       await service.logoutUser('+919876543210', 'web');
 
@@ -299,7 +351,7 @@ describe('CentralizedAuthService', () => {
       };
       mockRedis.get.mockResolvedValue(JSON.stringify(existingAuth));
       mockRedis.setex.mockResolvedValue('OK');
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       await service.refreshToken('+919876543210', 'newToken');
 
@@ -416,7 +468,7 @@ describe('CentralizedAuthService', () => {
       });
       mockRedis.get.mockResolvedValue(null);
       mockRedis.setex.mockResolvedValue('OK');
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       const result = await service.syncFromPhpBackend('token123', 'web');
 
@@ -479,7 +531,7 @@ describe('CentralizedAuthService', () => {
   describe('logout', () => {
     it('should logout user (alias)', async () => {
       mockRedis.del.mockResolvedValue(1);
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       await service.logout('+919876543210');
 
@@ -512,15 +564,15 @@ describe('CentralizedAuthService', () => {
   describe('syncAuthAcrossSessions', () => {
     it('should publish auth sync event', async () => {
       mockRedis.smembers.mockResolvedValue(['session1', 'session2']);
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       await service.syncAuthAcrossSessions('+919876543210', 1, 'token123');
 
-      expect(mockRedis.publish).toHaveBeenCalledWith(
+      expect(mockRedisPublisher.publish).toHaveBeenCalledWith(
         'auth:events',
         expect.any(String),
       );
-      const publishedEvent = JSON.parse(mockRedis.publish.mock.calls[0][1]);
+      const publishedEvent = JSON.parse(mockRedisPublisher.publish.mock.calls[0][1]);
       expect(publishedEvent.type).toBe('LOGIN');
       expect(publishedEvent.userId).toBe(1);
     });
@@ -567,7 +619,7 @@ describe('CentralizedAuthService', () => {
     it('should handle concurrent authentication requests', async () => {
       mockRedis.get.mockResolvedValue(null);
       mockRedis.setex.mockResolvedValue('OK');
-      mockRedis.publish.mockResolvedValue(1);
+      mockRedisPublisher.publish.mockResolvedValue(1);
 
       const promises = [
         service.authenticateUser(

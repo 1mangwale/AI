@@ -495,6 +495,76 @@ export class NluTrainingDataService {
   }
 
   /**
+   * Weekly augmentation job: identify bottom 5 intents by confidence
+   * and generate 20 synthetic samples each via vLLM.
+   */
+  async generateWeeklyAugmentation(): Promise<{
+    intentsTargeted: string[];
+    totalGenerated: number;
+    totalSaved: number;
+  }> {
+    this.logger.log('🎯 Running weekly NLU augmentation...');
+
+    // Find the 5 weakest intents by average confidence in the last 7 days
+    const weakIntents = await this.prisma.$queryRaw<any[]>`
+      SELECT intent, AVG(confidence)::float as avg_conf, COUNT(*)::int as sample_count
+      FROM nlu_training_data
+      WHERE created_at > NOW() - INTERVAL '7 days'
+        AND confidence > 0
+      GROUP BY intent
+      HAVING COUNT(*) >= 3
+      ORDER BY AVG(confidence) ASC
+      LIMIT 5
+    `;
+
+    if (weakIntents.length === 0) {
+      this.logger.log('No weak intents found for augmentation');
+      return { intentsTargeted: [], totalGenerated: 0, totalSaved: 0 };
+    }
+
+    const intentsTargeted: string[] = [];
+    let totalGenerated = 0;
+    let totalSaved = 0;
+
+    for (const weak of weakIntents) {
+      this.logger.log(`🎯 Augmenting "${weak.intent}" (avg_conf=${weak.avg_conf.toFixed(2)}, samples=${weak.sample_count})`);
+      intentsTargeted.push(weak.intent);
+
+      try {
+        const result = await this.generateAugmentationData(weak.intent, 20, 'hinglish');
+        totalGenerated += result.generated;
+
+        // Save generated samples as pending_review
+        for (const sample of result.samples) {
+          try {
+            await this.prisma.nluTrainingData.create({
+              data: {
+                text: sample.text,
+                intent: sample.intent,
+                entities: {},
+                confidence: 0.0, // synthetic — needs review
+                source: 'manual',
+                reviewStatus: 'pending',
+                language: 'hinglish',
+              },
+            });
+            totalSaved++;
+          } catch (err: any) {
+            if (err.code !== 'P2002') { // ignore duplicates
+              this.logger.debug(`Failed to save augmented sample: ${err.message}`);
+            }
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`Augmentation failed for "${weak.intent}": ${err.message}`);
+      }
+    }
+
+    this.logger.log(`🎯 Weekly augmentation complete: ${intentsTargeted.length} intents, ${totalGenerated} generated, ${totalSaved} saved`);
+    return { intentsTargeted, totalGenerated, totalSaved };
+  }
+
+  /**
    * Generate synthetic augmentation data for weak intents using vLLM.
    * Calls the local vLLM server to produce paraphrased training samples.
    */
