@@ -50,6 +50,7 @@ export const cartAndSelectionStates: Record<string, FlowState> = {
       ],
       transitions: {
         success: 'check_resolution_result',
+        resolved: 'check_resolution_result',  // entity_resolution executor emits 'resolved' (non-generic event)
         error: 'process_selection',  // Fallback to selection on error
       },
     },

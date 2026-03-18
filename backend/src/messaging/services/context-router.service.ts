@@ -1556,9 +1556,17 @@ export class ContextRouterService implements OnModuleInit {
       }
     }
     
-    // 🔧 FIX: Don't switch to address-management when current flow is waiting for location
-    // The location message gets classified as manage_address but we should continue the flow
-    const isLocationWaitState = ['request_location', 'handle_location_response', 'ask_location'].includes(currentState);
+    // 🔧 FIX: Don't switch to address-management when current flow is waiting for address/location
+    // The address text or location message gets classified as manage_address but we should continue the flow
+    const isLocationWaitState = [
+      'request_location', 'handle_location_response', 'ask_location',
+      // Food order address collection states
+      'collect_address_input', 'collect_address', 'await_flow_address',
+      'wait_address_label', 'validate_address',
+      // Parcel address collection states
+      'collect_pickup_location', 'collect_delivery_location',
+      'wait_pickup_address', 'wait_delivery_address',
+    ].includes(currentState);
     const isLocationRelatedIntent = ['manage_address', 'provide_location', 'check_address', 'save_address'].includes(intent.intent);
     const messageContainsLocation = event.message?.includes('Location shared') || event.message?.includes('Coordinates:') || /\d+\.\d+,\s*\d+\.\d+/.test(event.message || '');
     
@@ -1597,8 +1605,19 @@ export class ContextRouterService implements OnModuleInit {
       'wait_quantity', 'wait_size', 'wait_addon_selection',
       // Parcel vehicle category selection states
       'show_categories', 'show_categories_retry',
-      // Address collection states
+      // Address collection states (food + parcel)
       'collect_pickup', 'collect_delivery', 'extract_pickup_address', 'extract_delivery_address',
+      'collect_address_input', 'collect_address', 'await_flow_address',
+      'wait_address_label', 'validate_address',
+      // Coupon, tip, and order summary states
+      'prompt_coupon_code', 'wait_coupon_input', 'apply_coupon',
+      'prompt_tip', 'wait_tip_input', 'show_final_summary', 'wait_order_confirm',
+      // E-commerce cart states
+      'wait_after_add', 'show_products', 'show_cart', 'check_cart_action',
+      // Order summary / confirmation states (all flows)
+      'show_order_summary', 'check_final_confirmation', 'wait_order_summary_confirm',
+      'apply_coupon_code', 'coupon_applied', 'coupon_invalid',
+      'calculate_pricing', 'confirm_order_details',
       // Payment gateway wait states (parcel + food)
       'wait_payment_result', 'wait_food_payment_result',
       'await_payment_retry', 'await_food_payment_retry',

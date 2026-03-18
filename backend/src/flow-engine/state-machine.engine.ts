@@ -583,11 +583,28 @@ export class StateMachineEngine {
    * For wait states, only return explicit events (not inferred)
    */
   private findTriggeredEvent(results: ActionExecutionResult[], stateType?: string): string | undefined {
-    // First, check for explicit events
+    // Check for explicit events, preferring specific events over generic ones.
+    // Generic events ('default', 'success') from earlier actions should not mask
+    // meaningful events ('address_valid', 'waiting_for_input', etc.) from later actions.
+    const genericEvents = new Set(['default', 'success']);
+    let firstGenericEvent: string | undefined;
+
     for (const result of results) {
       if (result.event) {
-        return result.event;
+        if (!genericEvents.has(result.event)) {
+          // Found a specific (non-generic) event — use it immediately
+          return result.event;
+        }
+        // Track first generic event as fallback
+        if (!firstGenericEvent) {
+          firstGenericEvent = result.event;
+        }
       }
+    }
+
+    // If only generic events were found, return the first one
+    if (firstGenericEvent) {
+      return firstGenericEvent;
     }
     
     // Only infer 'success' for action states (not wait states)

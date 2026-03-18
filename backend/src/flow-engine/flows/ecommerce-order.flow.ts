@@ -139,7 +139,8 @@ export const ecommerceOrderFlow: FlowDefinition = {
       description: 'Determine user action',
       conditions: [
         {
-          expression: 'context._user_message?.match(/\\d+x\\d+/)',
+          // Match "item_XXXXX" (card button clicks), "NxM" (quantity format), or plain number "1"-"99"
+          expression: 'context._user_message?.match(/^item_\\d+$/) || context._user_message?.match(/\\d+x\\d+/) || context._user_message?.match(/^\\d{1,2}$/)',
           event: 'add_to_cart',
         },
         {
@@ -159,7 +160,7 @@ export const ecommerceOrderFlow: FlowDefinition = {
       },
     },
 
-    // Add items to cart
+    // Add items to cart — transitions to wait state after LLM confirmation
     add_to_cart: {
       type: 'action',
       description: 'Parse and add selected items to cart',
@@ -188,7 +189,20 @@ export const ecommerceOrderFlow: FlowDefinition = {
         },
       ],
       transitions: {
+        success: 'wait_after_add',
+        default: 'wait_after_add',
+      },
+    },
+
+    // Wait for user decision after adding to cart
+    wait_after_add: {
+      type: 'wait',
+      description: 'Wait for user to continue shopping or checkout after adding item',
+      onEntry: [],
+      actions: [],
+      transitions: {
         user_message: 'process_user_action',
+        default: 'process_user_action',
       },
     },
 
@@ -360,6 +374,7 @@ export const ecommerceOrderFlow: FlowDefinition = {
         address_valid: 'validate_zone',
         waiting_for_input: 'collect_address',
         error: 'address_error',
+        default: 'validate_zone',  // Fix: response executor emits 'default' which shadows address_valid
       },
     },
 
@@ -473,10 +488,9 @@ export const ecommerceOrderFlow: FlowDefinition = {
       actions: [
         {
           id: 'summary_message',
-          executor: 'llm',
+          executor: 'response',
           config: {
-            systemPrompt: 'Show e-commerce order summary in a warm, friendly tone. Be concise.',
-            prompt: `🛒 **Looks good! Here's your order summary** 😊
+            message: `🛒 **Looks good! Here's your order summary** 😊
 
 📦 Items: {{cart_items.length}} items
 💰 Subtotal: ₹{{pricing.itemsTotal}}
@@ -487,15 +501,29 @@ export const ecommerceOrderFlow: FlowDefinition = {
 📍 Delivering to: {{delivery_address.label}}
 ⏱️ ETA: 1–2 business days
 
-Hit confirm and I'll place your order! 🚀`,
-            temperature: 0.7,
-            maxTokens: 300,
+Type "confirm" to place your order or "cancel" to go back.`,
+            buttons: [
+              { id: 'btn_confirm', label: '✅ Confirm Order', value: 'confirm' },
+              { id: 'btn_cancel', label: '❌ Cancel', value: 'cancel' },
+            ],
           },
           output: '_last_response',
         },
       ],
       transitions: {
+        success: 'wait_order_summary_confirm',
+        default: 'wait_order_summary_confirm',
+      },
+    },
+
+    wait_order_summary_confirm: {
+      type: 'wait',
+      description: 'Wait for user to confirm or cancel the order',
+      onEntry: [],
+      actions: [],
+      transitions: {
         user_message: 'check_final_confirmation',
+        default: 'check_final_confirmation',
       },
     },
 

@@ -52,9 +52,6 @@ export class ChatWebController {
     type?: 'text' | 'location';
     metadata?: Record<string, any>;
   }) {
-    // 🔍 DEBUG: Log incoming request
-    this.logger.log(`🔍 [CONTROLLER HIT] Body received: ${JSON.stringify(body)}`);
-    
     // Support both recipientId and sessionId for backwards compatibility
     const recipientId = body.recipientId || body.sessionId || body.userId;
     // Support both text and message fields
@@ -63,7 +60,6 @@ export class ChatWebController {
     
     // Prefer userLocation over location
     const finalLocation = userLocation || location;
-    this.logger.log(`🔍 [LOCATION CHECK] finalLocation: ${JSON.stringify(finalLocation)}`);
     
     // Validate required field
     if (!recipientId) {
@@ -85,20 +81,17 @@ export class ChatWebController {
       
       // Set platform in session before processing
       const session = await this.sessionService.getSession(webRecipientId);
-      if (!session || !session.data.platform) {
-        await this.sessionService.setData(webRecipientId, { 
+      if (!session || !session.data?.platform) {
+        await this.sessionService.setData(webRecipientId, {
           platform: 'web',
           channel: 'web_chat'
         });
-        this.logger.log(`✅ Set platform=web for session ${webRecipientId}`);
+        this.logger.log(`✅ Set platform=web for session ${webRecipientId} (session existed: ${!!session}, had platform: ${session?.data?.platform})`);
+      } else {
+        this.logger.log(`✅ Session ${webRecipientId} already has platform=${session.data.platform}, auth=${session.data?.authenticated}, uid=${session.data?.user_id}`);
       }
       
-      // 📍 SAVE GPS LOCATION TO SESSION IF PROVIDED
-      // This ensures flow-engine can access location data from session
-      this.logger.log(`🔍 [LOCATION SAVE] Checking if should save location...`);
-      this.logger.log(`🔍 [LOCATION SAVE] finalLocation exists: ${!!finalLocation}`);
-      this.logger.log(`🔍 [LOCATION SAVE] has lat/lng: ${finalLocation?.lat}, ${finalLocation?.lng}`);
-      
+      // Save GPS location to session if provided
       if (finalLocation?.lat && finalLocation?.lng) {
         const locationData: any = {
           location: { lat: finalLocation.lat, lng: finalLocation.lng },
@@ -119,18 +112,8 @@ export class ChatWebController {
           locationData.delivery_address = userLocation.address;
         }
         
-        this.logger.log(`🔍 [BEFORE SAVE] webRecipientId: ${webRecipientId}`);
-        this.logger.log(`🔍 [BEFORE SAVE] locationData: ${JSON.stringify(locationData)}`);
-        
         await this.sessionService.setData(webRecipientId, locationData);
-        
-        this.logger.log(`🔍 [AFTER SAVE] Data saved, verifying...`);
-        const savedData = await this.sessionService.getData(webRecipientId);
-        this.logger.log(`🔍 [VERIFY] Saved session data: ${JSON.stringify(savedData)}`);
-        
         this.logger.log(`📍 Saved location to session: (${finalLocation.lat}, ${finalLocation.lng}, zone: ${locationData.zone_id || 'N/A'})`);
-      } else {
-        this.logger.log(`🔍 [LOCATION SAVE] Skipping - no valid location data`);
       }
       
       // Store user message
