@@ -65,6 +65,7 @@ export class PhpApiService {
           (authError as any).code = 'AUTH_TOKEN_EXPIRED';
           (authError as any).statusCode = 401;
           (authError as any).requiresReAuth = true;
+          (authError as any).skipCircuitBreaker = true; // 401 is client auth issue, not server failure
           this.logger.warn(
             `⚠️ PHP API returned 401 - auth token expired or invalid. ` +
             `URL: ${error.config?.url || 'unknown'}, Method: ${error.config?.method || 'unknown'}`,

@@ -1518,11 +1518,12 @@ Reply "confirm" to book the rider.`,
       description: 'Fast regex check for confirm/cancel before NLU fallback',
       conditions: [
         {
-          expression: '/^(confirm|yes|ok|okay|haan|ha|haa|ji|place\\s*order|order\\s*karo|done|proceed|theek|thik)$/i.test(String(_user_message || "").trim())',
+          // Match button IDs (btn_confirm, confirm_order), common confirm phrases, and button titles with emojis
+          expression: '/^(confirm|yes|ok|okay|haan|ha|haa|ji|place\\s*order|order\\s*karo|done|proceed|theek|thik|btn_confirm|confirm_order)$/i.test(String(_user_message || "").trim()) || /confirm\\s*order/i.test(String(_user_message || ""))',
           event: 'confirmed',
         },
         {
-          expression: '/^(cancel|no|nahi|nhi|nah|band|stop|ruk|mat|chhodo|chhod)$/i.test(String(_user_message || "").trim())',
+          expression: '/^(cancel|no|nahi|nhi|nah|band|stop|ruk|mat|chhodo|chhod|btn_cancel)$/i.test(String(_user_message || "").trim()) || /^[^a-z]*cancel/i.test(String(_user_message || ""))',
           event: 'cancelled',
         },
       ],

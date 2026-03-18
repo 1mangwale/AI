@@ -144,8 +144,22 @@ export class WebhookController {
         for (const message of value.messages) {
           await this.handleIncomingMessage(message);
         }
-      } else {
-        this.logger.warn('No messages found in webhook payload');
+      }
+
+      // Handle delivery status updates (sent, delivered, read, failed)
+      if (value.statuses) {
+        for (const status of value.statuses) {
+          if (status.status === 'failed') {
+            const errorCode = status.errors?.[0]?.code || 'unknown';
+            const errorTitle = status.errors?.[0]?.title || 'Unknown error';
+            this.logger.error(
+              `❌ WhatsApp message delivery failed to ${status.recipient_id}: ` +
+              `code=${errorCode}, error="${errorTitle}", messageId=${status.id}`,
+            );
+          } else {
+            this.logger.debug(`📬 Status update: ${status.status} for ${status.recipient_id}`);
+          }
+        }
       }
 
       return { status: 'ok' };
@@ -312,16 +326,7 @@ export class WebhookController {
         this.logger.log(`📍 Saved location to session: ${locationData.latitude}, ${locationData.longitude}`);
       }
       
-      // Log user message to PostgreSQL (non-blocking — don't let DB failure kill message pipeline)
-      this.conversationLogger.logUserMessage({
-        phone: from,
-        userId,
-        messageText,
-        platform: 'whatsapp',
-        sessionId: from,
-      }).catch(err => this.logger.warn(`Failed to log user message: ${err.message}`));
-      
-      this.logger.log(`✅ User message logged to database`);
+      // MessageGateway handles conversation logging — no need to duplicate here
 
       // 🎯 UNIFIED ARCHITECTURE: Route through MessageGateway (Phase 1 refactor)
       this.logger.log(`🚀 Processing WhatsApp message through MessageGateway`);

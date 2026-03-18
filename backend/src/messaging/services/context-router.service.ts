@@ -2078,7 +2078,7 @@ export class ContextRouterService implements OnModuleInit {
           let itemsMessage = response.message + '\n\n';
           const rows: Array<{ id: string; title: string; description?: string }> = [];
           
-          const maxItems = event.channel === 'whatsapp' ? 5 : 10;
+          const maxItems = 10; // WhatsApp lists support up to 10 rows per section
           response.cards.slice(0, maxItems).forEach((card, idx) => {
             const name = card.name || card.title || `Item ${idx + 1}`;
             const price = card.price ? (typeof card.price === 'number' ? `₹${card.price}` : `${card.price}`) : '';

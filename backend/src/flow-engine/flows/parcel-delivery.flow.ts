@@ -1201,11 +1201,11 @@ Return ONLY the numeric ID, nothing else.`,
       description: 'Check user confirmation',
       conditions: [
         {
-          expression: 'context._user_message?.toLowerCase().match(/^(yes|confirm|ok|haan|ha|proceed|book)/)',
+          expression: 'context._user_message?.toLowerCase().match(/^(yes|confirm|ok|haan|ha|proceed|book)/) || /confirm/i.test(String(context._user_message || ""))',
           event: 'confirmed',
         },
         {
-          expression: 'context._user_message?.toLowerCase().match(/^(no|cancel|nahi|stop|exit)/)',
+          expression: 'context._user_message?.toLowerCase().match(/^(no|cancel|nahi|stop|exit)/) || /cancel/i.test(String(context._user_message || ""))',
           event: 'cancelled',
         },
       ],

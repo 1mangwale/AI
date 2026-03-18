@@ -138,8 +138,13 @@ export class CircuitBreakerService {
       this.recordSuccess(name);
       return result;
     } catch (error) {
-      this.recordFailure(name);
-      
+      // Don't count client auth errors (401) as circuit breaker failures
+      if ((error as any)?.skipCircuitBreaker) {
+        this.logger.debug(`⚡ Skipping circuit breaker failure for ${name} (skipCircuitBreaker=true)`);
+      } else {
+        this.recordFailure(name);
+      }
+
       if (fallback) {
         return fallback();
       }
