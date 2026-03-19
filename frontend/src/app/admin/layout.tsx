@@ -95,6 +95,8 @@ const navigation: NavItem[] = [
       { name: 'Strategy Ledger', href: '/admin/mos/strategy' },
       { name: 'Action Engine', href: '/admin/mos/action-engine' },
       { name: 'WhatsApp Commerce', href: '/admin/mos/whatsapp-commerce' },
+      { name: 'Content Factory', href: '/admin/mos/content-factory' },
+      { name: 'Content Calendar', href: '/admin/mos/content-calendar' },
       { name: 'Scheduler', href: '/admin/mos/scheduler' },
     ],
   },

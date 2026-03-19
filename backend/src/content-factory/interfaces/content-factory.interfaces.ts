@@ -1,0 +1,135 @@
+// Content Factory Interfaces — Marketing Engine
+
+export type ContentType = 'reel_script' | 'linkedin_post' | 'ad_copy' | 'carousel' | 'blog_seo';
+export type ContentPlatform = 'instagram' | 'linkedin' | 'meta_ads' | 'google_ads' | 'youtube' | 'blog';
+export type ContentStatus = 'draft' | 'review' | 'approved' | 'rejected' | 'scheduled' | 'posted';
+export type ContentProvider = 'claude' | 'vllm';
+export type HookCategory = 'trending_audio' | 'meme_format' | 'challenge' | 'news_tie_in' | 'seasonal' | 'data_driven' | 'emotional' | 'humor';
+
+export interface ContentPiece {
+  id: string;
+  contentType: ContentType;
+  title: string | null;
+  contentJson: Record<string, any>;
+  rawText: string | null;
+  platform: ContentPlatform;
+  status: ContentStatus;
+  hookId: string | null;
+  promptVersionId: string | null;
+  businessContext: Record<string, any>;
+  generationParams: Record<string, any>;
+  generatedBy: ContentProvider;
+  costInr: number;
+  reviewNotes: string | null;
+  parentId: string | null;
+  scheduledAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AiPrompt {
+  id: string;
+  name: string;
+  contentType: ContentType;
+  platform: ContentPlatform;
+  systemPrompt: string;
+  userPromptTemplate: string;
+  version: number;
+  isActive: boolean;
+  metadata: Record<string, any>;
+  createdAt: Date;
+}
+
+export interface TrendingHook {
+  id: string;
+  hookText: string;
+  platform: string;
+  category: HookCategory;
+  sourceUrl: string | null;
+  freshnessScore: number;
+  usageCount: number;
+  lastUsedAt: Date | null;
+  expiresAt: Date | null;
+  isActive: boolean;
+  createdAt: Date;
+}
+
+export interface ContentGenerationRequest {
+  contentType: ContentType;
+  platform: ContentPlatform;
+  hookId?: string;
+  businessData?: Record<string, any>;
+  tone?: string;
+  language?: string;
+  additionalInstructions?: string;
+  autoFetchBusinessData?: boolean;
+}
+
+export interface ContentGenerationResult {
+  contentJson: Record<string, any>;
+  rawText: string;
+  provider: ContentProvider;
+  costInr: number;
+  durationMs: number;
+  promptId: string;
+  hookId: string | null;
+}
+
+export interface BusinessMetricsDaily {
+  id: string;
+  metricsDate: Date;
+  totalOrders: number;
+  totalRevenue: number;
+  avgOrderValue: number;
+  newUsers: number;
+  activeStores: number;
+  ordersByModule: Record<string, number>;
+  additionalMetrics: Record<string, any>;
+  createdAt: Date;
+}
+
+export interface TopPerformer {
+  id: string;
+  category: string;
+  performerId: string | null;
+  performerName: string;
+  metricValue: number;
+  metricLabel: string;
+  period: string;
+  metadata: Record<string, any>;
+  createdAt: Date;
+}
+
+export interface BusinessMilestone {
+  id: string;
+  milestoneType: string;
+  title: string;
+  description: string | null;
+  metricValue: number | null;
+  status: string;
+  contentPieceId: string | null;
+  detectedAt: Date;
+}
+
+export interface CalendarEntry {
+  date: string;
+  items: ContentPiece[];
+}
+
+export interface TimeSlot {
+  hour: number;
+  label: string;
+  platform: ContentPlatform;
+  reason: string;
+}
+
+export interface WeeklyPlan {
+  weekStart: string;
+  days: Array<{
+    date: string;
+    dayOfWeek: string;
+    suggestedType: ContentType;
+    suggestedPlatform: ContentPlatform;
+    rationale: string;
+  }>;
+}

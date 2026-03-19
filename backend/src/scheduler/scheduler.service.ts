@@ -16,6 +16,9 @@ import { ProactiveMessagingService } from '../broadcast/services/proactive-messa
 import { CartRecoveryService } from '../broadcast/services/cart-recovery.service';
 import { SelfLearningService } from '../learning/services/self-learning.service';
 import { NluTrainingDataService } from '../nlu/services/nlu-training-data.service';
+import { DataSyncService } from '../content-factory/services/data-sync.service';
+import { ContentService } from '../content-factory/services/content.service';
+import { HookService } from '../content-factory/services/hook.service';
 
 export interface SchedulerJob {
   jobName: string;
@@ -53,6 +56,9 @@ const JOB_DEFINITIONS: JobDefinition[] = [
   { jobName: 'nlu_fallback_review', cronExpression: '0 4 * * *', defaultEnabled: true, description: 'Auto-approve consistent low-confidence NLU predictions (daily 4AM)' },
   { jobName: 'nlu_auto_augment', cronExpression: '0 5 * * 1', defaultEnabled: true, description: 'Generate synthetic training data for weak intents (weekly Mon 5AM)' },
   { jobName: 'nlu_drift_detection', cronExpression: '0 6 * * *', defaultEnabled: true, description: 'Detect NLU confidence drift week-over-week (daily 6AM)' },
+  { jobName: 'sync_business_data', cronExpression: '0 5 * * *', defaultEnabled: true, description: 'Sync business metrics from PHP MySQL (daily 5AM)' },
+  { jobName: 'generate_daily_content', cronExpression: '0 6 * * *', defaultEnabled: false, description: 'Auto-generate daily content pieces (daily 6AM)' },
+  { jobName: 'decay_hook_freshness', cronExpression: '0 3 * * *', defaultEnabled: true, description: 'Decay trending hook freshness scores (daily 3AM)' },
 ];
 
 @Injectable()
@@ -76,6 +82,9 @@ export class SchedulerService implements OnModuleInit {
     private readonly cartRecovery: CartRecoveryService,
     private readonly selfLearning: SelfLearningService,
     private readonly nluTrainingData: NluTrainingDataService,
+    private readonly dataSync: DataSyncService,
+    private readonly contentService: ContentService,
+    private readonly hookService: HookService,
   ) {}
 
   async onModuleInit() {
@@ -311,6 +320,42 @@ export class SchedulerService implements OnModuleInit {
     });
   }
 
+  @Cron('0 5 * * *', { name: 'sync_business_data' })
+  async cronSyncBusinessData() {
+    await this.executeJob('sync_business_data', async () => {
+      const [metrics, performers, milestones] = await Promise.all([
+        this.dataSync.syncDailyMetrics(),
+        this.dataSync.syncTopPerformers(),
+        this.dataSync.detectMilestones(),
+      ]);
+      return { metrics, performers, milestones };
+    });
+  }
+
+  @Cron('0 6 * * *', { name: 'generate_daily_content' })
+  async cronGenerateDailyContent() {
+    await this.executeJob('generate_daily_content', async () => {
+      const reelResult = await this.contentService.generateAndSave({
+        contentType: 'reel_script',
+        platform: 'instagram',
+        autoFetchBusinessData: true,
+      } as any);
+      const linkedinResult = await this.contentService.generateAndSave({
+        contentType: 'linkedin_post',
+        platform: 'linkedin',
+        autoFetchBusinessData: true,
+      } as any);
+      return { reel: reelResult, linkedin: linkedinResult };
+    });
+  }
+
+  @Cron('0 3 * * *', { name: 'decay_hook_freshness' })
+  async cronDecayHookFreshness() {
+    await this.executeJob('decay_hook_freshness', async () => {
+      return this.hookService.decayFreshness();
+    });
+  }
+
   // ─── Job Execution Engine ─────────────────────────────────────
 
   private async executeJob(jobName: string, fn: () => Promise<any>): Promise<any> {
@@ -448,6 +493,30 @@ export class SchedulerService implements OnModuleInit {
       },
       nlu_drift_detection: async () => {
         return this.cronNluDriftDetection();
+      },
+      sync_business_data: async () => {
+        const [metrics, performers, milestones] = await Promise.all([
+          this.dataSync.syncDailyMetrics(),
+          this.dataSync.syncTopPerformers(),
+          this.dataSync.detectMilestones(),
+        ]);
+        return { metrics, performers, milestones };
+      },
+      generate_daily_content: async () => {
+        const reelResult = await this.contentService.generateAndSave({
+          contentType: 'reel_script',
+          platform: 'instagram',
+          autoFetchBusinessData: true,
+        } as any);
+        const linkedinResult = await this.contentService.generateAndSave({
+          contentType: 'linkedin_post',
+          platform: 'linkedin',
+          autoFetchBusinessData: true,
+        } as any);
+        return { reel: reelResult, linkedin: linkedinResult };
+      },
+      decay_hook_freshness: async () => {
+        return this.hookService.decayFreshness();
       },
     };
 

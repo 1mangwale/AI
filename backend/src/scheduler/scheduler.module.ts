@@ -12,6 +12,7 @@ import { OrderFlowModule } from '../order-flow/order-flow.module';
 import { SmartDiscountService } from '../demand/services/smart-discount.service';
 import { LearningModule } from '../learning/learning.module';
 import { NluModule } from '../nlu/nlu.module';
+import { ContentFactoryModule } from '../content-factory/content-factory.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { NluModule } from '../nlu/nlu.module';
     NluModule,
     forwardRef(() => WhatsAppModule),
     forwardRef(() => OrderFlowModule),
+    ContentFactoryModule,
   ],
   controllers: [SchedulerController],
   providers: [SchedulerService, AutoActionService, SmartDiscountService],

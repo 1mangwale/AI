@@ -74,6 +74,7 @@ import { PaymentModule } from './payment/payment.module'; // ✨ Payment Webhook
 import { FinanceModule } from './finance/finance.module'; // ✨ Finance (Commissions, Settlements, Payouts)
 import { ReturnsModule } from './returns/returns.module'; // ✨ Returns & Refunds
 import { OndcModule } from './ondc/ondc.module'; // ✨ ONDC Network Integration (Beckn Protocol)
+import { ContentFactoryModule } from './content-factory/content-factory.module'; // ✨ AI Content Factory (Marketing Engine)
 // import { ClientLogsController } from './logging/controllers/client-logs.controller'; // ✨ Frontend Logging (FILE MISSING)
 
 @Module({
@@ -178,6 +179,7 @@ FlowManagementModule, // ✨ Visual Flow Builder & Execution
     FinanceModule, // ✨ Finance (Commissions, Settlements, Payouts)
     ReturnsModule, // ✨ Returns & Refunds
     OndcModule, // ✨ ONDC Network Integration (Beckn Protocol)
+    ContentFactoryModule, // ✨ AI Content Factory (Marketing Engine)
 
     // Channel implementation modules
     WhatsAppModule, // WhatsApp channel
