@@ -119,7 +119,7 @@ export class StateMachineEngine {
             nextState: cancelState || null,
             event: 'cancelled',
             context,
-            completed: !cancelState || flow.finalStates.includes(cancelState),
+            completed: !cancelState, // Let cancel state execute its actions before marking complete
             metadata: { intentInterrupt: currentIntent }
           };
         }
@@ -174,7 +174,7 @@ export class StateMachineEngine {
                 nextState: failState,
                 event: 'validation_max_failures',
                 context,
-                completed: flow.finalStates.includes(failState),
+                completed: false, // Let fail state execute its actions before marking complete
                 metadata: { validationFailures: failures }
               };
             }
@@ -262,10 +262,11 @@ export class StateMachineEngine {
       }
 
       // 5. Check if flow is complete
-      // If nextState is found, check if it's a final state
-      // If nextState is NOT found, check if we are waiting for an event (has transitions) or truly done
+      // ONLY mark completed when we have nowhere to go: no next state AND no pending transitions.
+      // Do NOT mark completed when transitioning TO a final state — the final state may have
+      // actions (e.g., order confirmation messages) that must execute first.
       const hasTransitions = state.transitions && Object.keys(state.transitions).length > 0;
-      const completed = (nextState && flow.finalStates.includes(nextState)) || (!nextState && !hasTransitions);
+      const completed = !nextState && !hasTransitions;
 
       this.logger.log(
         `✅ State complete: ${currentStateName} → ${nextState || 'STAY'} (event: ${triggeredEvent || 'none'}, completed: ${completed})`

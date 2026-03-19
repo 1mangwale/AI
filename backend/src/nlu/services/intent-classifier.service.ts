@@ -332,6 +332,12 @@ export class IntentClassifierService {
         /repeat\s*kardena/i,
         /repeat\s*kardo/i,
         /repeat\s*kar/i,
+        /kal\s*wala\s*order/i,
+        /kal\s*ka\s*order/i,
+        /yesterday.*order/i,
+        /previous\s*order/i,
+        /fir\s*se\s*(wo|woh|wahi)\s*order/i,
+        /wo(hi)?\s*order\s*(fir|phir)\s*se/i,
       ],
       // Clear cart - explicit cart clearing
       clear_cart: [
