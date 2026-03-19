@@ -29,7 +29,7 @@ import { FlowDispatcherService } from './flow-dispatcher.service';
 import { GameHandlerService } from './game-handler.service';
 import { RagDocumentService } from '../../llm/services/rag-document.service';
 import { NerEntityExtractorService } from '../../nlu/services/ner-entity-extractor.service';
-// import { LanguageDetectionService } from './language-detection.service'; // FILE MISSING
+
 
 /**
  * Flow Interfaces (from Admin Backend)
@@ -128,7 +128,6 @@ export class AgentOrchestratorService implements OnModuleInit {
     private gameHandler: GameHandlerService,
     @Optional() private ragDocumentService: RagDocumentService,
     @Optional() private nerEntityExtractor: NerEntityExtractorService,
-    // private languageDetectionService: LanguageDetectionService, // FILE MISSING
     @Inject(forwardRef(() => SentryService)) private sentryService: SentryService,
     // Inject all agents
     private faqAgent: FAQAgent,
@@ -297,8 +296,7 @@ export class AgentOrchestratorService implements OnModuleInit {
       this.logger.log(`🔐 Session auth state for ${phoneNumber}: authenticated=${session?.data?.authenticated}, user_id=${session?.data?.user_id}, auth_token=${session?.data?.auth_token ? 'present' : 'missing'}`);
 
       // 🌐 LANGUAGE DETECTION - Detect user's language and store in session
-      // const languageInfo = this.languageDetectionService.analyze(message); // FILE MISSING
-      const languageInfo = { code: 'en', name: 'English', confidence: 1.0 }; // FALLBACK
+      const languageInfo = { code: 'en', name: 'English', confidence: 1.0 }; // TODO: Wire LanguageDetectionService
       if (!session.data) session.data = {};
       session.data.detected_language = languageInfo.code;
       session.data.language_name = languageInfo.name;
@@ -1087,14 +1085,6 @@ export class AgentOrchestratorService implements OnModuleInit {
         }
       }
       
-      // 8. Fallback: Try legacy flow system
-      // DISABLED LEGACY FLOW EXECUTION - NOW USING MODERN FLOW ENGINE ABOVE
-      // const flow = await this.findFlowForIntent(routing.intent, module, message);
-      // if (flow && flow.enabled) {
-      //   this.logger.log(`🔄 Flow found for intent: ${routing.intent}, executing LEGACY flow: ${flow.name}`);
-      //   return await this.executeFlow(flow, context);
-      // }
-
       // ✨ Check for game intents before agent execution
       const gameResult = await this.gameHandler.handleGameIntent(
         phoneNumber,
@@ -1772,8 +1762,7 @@ ${systemPrompt}`;
 
       // 🌐 Language-aware system prompt
       const detectedLang = context.session.data?.detected_language || 'en';
-      // const langInstruction = this.languageDetectionService.getLanguageInstruction(detectedLang); // FILE MISSING
-      const langInstruction = 'Respond in the same language as the user.'; // FALLBACK
+      const langInstruction = 'Respond in the same language as the user.'; // TODO: Wire LanguageDetectionService
       const languageAwareSystemPrompt = `${systemPrompt}${ragContext}\n\nIMPORTANT LANGUAGE INSTRUCTION:\n${langInstruction}\nALWAYS respond in the SAME language as the user's input. If user speaks Hinglish, you MUST respond in Hinglish.`;
 
       // Use local LLM service (vLLM + cloud failover) instead of calling an external Admin Backend.
@@ -2004,7 +1993,7 @@ ${systemPrompt}`;
            const zoneInfo = await this.phpParcelService.getZoneByLocation(lat, lng);
            if (zoneInfo && zoneInfo.primaryZoneId) {
              return {
-                response: `✅ Using your current location for ${locationLabel}.\n📍 ${zoneInfo.zoneData?.[0]?.name || 'Nashik'}\n\n(Type "change" to use a different address)`,
+                response: `✅ Using your current location for ${locationLabel}.\n📍 ${zoneInfo.zoneData?.[0]?.name || this.configService.get('geo.defaultCity', 'Nashik')}\n\n(Type "change" to use a different address)`,
                 complete: true,
                 data: {
                   [field]: addressData,
@@ -2078,7 +2067,7 @@ ${systemPrompt}`;
     const extractionResult = await this.addressExtractionService.extractAddress(
       context.message,
       {
-        city: 'Nashik', // Could be extracted from session/user profile
+        city: this.configService.get('geo.defaultCity', 'Nashik'),
         userLocation: session?.data?.location,
       }
     );
@@ -2443,7 +2432,7 @@ ${systemPrompt}`;
       }
 
       const primaryZoneId = zoneInfo.primaryZoneId;
-      const zoneName = zoneInfo.zoneData?.[0]?.name || 'Nashik';
+      const zoneName = zoneInfo.zoneData?.[0]?.name || this.configService.get('geo.defaultCity', 'Nashik');
       
       this.logger.log(`✅ Zone validated: ${zoneName} (ID: ${primaryZoneId})`);
 

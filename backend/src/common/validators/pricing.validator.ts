@@ -160,9 +160,9 @@ export class PricingValidatorService {
    */
   calculateFoodOrderAmount(items: Array<{ price: number; quantity: number }>): FoodOrderPricing {
     const itemsTotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const deliveryCharge = 30; // Base delivery charge (should be configurable)
-    const taxPercent = 5; // GST/tax percentage (should be configurable)
-    const platformFeePercent = 2; // Platform fee (should be configurable)
+    const deliveryCharge = this.configService.get<number>('FOOD_DELIVERY_BASE_CHARGE', 30);
+    const taxPercent = Math.round(this.configService.get<number>('pricing.foodGstRate', 0.05) * 100); // GST percentage
+    const platformFeePercent = this.configService.get<number>('FOOD_PLATFORM_FEE_PERCENT', 2);
 
     const taxes = Math.round((itemsTotal * taxPercent) / 100);
     const platformFee = Math.round((itemsTotal * platformFeePercent) / 100);

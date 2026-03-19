@@ -1,4 +1,5 @@
 import { FlowState } from '../../../types/flow.types';
+import { MODULE_ID } from '../../../../config/flow.constants';
 
 /**
  * Food Order Flow — Final States States
@@ -34,7 +35,7 @@ export const finalStatesStates: Record<string, FlowState> = {
         {
           id: 'track_purchase_for_recs',
           executor: 'recommendation',
-          config: { action: 'track_purchase', moduleId: 4 },
+          config: { action: 'track_purchase', moduleId: MODULE_ID.FOOD },
           output: '_rec_purchase_tracked',
         },
         {

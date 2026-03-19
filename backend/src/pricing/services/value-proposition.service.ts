@@ -6,6 +6,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 export interface ValueProposition {
   ourPricing: {
@@ -44,28 +45,36 @@ export class ValuePropositionService {
   private readonly logger = new Logger(ValuePropositionService.name);
 
   // Competitor pricing estimates (based on typical Zomato/Swiggy pricing)
-  private readonly competitorRates = {
-    deliveryFeeBase: 40,           // Base delivery fee
-    deliveryFeePerKm: 15,          // Per km charge
-    deliveryFeeMax: 80,            // Max delivery fee
-    packagingPerItem: 10,          // Per item packaging
-    platformFee: 5,                // Platform fee
-    surgeMultiplier: 1.3,          // Peak hour surge (30% more)
-    smallOrderFee: 30,             // Fee for orders under ₹149
-    rainSurcharge: 20,             // Bad weather surcharge
-  };
+  private readonly competitorRates: Record<string, number>;
 
   // Our pricing
-  private readonly ourRates = {
-    deliveryFeeBase: 30,           // Base delivery fee
-    deliveryFeePerKm: 10,          // Per km charge
-    deliveryFeeMax: 60,            // Max delivery fee
-    packagingFee: 0,               // Free packaging
-    platformFee: 0,                // No platform fee
-    smallOrderFee: 0,              // No small order fee
-    surgeMultiplier: 1.0,          // No surge pricing
-    rainSurcharge: 0,              // No weather surcharge
-  };
+  private readonly ourRates: Record<string, number>;
+
+  constructor(private readonly configService: ConfigService) {
+    // Competitor rates — loaded from config with sensible defaults
+    this.competitorRates = {
+      deliveryFeeBase: this.configService.get<number>('COMPETITOR_DELIVERY_FEE_BASE', 40),
+      deliveryFeePerKm: this.configService.get<number>('COMPETITOR_DELIVERY_FEE_PER_KM', 15),
+      deliveryFeeMax: this.configService.get<number>('COMPETITOR_DELIVERY_FEE_MAX', 80),
+      packagingPerItem: this.configService.get<number>('COMPETITOR_PACKAGING_PER_ITEM', 10),
+      platformFee: this.configService.get<number>('pricing.platformFee', 5),
+      surgeMultiplier: this.configService.get<number>('COMPETITOR_SURGE_MULTIPLIER', 1.3),
+      smallOrderFee: this.configService.get<number>('COMPETITOR_SMALL_ORDER_FEE', 30),
+      rainSurcharge: this.configService.get<number>('COMPETITOR_RAIN_SURCHARGE', 20),
+    };
+
+    // Our rates — loaded from config with sensible defaults
+    this.ourRates = {
+      deliveryFeeBase: this.configService.get<number>('OUR_DELIVERY_FEE_BASE', 30),
+      deliveryFeePerKm: this.configService.get<number>('OUR_DELIVERY_FEE_PER_KM', 10),
+      deliveryFeeMax: this.configService.get<number>('OUR_DELIVERY_FEE_MAX', 60),
+      packagingFee: this.configService.get<number>('OUR_PACKAGING_FEE', 0),
+      platformFee: this.configService.get<number>('OUR_PLATFORM_FEE', 0),
+      smallOrderFee: this.configService.get<number>('OUR_SMALL_ORDER_FEE', 0),
+      surgeMultiplier: this.configService.get<number>('OUR_SURGE_MULTIPLIER', 1.0),
+      rainSurcharge: this.configService.get<number>('OUR_RAIN_SURCHARGE', 0),
+    };
+  }
 
   /**
    * Calculate value proposition for an order

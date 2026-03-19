@@ -1,4 +1,5 @@
 import { FlowState } from '../../../types/flow.types';
+import { MODULE_ID, SEARCH, TOKEN } from '../../../../config/flow.constants';
 
 /**
  * Food Order Flow — Search And Browse States
@@ -189,8 +190,8 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
           config: {
             message: '🔄 No recent orders found! Let me help you find something delicious.',
             buttons: [
-              { id: 'btn_browse', label: '🍽️ Browse Menu', value: 'browse_menu' },
-              { id: 'btn_search', label: '🔍 Search Food', value: 'order_food' },
+              { id: 'btn_browse', label: 'Browse Menu', value: 'browse_menu' },
+              { id: 'btn_search', label: 'Search Food', value: 'order_food' },
             ],
           },
         },
@@ -284,9 +285,9 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
             message: '{{#if _location_just_received}}📍 Got your location! Now let me find the best options nearby...\n\n{{/if}}What would you like to order today? 🍽️\n\nYou can:\n• Tell me a dish name (e.g., "biryani", "pizza", "burger")\n• Browse the menu\n• See popular items',
             responseType: 'text',
             buttons: [
-              { id: 'btn_popular', label: '🔥 Popular items', value: 'popular' },
-              { id: 'btn_browse', label: '📋 Browse menu', value: 'browse_menu' },
-              { id: 'btn_surprise', label: '🎲 Surprise me', value: 'surprise' }
+              { id: 'btn_popular', label: 'Popular items', value: 'popular' },
+              { id: 'btn_browse', label: 'Browse menu', value: 'browse_menu' },
+              { id: 'btn_surprise', label: 'Surprise me', value: 'surprise' }
             ],
             // Clear the flag after showing
             saveToContext: {
@@ -422,13 +423,13 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
           config: {
             index: 'food_items',
             query: '{{extracted_food.search_query}}',
-            size: 15,
-            module_id: 4,
+            size: SEARCH.RESULT_LIMIT,
+            module_id: MODULE_ID.FOOD,
             fields: ['name', 'category_name', 'description', 'store_name'],
             formatForUi: true,
             lat: '{{location.lat}}',
             lng: '{{location.lng}}',
-            radius: '5km',
+            radius: SEARCH.DEFAULT_RADIUS,
             useSmartSearch: true,
           },
           output: 'search_results',
@@ -452,12 +453,12 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
             index: 'food_items',
             // If no specific items requested, use "popular food" as fallback
             query: '{{#if extracted_food.search_query}}{{extracted_food.search_query}}{{else}}popular food items menu{{/if}}',
-            size: 20,
+            size: SEARCH.FALLBACK_RESULT_LIMIT,
             fields: ['name', 'category_name', 'description', 'store_name'],
             formatForUi: true,
             lat: '{{location.lat}}',
             lng: '{{location.lng}}',
-            radius: '10km',
+            radius: SEARCH.FALLBACK_RADIUS,
             filters: [
               { field: 'store_name', operator: 'contains', value: '{{extracted_food.restaurant}}' }
             ],
@@ -510,9 +511,9 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
             cardsPath: 'search_results.cards',
             buttonsPath: 'search_results.filterButtons',
             buttons: [
-              { id: 'btn_view_cart', label: '📋 View Cart', value: 'show cart' },
-              { id: 'btn_browse', label: '📋 Browse Categories', value: 'browse_menu' },
-              { id: 'btn_describe', label: '📖 About {{search_results.cards.0.name}}', value: 'describe_first_item' },
+              { id: 'btn_view_cart', label: 'View Cart', value: 'show cart' },
+              { id: 'btn_browse', label: 'Browse Categories', value: 'browse_menu' },
+              { id: 'btn_describe', label: 'More Info', value: 'describe_first_item' },
             ],
             // WhatsApp Business API: max 3 quick reply buttons, no dynamic filter chips
             channelResponses: {
@@ -520,9 +521,9 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
                 message: '{{search_results.headerMessage || "Here are the results:"}}',
                 buttonsPath: '',   // Override to disable dynamic filter chips on WhatsApp
                 buttons: [
-                  { id: 'btn_view_cart', label: '🛒 Cart', value: 'show cart' },
-                  { id: 'btn_browse', label: '📋 Browse', value: 'browse_menu' },
-                  { id: 'btn_describe', label: '📖 More Info', value: 'describe_first_item' },
+                  { id: 'btn_view_cart', label: 'Cart', value: 'show cart' },
+                  { id: 'btn_browse', label: 'Browse', value: 'browse_menu' },
+                  { id: 'btn_describe', label: 'More Info', value: 'describe_first_item' },
                 ],
               },
             },
@@ -550,9 +551,9 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
             message: '🏪 I found items from **{{search_results.storesFound}}** stores:\n\n{{#each search_results.storeSummaries}}{{this}}\n{{/each}}{{#if search_results.ecomSuggestions.length}}\n\n🛍️ Some items are available in our **Shop** section — say "search [item] in shop" to find them{{/if}}\n\nTap **Add +** to add items from any store to your cart:',
             cardsPath: 'search_results.cards',
             buttons: [
-              { id: 'btn_view_cart', label: '📋 View Cart', value: 'show cart' },
-              { id: 'btn_browse', label: '📋 Browse Categories', value: 'browse_menu' },
-              { id: 'btn_alternatives', label: '🔄 Find Open Alternatives', value: 'find alternatives for closed stores' },
+              { id: 'btn_view_cart', label: 'View Cart', value: 'show cart' },
+              { id: 'btn_browse', label: 'Browse Categories', value: 'browse_menu' },
+              { id: 'btn_alternatives', label: 'Find Alternatives', value: 'find alternatives for closed stores' },
             ],
           },
           output: '_last_response',
@@ -601,9 +602,9 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
             message: 'Maaf kijiye, "{{original_food_query || _user_message}}" ke liye kuch nahi mila. 😕\n\nAap try kar sakte hain:\n• Missal Pav\n• Biryani\n• Vada Pav\n\nKya order karna chahte ho?',
             responseType: 'text',
             buttons: [
-              { id: 'btn_missal', label: '🍛 Missal Pav', value: 'missal pav' },
-              { id: 'btn_biryani', label: '🍛 Biryani', value: 'biryani' },
-              { id: 'btn_browse', label: '📋 Browse Menu', value: 'browse_menu' },
+              { id: 'btn_missal', label: 'Missal Pav', value: 'missal pav' },
+              { id: 'btn_biryani', label: 'Biryani', value: 'biryani' },
+              { id: 'btn_browse', label: 'Browse Menu', value: 'browse_menu' },
             ],
           },
           output: '_last_response',
@@ -653,7 +654,7 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
             query: '{{extracted_food.restaurant}}',
             city: '{{or location.city "Nashik"}}',
             type: 'restaurant',
-            radius: 25000, // 25km radius
+            radius: SEARCH.EXTERNAL_RADIUS_METERS,
             lat: '{{location.lat}}',
             lng: '{{location.lng}}',
           },
@@ -679,8 +680,8 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
             message: '❓ I couldn\'t find a store named "{{food_nlu.entities.store_reference}}". Here are the available options:',
             cardsPath: 'search_results.cards',  // Show current results
             buttons: [
-              { id: 'btn_select', label: '👆 Choose from above', value: 'select from results' },
-              { id: 'btn_new_search', label: '🔍 Try different search', value: 'new search' },
+              { id: 'btn_select', label: 'Choose from above', value: 'select from results' },
+              { id: 'btn_new_search', label: 'Try different search', value: 'new search' },
             ],
           },
           output: '_last_response',
@@ -704,7 +705,7 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
             query: '{{_failure_analysis.restaurant_name}}',
             location: '{{or location.city "Nashik"}}',
             type: 'restaurant',
-            radius: 25000, // 25km radius
+            radius: SEARCH.EXTERNAL_RADIUS_METERS,
             lat: '{{location.lat}}',
             lng: '{{location.lng}}',
           },
@@ -751,9 +752,9 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
           config: {
             message: `⚠️ **"{{extracted_food.restaurant}}" is not a Mangwale partner restaurant.**\n\nBut don't worry! I found it on Google Maps:\n\n📍 **{{external_search_results.topResult.name}}**\n📌 {{external_search_results.topResult.address}}\n{{#if external_search_results.topResult.rating}}⭐ {{external_search_results.topResult.rating}}{{/if}}\n\n🏍️ **Custom Pickup Available!**\nI can send a rider to pick up your order and deliver it to you.\n\n💡 *Note: Menu & prices not available. You'll need to tell us what to order.*`,
             buttons: [
-              { id: 'btn_pickup_here', label: '✅ Yes, pickup from here', value: 'yes order from {{external_search_results.topResult.name}}' },
-              { id: 'btn_partners', label: '🍽️ Show Partner Restaurants', value: 'show me partner restaurants' },
-              { id: 'btn_different', label: '🔄 Search Different Place', value: 'search for different restaurant' },
+              { id: 'btn_pickup_here', label: 'Yes, pickup here', value: 'yes order from {{external_search_results.topResult.name}}' },
+              { id: 'btn_partners', label: 'Show Partners', value: 'show me partner restaurants' },
+              { id: 'btn_different', label: 'Search Elsewhere', value: 'search for different restaurant' },
             ],
           },
         }
@@ -829,10 +830,10 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
             },
             message: `⚠️ **Not a Mangwale Partner**\n\n📍 **{{external_search_results.topResult.name}}**\n📌 {{external_search_results.topResult.address}}\n🗺️ [View on Google Maps]({{external_search_results.topResult.maps_link}})\n\n🏍️ **Custom Pickup Service:**\nWe'll send a rider to this location to pick up your order.\n\n💡 *You'll need to call the store to place your order, or tell us what to pick up.*`,
             buttons: [
-              { id: 'btn_create_parcel', label: '🏍️ Create Pickup Order', value: 'create parcel pickup' },
-              { id: 'btn_partners', label: '🍽️ Show Partners', value: 'show partner restaurants' },
-              { id: 'btn_call', label: '📞 Get Contact Info', value: 'call store' },
-              { id: 'btn_different', label: '🔄 Search Different', value: 'search different place' },
+              { id: 'btn_create_parcel', label: 'Create Pickup Order', value: 'create parcel pickup' },
+              { id: 'btn_partners', label: 'Show Partners', value: 'show partner restaurants' },
+              { id: 'btn_call', label: 'Get Contact Info', value: 'call store' },
+              { id: 'btn_different', label: 'Search Elsewhere', value: 'search different place' },
             ],
           },
         }
@@ -892,8 +893,8 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
           config: {
             message: `📍 **Store Details**\n\n🏪 **{{external_vendor.name}}**\n📌 {{external_vendor.address}}\n\n🗺️ Google Maps: {{external_vendor.maps_link}}\n\n_Copy and share this with friends!_`,
             buttons: [
-              { id: 'btn_create', label: '🏍️ Create Pickup Order', value: 'create parcel pickup' },
-              { id: 'btn_back', label: '⬅️ Back', value: 'go back' },
+              { id: 'btn_create', label: 'Create Pickup Order', value: 'create parcel pickup' },
+              { id: 'btn_back', label: 'Back', value: 'go back' },
             ],
           },
         }
@@ -914,8 +915,8 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
           config: {
             message: `📞 **Contact {{external_vendor.name}}**\n\n📌 {{external_vendor.address}}\n\n💡 You can find their contact number on Google Maps:\n🗺️ {{external_vendor.maps_link}}`,
             buttons: [
-              { id: 'btn_create', label: '🏍️ Create Pickup Order', value: 'create parcel pickup' },
-              { id: 'btn_back', label: '⬅️ Back', value: 'go back' },
+              { id: 'btn_create', label: 'Create Pickup Order', value: 'create parcel pickup' },
+              { id: 'btn_back', label: 'Back', value: 'go back' },
             ],
           },
         }
@@ -973,9 +974,9 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
           config: {
             message: `🏍️ **Parcel Pickup Order**\n\n📦 **Pickup:** {{external_vendor.name}}\n📌 {{external_vendor.address}}\n\n🏠 **Deliver to:** {{or delivery_address.formatted_address location.formatted_address "Your current location"}}\n\n✅ Confirm delivery address?`,
             buttons: [
-              { id: 'btn_confirm', label: '✅ Confirm & Create Order', value: 'confirm delivery address' },
-              { id: 'btn_change', label: '📍 Change Delivery Address', value: 'change address' },
-              { id: 'btn_cancel', label: '❌ Cancel', value: 'cancel' },
+              { id: 'btn_confirm', label: 'Confirm & Create', value: 'confirm delivery address' },
+              { id: 'btn_change', label: 'Change Address', value: 'change address' },
+              { id: 'btn_cancel', label: 'Cancel', value: 'cancel' },
             ],
           },
         }
@@ -1039,9 +1040,9 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
             },
             message: `🎉 **Parcel Order Created!**\n\n📦 **Pickup From:**\n🏪 {{external_vendor.name}}\n📌 {{external_vendor.address}}\n\n🏠 **Deliver To:**\n📍 {{or parcel_delivery_location.address delivery_address.formatted_address location.formatted_address "Your location"}}\n\n⏱️ **Estimated:** 30-45 minutes\n\n🏍️ Our delivery partner will:\n1️⃣ Go to the pickup location\n2️⃣ Collect your order (you can call to place order)\n3️⃣ Deliver it to you\n\n💰 **Payment:** Cash on delivery\n\n📞 You'll receive a call when rider is assigned!`,
             buttons: [
-              { id: 'btn_track', label: '📍 Track Order', value: 'track my order' },
-              { id: 'btn_call_store', label: '📞 Call Store Now', value: 'call store' },
-              { id: 'btn_home', label: '🏠 Home', value: 'go to home' },
+              { id: 'btn_track', label: 'Track Order', value: 'track my order' },
+              { id: 'btn_call_store', label: 'Call Store Now', value: 'call store' },
+              { id: 'btn_home', label: 'Home', value: 'go to home' },
             ],
           },
         }
@@ -1086,8 +1087,8 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
           config: {
             message: `❌ **"{{extracted_food.restaurant}}" is not available**\n\nThis restaurant is neither a Mangwale partner nor found on Google Maps.\n\n🏍️ **Custom Pickup Option:**\nYou can still order from ANY place! Just:\n\n1️⃣ Share the **location/address** of the restaurant\n2️⃣ Tell us what to **order**\n3️⃣ We'll pick it up & deliver!\n\n📍 Share the pickup location below:`,
             buttons: [
-              { id: 'btn_share_location', label: '📍 Share Location', value: '__LOCATION__' },
-              { id: 'btn_browse', label: '🍽️ Browse Partner Restaurants', value: 'show me partner restaurants' },
+              { id: 'btn_share_location', label: 'Share Location', value: TOKEN.LOCATION },
+              { id: 'btn_browse', label: 'Partner Restaurants', value: 'show me partner restaurants' },
             ],
           },
         }
@@ -1110,7 +1111,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
             query: '{{user_message}}',
             city: '{{or location.city "Nashik"}}',
             type: 'establishment',
-            radius: 25000,
+            radius: SEARCH.EXTERNAL_RADIUS_METERS,
           },
           output: 'custom_pickup_search',
         }
@@ -1158,9 +1159,9 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
           config: {
             message: '📍 I found this location:\n\n**{{custom_pickup_search.topResult.name}}**\n{{custom_pickup_search.topResult.address}}\n\nIs this correct?',
             buttons: [
-              { id: 'btn_yes', label: '✅ Yes, this is it', value: 'yes correct' },
-              { id: 'btn_no', label: '❌ No, try again', value: 'no wrong location' },
-              { id: 'btn_share', label: '📍 Share GPS Location', value: '__LOCATION__' },
+              { id: 'btn_yes', label: 'Yes, this is it', value: 'yes correct' },
+              { id: 'btn_no', label: 'No, try again', value: 'no wrong location' },
+              { id: 'btn_share', label: 'Share GPS Location', value: TOKEN.LOCATION },
             ],
           },
         }
@@ -1330,9 +1331,9 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
           config: {
             message: '📋 **Custom Order Summary**\n\n🏪 **Pickup from:** {{or custom_pickup_location.name external_search_results.topResult.name}}\n📍 {{or custom_pickup_location.address external_search_results.topResult.address}}\n\n🛒 **Items:**\n{{#each custom_order_items.items}}• {{quantity}}x {{name}}{{#if notes}} ({{notes}}){{/if}}\n{{/each}}\n\n📦 **Delivery to:** {{or delivery_address.formatted_address location.formatted_address "Your location"}}\n\n💰 Price will be confirmed after pickup.\n\nConfirm to proceed?',
             buttons: [
-              { id: 'btn_confirm', label: '✅ Confirm Order', value: 'confirm custom order' },
-              { id: 'btn_edit', label: '✏️ Edit Items', value: 'edit items' },
-              { id: 'btn_cancel', label: '❌ Cancel', value: 'cancel order' },
+              { id: 'btn_confirm', label: 'Confirm Order', value: 'confirm custom order' },
+              { id: 'btn_edit', label: 'Edit Items', value: 'edit items' },
+              { id: 'btn_cancel', label: 'Cancel', value: 'cancel order' },
             ],
           },
         }
@@ -1383,8 +1384,8 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
               'order_status': 'pending_partner',
             },
             buttons: [
-              { id: 'btn_track', label: '📍 Track Order', value: 'track my order' },
-              { id: 'btn_home', label: '🏠 Back to Home', value: 'go to home' },
+              { id: 'btn_track', label: 'Track Order', value: 'track my order' },
+              { id: 'btn_home', label: 'Back to Home', value: 'go to home' },
             ],
           },
         }
@@ -1404,10 +1405,10 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
           config: {
             index: 'stores',
             query: '*',
-            size: 10,
+            size: SEARCH.STORE_LIMIT,
             lat: '{{location.lat}}',
             lng: '{{location.lng}}',
-            radius: '10km',
+            radius: SEARCH.FALLBACK_RADIUS,
             fields: ['name', 'address', 'category', 'rating'],
             formatForUi: true,
           },
@@ -1500,7 +1501,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
           config: {
             index: 'food_items',
             query: '*',
-            size: 15,
+            size: SEARCH.RESULT_LIMIT,
             lat: '{{location.lat}}',
             lng: '{{location.lng}}',
             filters: [{ field: 'store_id', operator: 'equals', value: '{{_selected_store_id}}' }],
@@ -1527,7 +1528,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
           config: {
             type: 'categories',
             index: 'food_items',
-            limit: 8,
+            limit: SEARCH.CATEGORY_LIMIT,
           },
           output: 'category_results',
         },
@@ -1551,7 +1552,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
             index: 'food_items',
             queryMode: 'recommendation',  // Uses time-of-day search terms
             open_now: true,               // SearchExecutor will filter to open stores only
-            limit: 10,
+            limit: SEARCH.STORE_LIMIT,
           },
           output: 'search_results',
         },
@@ -1731,9 +1732,9 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
             message: '{{#if _location_just_received}}📍 Got your location!\n\n{{/if}}{{#if recommendation_results._greeting}}{{recommendation_results._greeting}}{{else}}🎉 Yeh dekho popular items:{{/if}}\n\nKisi bhi item pe tap karo order karne ke liye! 👇',
             cardsPath: 'recommendation_results.cards',
             buttons: [
-              { id: 'btn_view_cart', label: '📋 View Cart', value: 'show cart' },
-              { id: 'btn_browse', label: '📋 Browse Categories', value: 'browse_menu' },
-              { id: 'btn_search', label: '🔍 Search', value: 'search_different' },
+              { id: 'btn_view_cart', label: 'View Cart', value: 'show cart' },
+              { id: 'btn_browse', label: 'Browse Categories', value: 'browse_menu' },
+              { id: 'btn_search', label: 'Search', value: 'search_different' },
             ],
             saveToContext: {
               _location_just_received: false,
@@ -1781,10 +1782,10 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
             message: '🍽️ Hamare paas bahut kuch hai! Choose karo kya khana hai:\n\n• 🍕 Pizza\n• 🍔 Burger\n• 🍛 Biryani\n• 🥟 Momos\n• 🥪 Sandwich\n\nYa fir directly bolo kya chahiye!',
             responseType: 'text',
             buttons: [
-              { id: 'btn_pizza', label: '🍕 Pizza', value: 'pizza' },
-              { id: 'btn_biryani', label: '🍛 Biryani', value: 'biryani' },
-              { id: 'btn_burger', label: '🍔 Burger', value: 'burger' },
-              { id: 'btn_momos', label: '🥟 Momos', value: 'momos' },
+              { id: 'btn_pizza', label: 'Pizza', value: 'pizza' },
+              { id: 'btn_biryani', label: 'Biryani', value: 'biryani' },
+              { id: 'btn_burger', label: 'Burger', value: 'burger' },
+              { id: 'btn_momos', label: 'Momos', value: 'momos' },
             ],
           },
           output: '_last_response',
@@ -1817,7 +1818,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
             sortBy: 'delivery_time',
             lat: '{{location.lat}}',
             lng: '{{location.lng}}',
-            radius: '5km',
+            radius: SEARCH.DEFAULT_RADIUS,
           },
           output: 'fast_delivery_results',
         },

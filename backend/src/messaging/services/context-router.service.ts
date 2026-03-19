@@ -23,6 +23,11 @@ import { PhpLoyaltyService } from '../../php-integration/services/php-loyalty.se
 import { PhpReviewService } from '../../php-integration/services/php-review.service';
 import { PhpCouponService } from '../../php-integration/services/php-coupon.service';
 import { UserPreferenceService } from '../../personalization/user-preference.service';
+import {
+  GREETING_CRITICAL_STATES,
+  FLOW_SWITCH_BLOCKED_STATES,
+  LOCATION_WAIT_STATES,
+} from '../../config/flow.constants';
 
 /**
  * Router Response - returned for SYNC channels (Web, Voice, Mobile)
@@ -234,6 +239,22 @@ export class ContextRouterService implements OnModuleInit {
     if (activeFlowInfo?.outOfSync) {
       this.logger.log(`🔄 Session sync: recovered flow state for ${event.identifier}`);
       // Refresh session to get the synced data
+      session = await this.sessionService.getSession(event.identifier);
+    }
+
+    // 🕐 STALE FLOW CLEANUP: If a flow has been idle for >2 hours, clear it
+    // This prevents users from returning after hours and being stuck in a stale state
+    const STALE_FLOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+    const staleFlowId = session.data?.activeFlow || session.data?.flowContext?.flowId;
+    const flowAge = session.data?.flowStartedAt ? Date.now() - session.data.flowStartedAt : 0;
+    if (staleFlowId && flowAge > STALE_FLOW_MS) {
+      this.logger.log(`🕐 Stale flow detected: ${staleFlowId} (age: ${Math.round(flowAge / 60000)}min) — clearing`);
+      await this.sessionService.updateSession(event.identifier, {
+        activeFlow: null,
+        flowContext: null,
+        flowRunId: null,
+        flowStartedAt: null,
+      });
       session = await this.sessionService.getSession(event.identifier);
     }
 
@@ -893,11 +914,89 @@ export class ContextRouterService implements OnModuleInit {
         };
       }
 
+      // Extract order ID from message like "Cancel order 106113" or "cancel #106113"
+      const orderIdMatch = event.message?.match(/(?:order|#)\s*(\d{4,})/i);
+      const requestedOrderId = orderIdMatch ? parseInt(orderIdMatch[1], 10) : null;
+
       try {
+        // If user specified an order ID, handle it directly
+        if (requestedOrderId) {
+          this.logger.log(`cancel_order: user requested specific order #${requestedOrderId}`);
+
+          // First check if it's in running orders (can be cancelled directly)
+          const runningOrders = await this.phpOrderService?.getRunningOrders(authToken);
+          const matchingRunning = runningOrders?.find((o: any) => o.id === requestedOrderId);
+
+          if (matchingRunning) {
+            // Order is active — cancel it directly
+            const result = await this.phpOrderService?.cancelOrder(authToken, requestedOrderId, 'Customer requested cancellation');
+            if (result?.success) {
+              return {
+                message: `✅ **Order #${requestedOrderId}** has been cancelled.\n\nRefund will be processed within 5-7 business days.`,
+                buttons: [
+                  { label: '📋 My Orders', value: 'my orders', action: 'track_order' },
+                  ...this.getMainMenuButtons().slice(0, 2),
+                ],
+                routedTo: 'direct',
+                intent,
+                metadata: { handler: 'cancel_order', orderId: requestedOrderId, action: 'cancelled' },
+              };
+            }
+            return {
+              message: `❌ Could not cancel Order #${requestedOrderId}: ${result?.message || 'Unknown error'}. Please try again or contact support.`,
+              buttons: this.getMainMenuButtons(),
+              routedTo: 'direct',
+              intent,
+            };
+          }
+
+          // Order not in running list — fetch details to give a status-aware response
+          const orderDetails = await this.phpOrderService?.getOrderDetails(authToken, requestedOrderId);
+          if (!orderDetails) {
+            return {
+              message: `❌ Order #${requestedOrderId} was not found. Please check the order number and try again.`,
+              buttons: [
+                { label: '📋 My Orders', value: 'my orders', action: 'track_order' },
+                ...this.getMainMenuButtons().slice(0, 2),
+              ],
+              routedTo: 'direct',
+              intent,
+              metadata: { handler: 'cancel_order', orderId: requestedOrderId, action: 'not_found' },
+            };
+          }
+
+          const status = orderDetails.orderStatus?.toLowerCase();
+          const statusResponses: Record<string, string> = {
+            delivered: `Order #${requestedOrderId} has been **delivered** and cannot be cancelled.`,
+            cancelled: `Order #${requestedOrderId} is **already cancelled**.`,
+            picked_up: `Order #${requestedOrderId} is **on its way** and cannot be cancelled. Please contact support if needed.`,
+            handover: `Order #${requestedOrderId} is **on its way** and cannot be cancelled. Please contact support if needed.`,
+            processing: `Order #${requestedOrderId} is being **prepared** and cannot be cancelled. Please contact support if needed.`,
+            accepted: `Order #${requestedOrderId} has been **accepted by the store** and cannot be cancelled. Please contact support.`,
+            confirmed: `Order #${requestedOrderId} has been **confirmed** and cannot be cancelled. Please contact support.`,
+          };
+
+          const responseMsg = statusResponses[status]
+            || `Order #${requestedOrderId} is in **${status || 'unknown'}** status and cannot be cancelled.`;
+
+          return {
+            message: `📋 ${responseMsg}`,
+            buttons: [
+              { label: '📋 My Orders', value: 'my orders', action: 'track_order' },
+              { label: '📞 Support', value: 'support', action: 'support' },
+              ...this.getMainMenuButtons().slice(0, 1),
+            ],
+            routedTo: 'direct',
+            intent,
+            metadata: { handler: 'cancel_order', orderId: requestedOrderId, action: 'status_check', status },
+          };
+        }
+
+        // No specific order ID — show running orders list (existing behavior)
         const runningOrders = await this.phpOrderService?.getRunningOrders(authToken);
         if (!runningOrders || runningOrders.length === 0) {
           return {
-            message: '📋 You have no active orders to cancel.\n\nOnly orders in **pending** or **confirmed** status can be cancelled.',
+            message: '📋 You have no active orders to cancel.\n\nOnly orders in **pending** status can be cancelled.',
             buttons: [
               { label: '📋 View My Orders', value: 'my orders', action: 'track_order' },
               ...this.getMainMenuButtons().slice(0, 2),
@@ -908,7 +1007,7 @@ export class ContextRouterService implements OnModuleInit {
         }
 
         const orderList = runningOrders.slice(0, 3)
-          .map((o: any, i: number) => `${i + 1}. **Order #${o.id}** — ₹${o.order_amount} (${o.order_status})`)
+          .map((o: any, i: number) => `${i + 1}. **Order #${o.id}** — ₹${o.orderAmount} (${o.orderStatus})`)
           .join('\n');
         const orderButtons = runningOrders.slice(0, 3).map((o: any) => ({
           label: `❌ Cancel #${o.id}`,
@@ -1199,6 +1298,21 @@ export class ContextRouterService implements OnModuleInit {
     // Check both session.data.activeFlow AND flowContext
     if (activeFlow) {
       return this.continueFlowSync(event, session, intent);
+    }
+
+    // STEP 4c: Handle standalone numbers/selections outside active flows
+    // User sends "1", "2", "3" — likely responding to a previous list that's no longer in context
+    const msg = event.message?.trim() || '';
+    if (/^\d{1,2}$/.test(msg) && !activeFlow) {
+      this.logger.log(`🔢 Standalone number "${msg}" outside flow — prompting main menu`);
+      const userName = session.data?.user_name || 'there';
+      return {
+        message: `Hey ${userName}! It looks like you sent a number. What would you like to do?`,
+        buttons: this.getMainMenuButtons(),
+        routedTo: 'greeting',
+        intent,
+        metadata: { action: 'standalone_number_redirect' },
+      };
     }
 
     // STEP 5: Start New Flow or Fallback to Agent
@@ -1523,24 +1637,21 @@ export class ContextRouterService implements OnModuleInit {
     // If in a critical transactional state, continue the flow
     const isMidFlowGreeting = ['greeting', 'chitchat'].includes(intent.intent) && flowId;
     if (isMidFlowGreeting) {
-      // States where the user is just browsing — safe to reset on greeting
-      const BROWSABLE_STATES = [
-        'display_recommendations', 'show_results', 'show_recommendations',
-        'ask_food_query', 'check_trigger', 'start',
-        'understand_request', 'welcome', 'search_food', 'check_search_query_exists',
-        'ask_what_to_order', 'ask_for_query',
-      ];
-      const isStaleState = BROWSABLE_STATES.includes(currentState);
-      
-      if (isStaleState) {
-        this.logger.log(`👋 Greeting in browsable state (${currentState}) — clearing stale ${flowId} flow, greeting fresh`);
+      // Imported from flow.constants.ts — single source of truth
+      const isCriticalState = (GREETING_CRITICAL_STATES as readonly string[]).includes(currentState);
+
+      if (isCriticalState) {
+        this.logger.log(`👋 Mid-flow greeting in critical state (${currentState}) — continuing ${flowId}`);
+        // Continue flow directly - will be handled naturally
+      } else {
+        this.logger.log(`👋 Greeting in non-critical state (${currentState}) — clearing stale ${flowId} flow, greeting fresh`);
         // Clear the stale flow
         await this.sessionService.updateSession(event.identifier, {
           activeFlow: null,
           flowContext: null,
           flowRunId: null,
         });
-        
+
         // Return greeting with main menu
         const userName = session.data?.user_name || 'there';
         return {
@@ -1550,23 +1661,12 @@ export class ContextRouterService implements OnModuleInit {
           intent,
           metadata: { action: 'greeting_reset' },
         };
-      } else {
-        this.logger.log(`👋 Mid-flow greeting in critical state (${currentState}) — continuing ${flowId}`);
-        // Continue flow directly - will be handled naturally
       }
     }
     
     // 🔧 FIX: Don't switch to address-management when current flow is waiting for address/location
     // The address text or location message gets classified as manage_address but we should continue the flow
-    const isLocationWaitState = [
-      'request_location', 'handle_location_response', 'ask_location',
-      // Food order address collection states
-      'collect_address_input', 'collect_address', 'await_flow_address',
-      'wait_address_label', 'validate_address',
-      // Parcel address collection states
-      'collect_pickup_location', 'collect_delivery_location',
-      'wait_pickup_address', 'wait_delivery_address',
-    ].includes(currentState);
+    const isLocationWaitState = (LOCATION_WAIT_STATES as readonly string[]).includes(currentState);
     const isLocationRelatedIntent = ['manage_address', 'provide_location', 'check_address', 'save_address'].includes(intent.intent);
     const messageContainsLocation = event.message?.includes('Location shared') || event.message?.includes('Coordinates:') || /\d+\.\d+,\s*\d+\.\d+/.test(event.message || '');
     
@@ -1597,39 +1697,8 @@ export class ContextRouterService implements OnModuleInit {
     // 🔧 FIX: Don't switch flows when user is in CRITICAL wait states
     // These are states where the user is expected to provide specific input like
     // payment selection, order confirmation, recipient details, etc.
-    const CRITICAL_WAIT_STATES = [
-      'wait_payment_selection', 'select_payment_method', 'select_payment_method_fallback',
-      'handle_payment_selection', 'confirm_order', 'show_summary',
-      'wait_for_pickup', 'wait_for_delivery', 'collect_recipient', 'wait_recipient',
-      'wait_confirmation', 'wait_vehicle_selection', 'confirm_checkout',
-      'wait_quantity', 'wait_size', 'wait_addon_selection',
-      // Parcel vehicle category selection states
-      'show_categories', 'show_categories_retry',
-      // Address collection states (food + parcel)
-      'collect_pickup', 'collect_delivery', 'extract_pickup_address', 'extract_delivery_address',
-      'collect_address_input', 'collect_address', 'await_flow_address',
-      'wait_address_label', 'validate_address',
-      // Coupon, tip, and order summary states
-      'prompt_coupon_code', 'wait_coupon_input', 'apply_coupon',
-      'prompt_tip', 'wait_tip_input', 'show_final_summary', 'wait_order_confirm',
-      // E-commerce cart states
-      'wait_after_add', 'show_products', 'show_cart', 'check_cart_action',
-      // Order summary / confirmation states (all flows)
-      'show_order_summary', 'check_final_confirmation', 'wait_order_summary_confirm',
-      'apply_coupon_code', 'coupon_applied', 'coupon_invalid',
-      'calculate_pricing', 'confirm_order_details',
-      // Payment gateway wait states (parcel + food)
-      'wait_payment_result', 'wait_food_payment_result',
-      'await_payment_retry', 'await_food_payment_retry',
-      // Location wait states — user is sharing GPS/location, don't switch to address flow
-      'request_location', 'handle_location_response', 'ask_location',
-      // Auth/OTP states — user is entering phone or OTP, don't switch to auth flow
-      'request_phone', 'verify_otp', 'otp_retry', 'collect_phone', 'ask_for_otp',
-      // Name/profile collection states
-      'ask_name', 'ask_email',
-    ];
-    
-    const isInCriticalState = CRITICAL_WAIT_STATES.includes(currentState);
+    // Imported from flow.constants.ts — single source of truth (superset of GREETING_CRITICAL_STATES)
+    const isInCriticalState = (FLOW_SWITCH_BLOCKED_STATES as readonly string[]).includes(currentState);
     if (isInCriticalState) {
       this.logger.log(`🔒 In critical wait state (${currentState}) - NOT switching flows, letting flow handle input`);
       // Fall through to continue the flow
@@ -1838,6 +1907,9 @@ export class ContextRouterService implements OnModuleInit {
           this.logger.log(`🔐 Passing auth to flow: user_id=${authContext.user_id}, phone=${authContext.phone_number ? '***' : 'none'}`);
         }
         
+        // Track flow start time for stale session cleanup
+        await this.sessionService.setData(event.identifier, 'flowStartedAt', Date.now());
+
         // Use startFlow to create a NEW flow (not processMessage which continues existing)
         const flowResult = await this.flowEngineService.startFlow(flowId, {
           sessionId: event.identifier,

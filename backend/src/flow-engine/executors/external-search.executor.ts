@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ExternalVendorService, GooglePlaceResult } from '../../search/services/external-vendor.service';
 import { ActionExecutor, ActionExecutionResult, FlowContext } from '../types/flow.types';
 import { SentimentAnalysisService } from '../../agents/services/sentiment-analysis.service';
@@ -16,6 +17,7 @@ export class ExternalSearchExecutor implements ActionExecutor {
   private readonly logger = new Logger(ExternalSearchExecutor.name);
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly externalVendorService: ExternalVendorService,
     private readonly sentimentAnalysis: SentimentAnalysisService,
     private readonly advancedLearning: AdvancedLearningService,
@@ -52,7 +54,7 @@ export class ExternalSearchExecutor implements ActionExecutor {
 
       // Get location from context or config
       const location = config.location || context.data.location || context.data.delivery_address;
-      const city = config.city || context.data.city || 'Nashik';
+      const city = config.city || context.data.city || this.configService.get('geo.defaultCity', 'Nashik');
       const type = config.type || 'restaurant';
       const radius = config.radius || 10000;
 

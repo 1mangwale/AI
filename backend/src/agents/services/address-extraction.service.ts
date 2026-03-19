@@ -427,18 +427,19 @@ export class AddressExtractionService {
       
       // MOCK FALLBACK for Smoke Tests / Dev (Fixes loop when API is down)
       // Order matters - check specific locations before generic "nashik" match
+      const defaultCity = this.configService.get<string>('geo.defaultCity') || 'Nashik';
       if (userInput.toLowerCase().includes('gangapur road')) {
          return {
             success: true,
             address: {
-              address: 'Gangapur Road, Nashik, Maharashtra, India',
+              address: `Gangapur Road, ${defaultCity}, Maharashtra, India`,
               latitude: 20.0108,
               longitude: 73.7627,
               source: 'text_geocoded',
               confidence: 1.0,
               metadata: {
                 raw_input: userInput,
-                city: 'Nashik'
+                city: defaultCity
               },
             },
           };
@@ -447,30 +448,30 @@ export class AddressExtractionService {
          return {
             success: true,
             address: {
-              address: 'College Road, Nashik, Maharashtra, India',
+              address: `College Road, ${defaultCity}, Maharashtra, India`,
               latitude: 20.0059,
               longitude: 73.7798,
               source: 'text_geocoded',
               confidence: 1.0,
               metadata: {
                 raw_input: userInput,
-                city: 'Nashik'
+                city: defaultCity
               },
             },
           };
       }
-      if (userInput.toLowerCase().trim() === 'nashik' || userInput.toLowerCase().includes('nashik')) {
+      if (userInput.toLowerCase().trim() === defaultCity.toLowerCase() || userInput.toLowerCase().includes(defaultCity.toLowerCase())) {
          return {
             success: true,
             address: {
-              address: 'Nashik, Maharashtra, India',
+              address: `${defaultCity}, Maharashtra, India`,
               latitude: 19.9975,
               longitude: 73.7898,
               source: 'text_geocoded',
               confidence: 1.0,
               metadata: {
                 raw_input: userInput,
-                city: 'Nashik'
+                city: defaultCity
               },
             },
           };

@@ -627,7 +627,7 @@ export class EntityResolutionService {
       const response = await firstValueFrom(
         this.httpService.get('https://maps.googleapis.com/maps/api/geocode/json', {
           params: {
-            address: `${address}, Nashik, Maharashtra, India`,
+            address: `${address}, ${this.configService.get('geo.defaultCity', 'Nashik')}, Maharashtra, India`,
             key: googleApiKey,
           },
           timeout: 5000,
@@ -654,7 +654,7 @@ export class EntityResolutionService {
     const cityComponent = components?.find((c: any) => 
       c.types.includes('locality') || c.types.includes('administrative_area_level_2')
     );
-    return cityComponent?.long_name || 'Nashik';
+    return cityComponent?.long_name || this.configService.get('geo.defaultCity', 'Nashik');
   }
 
   /**

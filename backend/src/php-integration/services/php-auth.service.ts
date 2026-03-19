@@ -116,9 +116,9 @@ export class PhpAuthService extends PhpApiService {
 
     // MOCK FOR TESTING - Only works when testMode is explicitly enabled
     const isTestMode = this.configService.get('app.testMode') === true;
-    const mockNumbers = ['8888777766', '9999888877'];
+    const mockNumbers: string[] = this.configService.get('test.mockPhoneNumbers') || [];
     if (isTestMode && mockNumbers.some(n => normalizedPhone.includes(n))) {
-      this.logger.log(`📞 [MOCK] Sending OTP to ${normalizedPhone}: 123456 (TEST MODE)`);
+      this.logger.log(`📞 [MOCK] Sending OTP to ${normalizedPhone} (TEST MODE)`);
       return { success: true, message: 'OTP sent successfully' };
     }
 
@@ -178,14 +178,15 @@ export class PhpAuthService extends PhpApiService {
 
     // MOCK FOR TESTING - Only works when testMode is explicitly enabled
     const isTestMode = this.configService.get('app.testMode') === true;
-    const mockNumbers = ['8888777766', '9999888877']; // Only test numbers
-    const isMockNumber = mockNumbers.some(n => normalizedPhone.includes(n));
-    if (isTestMode && isMockNumber && otp === '123456') {
+    const verifyMockNumbers: string[] = this.configService.get('test.mockPhoneNumbers') || [];
+    const mockOtp: string = this.configService.get('test.mockOtp') || '123456';
+    const isMockNumber = verifyMockNumbers.some(n => normalizedPhone.includes(n));
+    if (isTestMode && isMockNumber && otp === mockOtp) {
       this.logger.log(`🔐 [MOCK] Verifying OTP for ${normalizedPhone}`);
-      // 8888777766 = Existing User (ID: 88887777)
-      // 9999888877 = New User (ID: 99998888, incomplete profile)
-      const isNewUser = normalizedPhone.includes('9999888877');
-      const mockUserId = isNewUser ? 99998888 : 88887777;
+      const newUserPhone = verifyMockNumbers[1] || '9999888877';
+      const isNewUser = normalizedPhone.includes(newUserPhone);
+      const mockUserIds = this.configService.get('test.mockUserIds') || { existing: 88887777, new: 99998888 };
+      const mockUserId = isNewUser ? mockUserIds.new : mockUserIds.existing;
       
       return {
         success: true,
@@ -243,8 +244,8 @@ export class PhpAuthService extends PhpApiService {
 
     // MOCK FOR TESTING - Only works when testMode is explicitly enabled
     const isTestMode = this.configService.get('app.testMode') === true;
-    const mockNumbers = ['8888777766', '9999888877'];
-    if (isTestMode && mockNumbers.some(n => normalizedPhone.includes(n))) {
+    const updateMockNumbers: string[] = this.configService.get('test.mockPhoneNumbers') || [];
+    if (isTestMode && updateMockNumbers.some(n => normalizedPhone.includes(n))) {
       this.logger.log(`📝 [MOCK] Updating user info for ${normalizedPhone} (TEST MODE)`);
       return {
         success: true,

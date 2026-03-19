@@ -12,6 +12,7 @@
  */
 
 import { FlowDefinition } from '../types/flow.types';
+import { TIMEOUT, TOKEN } from '../../config/flow.constants';
 
 export const addressManagementFlow: FlowDefinition = {
   id: 'address-management',
@@ -128,7 +129,7 @@ export const addressManagementFlow: FlowDefinition = {
         user_message: 'handle_choice',
         timeout: 'completed',
       },
-      timeout: 300000,
+      timeout: TIMEOUT.ADDRESS,
     },
 
     // State 6: Handle user choice
@@ -219,7 +220,7 @@ export const addressManagementFlow: FlowDefinition = {
         user_message: 'handle_post_view',
         timeout: 'completed',
       },
-      timeout: 300000,
+      timeout: TIMEOUT.ADDRESS,
     },
 
     // State 10: Handle post-view action
@@ -251,7 +252,7 @@ export const addressManagementFlow: FlowDefinition = {
           id: 'location_prompt',
           executor: 'response',
           config: {
-            message: '📍 **Add New Address**\n\nPlease share your location:\n\n[BTN|📍 Share Location|__LOCATION__]\n\nOr paste a Google Maps link.',
+            message: `📍 **Add New Address**\n\nPlease share your location:\n\n[BTN|📍 Share Location|${TOKEN.LOCATION}]\n\nOr paste a Google Maps link.`,
           },
           output: '_last_response',
         },
@@ -269,7 +270,7 @@ export const addressManagementFlow: FlowDefinition = {
         user_message: 'extract_location',
         timeout: 'completed',
       },
-      timeout: 300000,
+      timeout: TIMEOUT.ADDRESS,
     },
 
     // State 13: Extract location from input
@@ -388,7 +389,7 @@ export const addressManagementFlow: FlowDefinition = {
         user_message: 'capture_type',
         timeout: 'completed',
       },
-      timeout: 120000,
+      timeout: TIMEOUT.SHORT_INPUT,
     },
 
     // State 19: Capture address type
@@ -503,7 +504,7 @@ export const addressManagementFlow: FlowDefinition = {
         user_message: 'handle_choice',
         timeout: 'completed',
       },
-      timeout: 120000,
+      timeout: TIMEOUT.SHORT_INPUT,
     },
 
     // Final state

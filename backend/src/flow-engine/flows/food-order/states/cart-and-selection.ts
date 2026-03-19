@@ -1,4 +1,5 @@
 import { FlowState } from '../../../types/flow.types';
+import { MODULE_ID, SEARCH } from '../../../../config/flow.constants';
 
 /**
  * Food Order Flow — Cart And Selection States
@@ -15,8 +16,8 @@ export const cartAndSelectionStates: Record<string, FlowState> = {
           config: {
             message: '📖 **{{search_results.cards.0.name}}**\n\n{{search_results.cards.0.description}}\n\n💰 Price: {{search_results.cards.0.price}}  |  🏪 {{search_results.cards.0.storeName}}',
             buttons: [
-              { id: 'btn_add', label: '🛒 Add to Cart', value: 'add {{search_results.cards.0.name}}' },
-              { id: 'btn_back', label: '⬅️ Back to Results', value: 'show results' },
+              { id: 'btn_add', label: 'Add to Cart', value: 'add {{search_results.cards.0.name}}' },
+              { id: 'btn_back', label: 'Back to Results', value: 'show results' },
             ],
           },
           output: '_last_response',
@@ -345,8 +346,8 @@ Ask if they want to:
             // Show cart items as cards for mobile-friendly display
             cardsPath: 'auto_cart_result.selectedItems',
             buttons: [
-              { id: 'btn_confirm', label: '✅ Proceed to Checkout', value: 'checkout' },
-              { id: 'btn_modify', label: '✏️ Modify Cart', value: 'show cart' }
+              { id: 'btn_confirm', label: 'Proceed to Checkout', value: 'checkout' },
+              { id: 'btn_modify', label: 'Modify Cart', value: 'show cart' }
             ],
             saveToContext: {
               cart_items: '{{auto_cart_result.selectedItems}}',
@@ -414,7 +415,7 @@ Ask if they want to:
           config: {
             message: '🍟 **Add-ons available:**\n\n{{#each selection_result.addonOptions}}• {{this.name}} — ₹{{this.price}}\n{{/each}}\n\nType add-on names/numbers to select, or skip:',
             buttons: [
-              { id: 'btn_skip_addon', label: '⏭️ No add-ons', value: 'skip_addon' },
+              { id: 'btn_skip_addon', label: 'No add-ons', value: 'skip_addon' },
             ],
           },
           output: '_last_response',
@@ -605,9 +606,9 @@ Ask if they want to:
             // Build cart cards from cart items for web display (use cart_items which is in card format)
             cardsPath: 'cart_update_result.cart_items',
             buttons: [
-              { id: 'btn_checkout', label: '🛒 Checkout', value: 'checkout' },
-              { id: 'btn_repeat', label: '🔁 +1 Same Item', value: 'repeat_last_item' },
-              { id: 'btn_add_more', label: '🍽️ Add Different', value: 'add more food' },
+              { id: 'btn_checkout', label: 'Checkout', value: 'checkout' },
+              { id: 'btn_repeat', label: '+1 Same Item', value: 'repeat_last_item' },
+              { id: 'btn_add_more', label: 'Add Different', value: 'add more food' },
             ],
             // Save the cart state (cart_data is raw format for cart operations)
             saveToContext: {
@@ -684,9 +685,9 @@ Ask if they want to:
           config: {
             message: '✅ {{remove_result.message}}\n\n🛒 Your cart now has {{remove_result.cart_items.length}} item(s) - ₹{{remove_result.totalPrice}}\n\nWhat would you like to do next?',
             buttons: [
-              { id: 'btn_checkout', label: '✅ Checkout', value: 'checkout' },
-              { id: 'btn_add', label: '➕ Add More', value: 'add_more' },
-              { id: 'btn_cart', label: '🛒 View Cart', value: 'view_cart' }
+              { id: 'btn_checkout', label: 'Checkout', value: 'checkout' },
+              { id: 'btn_add', label: 'Add More', value: 'add_more' },
+              { id: 'btn_cart', label: 'View Cart', value: 'view_cart' }
             ],
           },
           output: '_last_response',
@@ -796,9 +797,9 @@ Ask if they want to:
             message: '{{#if cart_validation.cart_items.length}}🛒 **Your Cart:**\n\n**Total: ₹{{cart_validation.totalPrice}}** ({{cart_validation.totalItems}} items)\n\nWhat would you like to do?{{else}}🛒 Your cart is empty!\n\nBrowse items above and add what you like.{{/if}}',
             cardsPath: 'cart_display',
             buttons: [
-              { id: 'btn_add_more', label: '➕ Add More Items', value: 'add_more' },
-              { id: 'btn_checkout', label: '✅ Checkout', value: 'checkout' },
-              { id: 'btn_clear', label: '🗑️ Clear Cart', value: 'clear_cart' }
+              { id: 'btn_add_more', label: 'Add More Items', value: 'add_more' },
+              { id: 'btn_checkout', label: 'Checkout', value: 'checkout' },
+              { id: 'btn_clear', label: 'Clear Cart', value: 'clear_cart' }
             ],
             saveToContext: {
               cart_display: '{{cart_validation.cart_items}}',
@@ -877,8 +878,8 @@ Ask if they want to:
           config: {
             message: '❌ Order cancelled. No worries!\n\nAnything else I can help you with?',
             buttons: [
-              { id: 'btn_browse', label: '🍽️ Browse Food', value: 'show me food' },
-              { id: 'btn_home', label: '🏠 Home', value: 'go home' },
+              { id: 'btn_browse', label: 'Browse Food', value: 'show me food' },
+              { id: 'btn_home', label: 'Home', value: 'go home' },
             ],
           },
         }
@@ -989,9 +990,9 @@ Ask if they want to:
             message: `⚠️ {{cart_update_result.message}}\n\nYou have items from **{{cart_update_result.currentStoreName}}** in your cart.`,
             responseType: 'store_conflict',
             buttons: [
-              { id: 'btn_clear_and_add', label: '🔄 Clear & Add New', value: 'clear and add new' },
-              { id: 'btn_keep_cart', label: '🛒 Keep My Cart', value: 'keep cart' },
-              { id: 'btn_view_cart', label: '📋 View Cart', value: 'view cart' },
+              { id: 'btn_clear_and_add', label: 'Clear & Add New', value: 'clear and add new' },
+              { id: 'btn_keep_cart', label: 'Keep My Cart', value: 'keep cart' },
+              { id: 'btn_view_cart', label: 'View Cart', value: 'view cart' },
             ],
             // Save conflict info for later use
             saveToContext: {
@@ -1151,8 +1152,8 @@ Ask if they want to:
           config: {
             message: '{{selection_result.followUpResponse}}',
             buttons: [
-              { id: 'btn_nearest', label: '📍 Order from Nearest', value: 'nearest store' },
-              { id: 'btn_back', label: '⬅️ Back to Results', value: 'show results' },
+              { id: 'btn_nearest', label: 'Order from Nearest', value: 'nearest store' },
+              { id: 'btn_back', label: 'Back to Results', value: 'show results' },
             ],
           },
           output: '_last_response',
@@ -1172,13 +1173,13 @@ Ask if they want to:
         {
           id: 'track_cart_for_recs',
           executor: 'recommendation',
-          config: { action: 'track_add_to_cart', moduleId: 4 },
+          config: { action: 'track_add_to_cart', moduleId: MODULE_ID.FOOD },
           output: '_rec_tracking',
         },
         {
           id: 'fetch_upsells',
           executor: 'recommendation',
-          config: { action: 'get_upsells', limit: 3, moduleId: 4 },
+          config: { action: 'get_upsells', limit: SEARCH.UPSELL_LIMIT, moduleId: MODULE_ID.FOOD },
           output: 'upsell_results',
         },
       ],
@@ -1207,7 +1208,7 @@ Ask if they want to:
             message: '✨ **You might also like:**\nOther customers often add these with their order! 👇',
             cardsPath: 'upsell_results.cards',
             buttons: [
-              { id: 'btn_skip_upsell', label: '⏩ No thanks, checkout', value: 'skip_upsell' },
+              { id: 'btn_skip_upsell', label: 'No thanks, checkout', value: 'skip_upsell' },
             ],
           },
           output: '_last_response',

@@ -1,4 +1,9 @@
 import { FlowDefinition } from '../types/flow.types';
+import configuration from '../../config/configuration';
+import { SEARCH } from '../../config/flow.constants';
+
+// Resolve tracking base URL from centralised config (single source of truth)
+const trackingBaseUrl = configuration().tracking.baseUrl;
 
 /**
  * Order Tracking Flow
@@ -370,7 +375,7 @@ Format a tracking status message showing:
 - Order ID and status
 - Estimated delivery (if available)
 - Delivery person info (if available)
-- Include this live tracking link: ${process.env.TRACKING_BASE_URL || 'https://track.mangwale.in'}/track/{{selection.order_id}}/{{order_details.receiverPhone}}
+- Include this live tracking link: ${trackingBaseUrl}/track/{{selection.order_id}}/{{order_details.receiverPhone}}
 Keep under 300 chars.`,
             temperature: 0.3,
             maxTokens: 200,
@@ -381,7 +386,7 @@ Keep under 300 chars.`,
           id: 'show_tracking',
           executor: 'response',
           config: {
-            message: `📍 **Order Tracking**\n\n{{tracking_message}}\n\n🔗 Live Track: ${process.env.TRACKING_BASE_URL || 'https://track.mangwale.in'}/track/{{selection.order_id}}/{{order_details.receiverPhone}}`,
+            message: `📍 **Order Tracking**\n\n{{tracking_message}}\n\n🔗 Live Track: ${trackingBaseUrl}/track/{{selection.order_id}}/{{order_details.receiverPhone}}`,
             buttons: [
               { id: 'refresh', label: '🔄 Refresh', value: 'track order {{selection.order_id}}' },
               { id: 'rate', label: '⭐ Rate Order', value: 'rate_order' },
@@ -530,7 +535,7 @@ Keep under 300 chars.`,
           config: {
             action: 'get_all_customer_orders',
             token: '{{auth_token}}',
-            limit: 10,
+            limit: SEARCH.ORDER_HISTORY_LIMIT,
           },
           output: 'order_history',
         },

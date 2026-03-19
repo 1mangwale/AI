@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PhpStoreService } from '../../php-integration/services/php-store.service';
 import { PhpAddressService } from '../../php-integration/services/php-address.service';
 import { SearchOrchestrator, NLUOutput } from '../../orchestrator/search.orchestrator';
@@ -49,6 +50,7 @@ export class LlmToolsService {
   private readonly tools: Map<string, LlmTool> = new Map();
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly phpStoreService: PhpStoreService,
     private readonly phpAddressService: PhpAddressService,
     private readonly searchOrchestrator: SearchOrchestrator,
@@ -830,7 +832,7 @@ export class LlmToolsService {
 
       case 'extract_address':
         params.input = message;
-        params.city = 'Nashik';
+        params.city = this.configService.get('geo.defaultCity', 'Nashik');
         break;
     }
 

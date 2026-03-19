@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PhpAddressService } from '../../php-integration/services/php-address.service';
 import { AddressExtractionService } from '../../agents/services/address-extraction.service';
 import { SessionService } from '../../session/session.service';
@@ -21,6 +22,7 @@ export class AddressExecutor implements ActionExecutor {
   private readonly logger = new Logger(AddressExecutor.name);
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly phpAddressService: PhpAddressService,
     private readonly addressExtraction: AddressExtractionService,
     private readonly sessionService: SessionService,
@@ -862,7 +864,7 @@ export class AddressExecutor implements ActionExecutor {
           // ✅ FIX: Call reverseGeocode to get readable address from coordinates
           this.logger.log(`📍 Extracting address from location: (${lat}, ${lng})`);
           const extraction = await this.addressExtraction.extractAddress(userMessage || '__LOCATION__', {
-            city: 'Nashik',
+            city: this.configService.get('geo.defaultCity', 'Nashik'),
             userLocation: { lat, lng },
           });
 
@@ -905,7 +907,7 @@ export class AddressExecutor implements ActionExecutor {
 
       // Step 5: Extract address from message (now happens BEFORE question check)
       let extraction = await this.addressExtraction.extractAddress(userMessage, {
-        city: 'Nashik',
+        city: this.configService.get('geo.defaultCity', 'Nashik'),
         userLocation: session?.data?.location,
       });
 

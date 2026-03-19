@@ -1,4 +1,5 @@
 import { FlowState } from '../../../types/flow.types';
+import { MODULE_ID, SEARCH, TIMEOUT, TOKEN } from '../../../../config/flow.constants';
 
 /**
  * Food Order Flow — Checkout And Payment States
@@ -21,9 +22,9 @@ export const checkoutAndPaymentStates: Record<string, FlowState> = {
           config: {
             message: '🛒 **Review Your Order**\n\n{{cart_review.cartSummary}}\n\n💰 **Total: ₹{{cart_review.totalPrice}}** ({{cart_review.totalItems}} items)\n\nReady to add your delivery address?',
             buttons: [
-              { id: 'btn_proceed',    label: '✅ Confirm & Add Address', value: 'proceed' },
-              { id: 'btn_modify_cart', label: '✏️ Modify Cart',          value: 'modify_cart' },
-              { id: 'btn_cancel',     label: '❌ Cancel Order',          value: 'cancel' },
+              { id: 'btn_proceed',    label: 'Confirm & Proceed', value: 'proceed' },
+              { id: 'btn_modify_cart', label: 'Modify Cart',          value: 'modify_cart' },
+              { id: 'btn_cancel',     label: 'Cancel Order',          value: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -42,7 +43,7 @@ export const checkoutAndPaymentStates: Record<string, FlowState> = {
         },
       ],
       transitions: {
-        authenticated: 'review_cart_before_checkout',  // 🛒 Show cart review before address
+        authenticated: 'suggest_upsells',  // Skip redundant cart review — user already saw cart
         default: 'request_phone',
       },
     },
@@ -58,8 +59,8 @@ export const checkoutAndPaymentStates: Record<string, FlowState> = {
             message: 'To complete your order, please provide your phone number for verification.',
             responseType: 'request_phone',
             buttons: [
-              { id: 'btn_modify', label: '✏️ Modify Cart', value: 'modify' },
-              { id: 'btn_cancel', label: '❌ Cancel', value: 'cancel' },
+              { id: 'btn_modify', label: 'Modify Cart', value: 'modify' },
+              { id: 'btn_cancel', label: 'Cancel', value: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -250,7 +251,7 @@ export const checkoutAndPaymentStates: Record<string, FlowState> = {
           config: {
             message: '❌ That OTP is incorrect. Please try again or type "resend" to get a new OTP.',
             buttons: [
-              { label: '🔄 Resend OTP', value: 'resend' },
+              { label: 'Resend OTP', value: 'resend' },
             ],
           },
           output: '_retry_response',
@@ -426,7 +427,7 @@ export const checkoutAndPaymentStates: Record<string, FlowState> = {
           config: {
             message: '📍 Please share your delivery location or type your address:',
             buttons: [
-              { id: 'btn_share', label: '📍 Share Location', value: '__LOCATION__' },
+              { id: 'btn_share', label: 'Share Location', value: TOKEN.LOCATION },
             ],
           },
         }
@@ -449,7 +450,7 @@ export const checkoutAndPaymentStates: Record<string, FlowState> = {
             query: '{{user_message}}',
             city: '{{or location.city "Nashik"}}',
             type: 'geocode',
-            radius: 25000,
+            radius: SEARCH.GEOCODE_RADIUS_METERS,
           },
           output: 'parsed_delivery_address',
         }
@@ -511,8 +512,8 @@ export const checkoutAndPaymentStates: Record<string, FlowState> = {
             },
             message: '📍 Is this your delivery address?\n\n**{{parsed_delivery_address.topResult.address}}**',
             buttons: [
-              { id: 'btn_yes', label: '✅ Yes', value: 'yes correct' },
-              { id: 'btn_no', label: '❌ No, try again', value: 'no wrong' },
+              { id: 'btn_yes', label: 'Yes', value: 'yes correct' },
+              { id: 'btn_no', label: 'No, try again', value: 'no wrong' },
             ],
           },
         }
@@ -693,7 +694,7 @@ Reply "confirm" to book the rider.`,
           config: {
             action: 'get_surge_price',
             zone_id: '{{zone_id}}',
-            module_id: 4,
+            module_id: MODULE_ID.FOOD,
           },
           output: 'surge_info',
         },
@@ -715,8 +716,8 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '⚡ **{{surge_info.title}}**\n\n{{surge_info.customerNote}}\n\nSurge charge: ₹{{surge_info.price}} extra.\n\nDo you want to continue?',
             buttons: [
-              { id: 'btn_surge_yes', label: '✅ Continue', value: 'confirm_surge' },
-              { id: 'btn_surge_no', label: '❌ Cancel Order', value: 'cancel' },
+              { id: 'btn_surge_yes', label: 'Continue', value: 'confirm_surge' },
+              { id: 'btn_surge_no', label: 'Cancel Order', value: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -834,8 +835,8 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '💳 **Payment Method**\n\nUse your last payment method?\n\n⭐ **{{pref_payment_data.preferred_payment_label}}**',
             buttons: [
-              { id: 'btn_use_saved', label: '✅ Yes, use this', value: 'use_saved_payment' },
-              { id: 'btn_change_pmt', label: '🔄 Choose different', value: 'change_payment' },
+              { id: 'btn_use_saved', label: 'Yes, use this', value: 'use_saved_payment' },
+              { id: 'btn_change_pmt', label: 'Choose different', value: 'change_payment' },
             ],
           },
           output: '_last_response',
@@ -1030,9 +1031,9 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '💳 **Select Payment Method:**',
             buttons: [
-              { id: 'btn_wallet', label: '👛 Wallet', value: 'wallet' },
-              { id: 'btn_digital', label: '💳 Pay Online', value: 'digital_payment' },
-              { id: 'btn_cod', label: '💵 Cash on Delivery', value: 'cash_on_delivery' },
+              { id: 'btn_wallet', label: 'Wallet', value: 'wallet' },
+              { id: 'btn_digital', label: 'Pay Online', value: 'digital_payment' },
+              { id: 'btn_cod', label: 'Cash on Delivery', value: 'cash_on_delivery' },
             ],
             responseType: 'request_payment_method',
           },
@@ -1157,9 +1158,9 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '👛 **Wallet Balance:** {{wallet_info.formattedBalance}}\n💰 **Order Total:** ₹{{pricing.total}}\n\n💡 Your wallet doesn\'t cover the full amount. I\'ll use your wallet balance first (₹{{wallet_info.balance}}) and the remaining **₹{{pricing.total - wallet_info.balance}}** will be charged online via Razorpay.\n\nShall I proceed?',
             buttons: [
-              { id: 'btn_partial_yes', label: '✅ Yes, use wallet + pay rest online', value: 'yes use wallet' },
-              { id: 'btn_full_online', label: '💳 Pay full amount online', value: 'pay full online' },
-              { id: 'btn_cancel_payment', label: '❌ Cancel', value: 'cancel' },
+              { id: 'btn_partial_yes', label: 'Use Wallet + Online', value: 'yes use wallet' },
+              { id: 'btn_full_online', label: 'Pay Online', value: 'pay full online' },
+              { id: 'btn_cancel_payment', label: 'Cancel', value: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -1233,8 +1234,8 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '👛 Your wallet balance is **₹0**. Please choose another payment method:',
             buttons: [
-              { id: 'btn_digital', label: '💳 Pay Online', value: 'digital_payment' },
-              { id: 'btn_cod', label: '💵 Cash on Delivery', value: 'cash_on_delivery' },
+              { id: 'btn_digital', label: 'Pay Online', value: 'digital_payment' },
+              { id: 'btn_cod', label: 'Cash on Delivery', value: 'cash_on_delivery' },
             ],
           },
           output: '_last_response',
@@ -1402,8 +1403,8 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '❌ Invalid or expired coupon code. Would you like to try another?',
             buttons: [
-              { id: 'btn_try_again', label: '🔄 Try Another', value: 'try_coupon_again' },
-              { id: 'btn_skip', label: '⏭️ Skip', value: 'skip_coupon' },
+              { id: 'btn_try_again', label: 'Try Another', value: 'try_coupon_again' },
+              { id: 'btn_skip', label: 'Skip', value: 'skip_coupon' },
             ],
           },
           output: '_last_response',
@@ -1427,9 +1428,9 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '🛒 **Looks good! Here\'s your order summary** 😋\n\n{{cart_update_result.cartSummary}}\n\n🚚 Delivery Fee: ₹{{pricing.delivery_fee}} ({{distance}}km){{#if pricing.tax}}\n🧾 Tax: ₹{{pricing.tax}}{{/if}}{{#if surge_amount}}\n⚡ Surge ({{surge_title}}): ₹{{surge_amount}}{{/if}}\n{{#if coupon_discount}}🏷️ Coupon Discount: -₹{{coupon_discount}}\n{{/if}}💳 **Grand Total: ₹{{pricing.total}}{{#if surge_amount}} + ₹{{surge_amount}} surge{{/if}}**\n💸 Payment: {{payment_method_label}}\n\n📍 Delivering to: {{delivery_address.label}}\n{{delivery_address.address}}\n\n{{#if order_note}}📝 Note: {{order_note}}\n\n{{/if}}{{#if cart_update_result.isMultiStore}}📦 _{{cart_update_result.storeCount}} restaurants will prepare your order_\n\n{{/if}}_Ready to go? Hit confirm and I\'ll get it started!_ 🚀',
             buttons: [
-              { id: 'btn_confirm', label: '✅ Confirm Order', value: 'confirm' },
-              { id: 'btn_note', label: '📝 Add Note to Restaurant', value: 'add_note' },
-              { id: 'btn_cancel', label: '❌ Cancel', value: 'cancel' },
+              { id: 'btn_confirm', label: 'Confirm Order', value: 'confirm' },
+              { id: 'btn_note', label: 'Add Note', value: 'add_note' },
+              { id: 'btn_cancel', label: 'Cancel', value: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -1452,8 +1453,8 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '{{#if order_note}}📝 We\'ll tell the restaurant: **"{{order_note}}"**\n\nWant to change it?{{else}}📝 What special instructions should we send to the restaurant?\n\n_Examples: "extra spicy", "no onions", "extra gravy", "less oil"_{{/if}}',
             buttons: [
-              { id: 'btn_keep_note', label: '{{#if order_note}}✅ Keep It{{else}}⏭️ Skip{{/if}}', value: 'skip_note' },
-              { id: 'btn_change_note', label: '{{#if order_note}}✏️ Change{{else}}📝 Add Note{{/if}}', value: 'change_note' },
+              { id: 'btn_keep_note', label: 'Keep Note / Skip', value: 'skip_note' },
+              { id: 'btn_change_note', label: 'Add/Edit Note', value: 'change_note' },
             ],
           },
           output: '_last_response',
@@ -1478,7 +1479,7 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '📝 What special instructions should we send to the restaurant?\n\n_Examples: "extra spicy", "no onions", "extra gravy", "less oil"_',
             buttons: [
-              { id: 'btn_skip_note', label: '⏭️ Skip', value: 'skip_note' },
+              { id: 'btn_skip_note', label: 'Skip', value: 'skip_note' },
             ],
           },
           output: '_last_response',
@@ -1606,7 +1607,7 @@ Reply "confirm" to book the rider.`,
         {
           id: 'get_cross_sell_items',
           executor: 'recommendation',
-          config: { action: 'get_upsells', limit: 2, moduleId: 4 },
+          config: { action: 'get_upsells', limit: SEARCH.CROSS_SELL_LIMIT, moduleId: MODULE_ID.FOOD },
           output: 'cross_sell_results',
         },
       ],
@@ -1629,7 +1630,7 @@ Reply "confirm" to book the rider.`,
             message: '🤔 **Before we place your order...**\nCustomers who ordered this also loved:',
             cardsPath: 'cross_sell_results.cards',
             buttons: [
-              { id: 'btn_skip_cs', label: '⏩ No thanks, place order', value: 'skip_cross_sell' },
+              { id: 'btn_skip_cs', label: 'No thanks, order', value: 'skip_cross_sell' },
             ],
           },
           output: '_cs_response',
@@ -1959,7 +1960,7 @@ Reply "confirm" to book the rider.`,
     wait_food_payment_result: {
       type: 'wait',
       description: 'Wait for food order payment completion',
-      timeout: 300000, // 5 minutes timeout
+      timeout: TIMEOUT.PAYMENT,
       onEntry: [],
       transitions: {
         user_message: 'check_food_payment_result',
@@ -1979,11 +1980,11 @@ Reply "confirm" to book the rider.`,
           event: 'too_many_checks',
         },
         {
-          expression: 'context._user_message === "__payment_success__"',
+          expression: `context._user_message === "${TOKEN.PAYMENT_SUCCESS}"`,
           event: 'payment_success',
         },
         {
-          expression: 'context._user_message === "__payment_failed__" || context._user_message?.includes("payment_failed")',
+          expression: `context._user_message === "${TOKEN.PAYMENT_FAILED}" || context._user_message?.includes("payment_failed")`,
           event: 'payment_failed',
         },
         {
@@ -2065,8 +2066,8 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '⏳ Payment not yet confirmed.\n\nIf you have already paid, please wait 1-2 minutes for processing.\n\nIf not, tap below to pay:\n🔗 {{order_result.paymentLink}}',
             buttons: [
-              { label: '🔄 Check Again', value: 'payment is done' },
-              { label: '❌ Cancel', value: 'cancel' },
+              { label: 'Check Again', value: 'payment is done' },
+              { label: 'Cancel', value: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -2113,9 +2114,9 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '😕 Online payment is not going through.\n\nWould you like to switch to **Cash on Delivery** instead?\n\n💰 Order Total: ₹{{order_result.orderTotal}}',
             buttons: [
-              { label: '💵 Cash on Delivery', value: 'switch_to_cod', action: 'switch_to_cod' },
-              { label: '🔄 Try Again', value: 'retry_payment', action: 'retry_payment' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel_order' },
+              { label: 'Cash on Delivery', value: 'switch_to_cod', action: 'switch_to_cod' },
+              { label: 'Try Again', value: 'retry_payment', action: 'retry_payment' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel_order' },
             ],
           },
           output: '_last_response',
@@ -2174,8 +2175,8 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '❌ **Payment Failed**\n\nYour payment could not be completed. The order has been saved.\n\nYou can retry payment or cancel:',
             buttons: [
-              { label: '🔄 Retry Payment', value: 'retry_payment', action: 'retry_payment' },
-              { label: '❌ Cancel Order', value: 'cancel', action: 'cancel_order' },
+              { label: 'Retry Payment', value: 'retry_payment', action: 'retry_payment' },
+              { label: 'Cancel Order', value: 'cancel', action: 'cancel_order' },
             ],
           },
           output: '_last_response',
@@ -2230,9 +2231,9 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '⏰ **Payment Timeout**\n\nPayment session expired. Your order has been saved.\n\nWhat would you like to do?',
             buttons: [
-              { label: '💵 Cash on Delivery', value: 'switch_to_cod', action: 'switch_to_cod' },
-              { label: '🔄 Retry Payment', value: 'retry_payment', action: 'retry_payment' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel_order' },
+              { label: 'Cash on Delivery', value: 'switch_to_cod', action: 'switch_to_cod' },
+              { label: 'Retry Payment', value: 'retry_payment', action: 'retry_payment' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel_order' },
             ],
           },
         },

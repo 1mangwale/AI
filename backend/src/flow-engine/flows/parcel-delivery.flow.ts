@@ -1,4 +1,5 @@
 import { FlowDefinition } from '../types/flow.types';
+import { TIMEOUT, TOKEN } from '../../config/flow.constants';
 
 /**
  * SIMPLIFIED PARCEL DELIVERY FLOW
@@ -53,20 +54,11 @@ export const parcelDeliveryFlow: FlowDefinition = {
       },
     },
 
-    // Initialize - welcome message
+    // Initialize — skip directly to auth check (no welcome message needed, user already said "send parcel")
     init: {
       type: 'action',
-      description: 'Welcome and start parcel booking',
-      actions: [
-        {
-          id: 'welcome',
-          executor: 'response',
-          config: {
-            message: '📦 **Local Parcel Delivery** (Nashik only)\n\nI need 5 quick details to book your delivery. Let\'s start!',
-          },
-          output: '_last_response',
-        },
-      ],
+      description: 'Start parcel booking — go straight to auth check',
+      actions: [],
       transitions: {
         default: 'check_auth_before_flow',
       },
@@ -239,8 +231,8 @@ export const parcelDeliveryFlow: FlowDefinition = {
           config: {
             message: '🔐 **Login Required**\n\nTo book a parcel delivery, please log in first. This lets us:\n\n• Use your saved addresses 📍\n• Track your orders 📋\n• Contact you for updates 📱\n\nTap **Login** to continue:',
             buttons: [
-              { label: '🔐 Login', value: 'login', action: 'login' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+              { label: 'Login', value: 'login', action: 'login' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -327,14 +319,14 @@ export const parcelDeliveryFlow: FlowDefinition = {
                   flowId: '{{env.WA_FLOW_ADDRESS_ID}}',
                   flowType: 'address_selection',
                   ctaText: 'Select Pickup',
-                  body: '📍 **Question 1/5:** Tap below to select your pickup address',
+                  body: '📍 Tap below to select your pickup address',
                   initialData: {
                     addressPurpose: 'pickup',
                   },
                 },
               },
               default: {
-                message: '📍 **Question 1/5:** Where should we pick up?\n\n• Share your live location 📍\n• Type an address\n• Or select a saved address (if logged in)',
+                message: '📍 Where should we pick up?\n\n• Share your live location 📍\n• Type an address\n• Or select a saved address (if logged in)',
               },
             },
           },
@@ -345,7 +337,7 @@ export const parcelDeliveryFlow: FlowDefinition = {
           executor: 'address',
           config: {
             field: 'pickup_address',
-            prompt: '📍 **Question 1/5:** Where should we pick up?\n\n• Share your live location 📍\n• Type an address\n• Or select a saved address (if logged in)',
+            prompt: '📍 Where should we pick up?\n\n• Share your live location 📍\n• Type an address\n• Or select a saved address (if logged in)',
             offerSaved: true,
             requireAuth: false,
             skipIf: '{{_pickup_prompt_result.event === "flow_sent"}}',
@@ -529,14 +521,14 @@ export const parcelDeliveryFlow: FlowDefinition = {
                   flowId: '{{env.WA_FLOW_ADDRESS_ID}}',
                   flowType: 'address_selection',
                   ctaText: 'Select Drop-off',
-                  body: '✅ Pickup: {{pickup_address.address}}\n\n📍 **Question 2/5:** Tap below to select the drop-off address',
+                  body: '✅ Pickup: {{pickup_address.address}}\n\n📍 Tap below to select the drop-off address',
                   initialData: {
                     addressPurpose: 'dropoff',
                   },
                 },
               },
               default: {
-                message: '✅ **Pickup:** {{pickup_address.address}}\n\n📍 **Question 2/5:** Where to deliver?\n\n• Share location 📍\n• Type address\n• Or select saved address (if logged in)',
+                message: '✅ **Pickup:** {{pickup_address.address}}\n\n📍 Where to deliver?\n\n• Share location 📍\n• Type address\n• Or select saved address (if logged in)',
               },
             },
           },
@@ -547,7 +539,7 @@ export const parcelDeliveryFlow: FlowDefinition = {
           executor: 'address',
           config: {
             field: 'delivery_address',
-            prompt: '✅ **Pickup:** {{pickup_address.address}}\n\n📍 **Question 2/5:** Where to deliver?\n\n• Share location 📍\n• Type address\n• Or select saved address (if logged in)',
+            prompt: '✅ **Pickup:** {{pickup_address.address}}\n\n📍 Where to deliver?\n\n• Share location 📍\n• Type address\n• Or select saved address (if logged in)',
             offerSaved: true,
             requireAuth: false,
             skipIf: '{{_delivery_prompt_result.event === "flow_sent"}}',
@@ -723,10 +715,10 @@ export const parcelDeliveryFlow: FlowDefinition = {
           id: 'ask_recipient_auth',
           executor: 'response',
           config: {
-            message: '✅ **Delivery:** {{delivery_address.address}}\n\n👤 **Question 3/5:** Who is the recipient?\n\nProvide name and phone:\nExample: "Rahul Kumar 9876543210"\n\nOr tap "Use my details" to deliver to yourself:',
+            message: '✅ **Delivery:** {{delivery_address.address}}\n\n👤 Who is the recipient?\n\nProvide name and phone:\nExample: "Rahul Kumar 9876543210"\n\nOr tap "Use my details" to deliver to yourself:',
             buttons: [
-              { label: '👤 Use my details', value: 'use_my_details', action: 'use_my_details' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+              { label: 'Use My Details', value: 'use_my_details', action: 'use_my_details' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -751,9 +743,9 @@ export const parcelDeliveryFlow: FlowDefinition = {
           id: 'ask_recipient_guest',
           executor: 'response',
           config: {
-            message: '✅ **Delivery:** {{delivery_address.address}}\n\n👤 **Question 3/5:** Who is the recipient?\n\nProvide name and phone number:\nExample: "Rahul Kumar 9876543210"',
+            message: '✅ **Delivery:** {{delivery_address.address}}\n\n👤 Who is the recipient?\n\nProvide name and phone number:\nExample: "Rahul Kumar 9876543210"',
             buttons: [
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -808,8 +800,8 @@ export const parcelDeliveryFlow: FlowDefinition = {
           config: {
             message: '🔐 To use your saved details as recipient, please **log in** first.\n\nOr provide recipient name and phone:\nExample: "Rahul Kumar 9876543210"',
             buttons: [
-              { label: '🔐 Log In', value: 'login', action: 'login' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+              { label: 'Log In', value: 'login', action: 'login' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -981,7 +973,7 @@ export const parcelDeliveryFlow: FlowDefinition = {
           id: 'auto_select',
           executor: 'response',
           config: {
-            message: '✅ Recipient confirmed!\n\n🚗 **Question 4/5:** Vehicle selected automatically:\n\n**{{vehicle_categories.0.name}}** - {{vehicle_categories.0.price}}',
+            message: '✅ Recipient confirmed!\n\n🚗 Vehicle selected automatically:\n\n**{{vehicle_categories.0.name}}** - {{vehicle_categories.0.price}}',
             saveToContext: {
               'parcel_category_id': '{{vehicle_categories.0.id}}',
             },
@@ -1002,7 +994,7 @@ export const parcelDeliveryFlow: FlowDefinition = {
           id: 'show_vehicles',
           executor: 'response',
           config: {
-            message: '✅ Recipient confirmed!\n\n🚗 **Question 4/5:** Select vehicle type:',
+            message: '✅ Recipient confirmed!\n\n🚗 Select vehicle type:',
             cardsPath: 'vehicle_categories',
           },
           output: '_last_response',
@@ -1081,7 +1073,7 @@ Return ONLY the numeric ID, nothing else.`,
           id: 'retry_vehicles',
           executor: 'response',
           config: {
-            message: '❓ I couldn\'t match that selection.\n\n🚗 **Question 4/5:** Please tap **"+ ADD"** on your preferred vehicle, or type the vehicle name (e.g., "Bike"):',
+            message: '❓ I couldn\'t match that selection.\n\n🚗 Please tap **"+ ADD"** on your preferred vehicle, or type the vehicle name (e.g., "Bike"):',
             cardsPath: 'vehicle_categories',
           },
         },
@@ -1179,10 +1171,10 @@ Return ONLY the numeric ID, nothing else.`,
           id: 'summary',
           executor: 'response',
           config: {
-            message: '📦 **Order Summary**\n\n📍 Pickup: {{pickup_address.address}}\n📍 Delivery: {{delivery_address.address}}\n👤 Recipient: {{recipient_details.name}} ({{recipient_details.phone}})\n📏 Distance: {{distance}} km\n\n💰 **Total: ₹{{pricing.total_charge}}**\n(Delivery: ₹{{pricing.delivery_charge}} + Fee: ₹{{pricing.platform_fee}})\n\n**Question 5/5:** Confirm your order? (You\'ll select payment method next)',
+            message: '📦 **Order Summary**\n\n📍 Pickup: {{pickup_address.address}}\n📍 Delivery: {{delivery_address.address}}\n👤 Recipient: {{recipient_details.name}} ({{recipient_details.phone}})\n📏 Distance: {{distance}} km\n\n💰 **Total: ₹{{pricing.total_charge}}**\n(Delivery: ₹{{pricing.delivery_charge}} + Fee: ₹{{pricing.platform_fee}})\n\nConfirm your order? (You\'ll select payment method next)',
             buttons: [
-              { label: '✅ Confirm', value: 'yes', action: 'yes' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+              { label: 'Confirm', value: 'yes', action: 'yes' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -1285,8 +1277,8 @@ Return ONLY the numeric ID, nothing else.`,
               reason: 'saved_addresses_required',
             },
             buttons: [
-              { label: '🔐 Login', value: 'login', action: 'trigger_auth_modal' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+              { label: 'Login', value: 'login', action: 'trigger_auth_modal' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -1337,8 +1329,8 @@ Return ONLY the numeric ID, nothing else.`,
               reason: 'order_placement_required',
             },
             buttons: [
-              { label: '🔐 Login', value: 'login', action: 'trigger_auth_modal' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+              { label: 'Login', value: 'login', action: 'trigger_auth_modal' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -1428,8 +1420,8 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: '🔐 **Login Required**\n\nPlease login to place your order.\n\nTap below or type your phone number:',
             buttons: [
-              { label: '📱 Login', value: 'login', action: 'trigger_auth_flow' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+              { label: 'Login', value: 'login', action: 'trigger_auth_flow' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -1652,8 +1644,8 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: '❌ Failed to send OTP. Please try again or type your phone number:',
             buttons: [
-              { label: '🔄 Retry', value: 'retry', action: 'retry' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+              { label: 'Retry', value: 'retry', action: 'retry' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -1756,27 +1748,11 @@ Return ONLY the numeric ID, nothing else.`,
           id: 'show_payment_options',
           executor: 'response',
           config: {
-            channelResponses: {
-              whatsapp: {
-                message: '💳 Select payment method',
-                flow: {
-                  flowId: '{{env.WA_FLOW_PAYMENT_ID}}',
-                  flowType: 'payment_selection',
-                  ctaText: 'Select Payment',
-                  body: '💳 Tap below to choose how you want to pay\n\nTotal: ₹{{pricing.total_charge}}',
-                  initialData: {
-                    orderTotal: '{{pricing.total_charge}}',
-                  },
-                },
-              },
-              default: {
-                message: '💳 **Select Payment Method:**',
-                buttonsPath: 'payment_methods_response.methods',
-                buttonConfig: {
-                  labelPath: 'name',
-                  valuePath: 'id',
-                },
-              },
+            message: '💳 **Select Payment Method:**\n\nTotal: ₹{{pricing.total_charge}}',
+            buttonsPath: 'payment_methods_response.methods',
+            buttonConfig: {
+              labelPath: 'name',
+              valuePath: 'id',
             },
           },
           output: '_last_response',
@@ -2081,7 +2057,7 @@ Return ONLY the numeric ID, nothing else.`,
     wait_payment_result: {
       type: 'wait',
       description: 'Wait for payment completion',
-      timeout: 300000, // 5 minutes timeout for payment
+      timeout: TIMEOUT.PAYMENT,
       onEntry: [],
       transitions: {
         user_message: 'check_payment_result', // Route to decision state
@@ -2096,11 +2072,11 @@ Return ONLY the numeric ID, nothing else.`,
       description: 'Check if payment succeeded or failed',
       conditions: [
         {
-          expression: 'context._user_message === "__payment_success__"',
+          expression: `context._user_message === "${TOKEN.PAYMENT_SUCCESS}"`,
           event: 'payment_success',
         },
         {
-          expression: 'context._user_message === "__payment_failed__" || context._user_message?.includes("payment_failed")',
+          expression: `context._user_message === "${TOKEN.PAYMENT_FAILED}" || context._user_message?.includes("payment_failed")`,
           event: 'payment_failed',
         },
         {
@@ -2173,8 +2149,8 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: '⏳ Payment not yet confirmed.\n\nIf you have already paid, please wait a moment — it may take up to 1-2 minutes to process.\n\nIf not, tap below to pay:\n🔗 {{order_result.paymentLink}}',
             buttons: [
-              { label: '🔄 Check Again', value: 'payment is done' },
-              { label: '❌ Cancel', value: 'cancel' },
+              { label: 'Check Again', value: 'payment is done' },
+              { label: 'Cancel', value: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -2238,9 +2214,9 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: '❌ **Payment Failed**\n\nYour payment could not be completed. The order has been saved.\n\nYou can retry payment or choose Cash on Delivery:',
             buttons: [
-              { label: '🔄 Retry Payment', value: 'retry_payment', action: 'retry_payment' },
-              { label: '💵 Cash on Delivery', value: 'cod', action: 'switch_to_cod' },
-              { label: '❌ Cancel Order', value: 'cancel', action: 'cancel_order' },
+              { label: 'Retry Payment', value: 'retry_payment', action: 'retry_payment' },
+              { label: 'Cash on Delivery', value: 'cod', action: 'switch_to_cod' },
+              { label: 'Cancel Order', value: 'cancel', action: 'cancel_order' },
             ],
           },
           output: '_last_response',
@@ -2261,8 +2237,8 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: '❌ **Payment Failed**\n\nYour payment could not be completed. The order has been saved.\n\nPlease retry the payment:',
             buttons: [
-              { label: '🔄 Retry Payment', value: 'retry_payment', action: 'retry_payment' },
-              { label: '❌ Cancel Order', value: 'cancel', action: 'cancel_order' },
+              { label: 'Retry Payment', value: 'retry_payment', action: 'retry_payment' },
+              { label: 'Cancel Order', value: 'cancel', action: 'cancel_order' },
             ],
           },
           output: '_last_response',
@@ -2368,8 +2344,8 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: '❌ Order cancelled.\n\nWould you like to place a new order?',
             buttons: [
-              { label: '📦 New Parcel', value: 'new_parcel', action: 'new_order' },
-              { label: '🏠 Home', value: 'home', action: 'home' },
+              { label: 'New Parcel', value: 'new_parcel', action: 'new_order' },
+              { label: 'Home', value: 'home', action: 'home' },
             ],
           },
         },
@@ -2405,9 +2381,9 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: '⏰ **Payment Timeout**\n\nPayment session expired. Your order has been saved.\n\nWhat would you like to do?',
             buttons: [
-              { label: '🔄 Retry Payment', value: 'retry_payment', action: 'retry_payment' },
-              { label: '💵 Cash on Delivery', value: 'cod', action: 'switch_to_cod' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel_order' },
+              { label: 'Retry Payment', value: 'retry_payment', action: 'retry_payment' },
+              { label: 'Cash on Delivery', value: 'cod', action: 'switch_to_cod' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel_order' },
             ],
           },
         },
@@ -2427,8 +2403,8 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: '⏰ **Payment Timeout**\n\nPayment session expired. Your order has been saved.\n\nWould you like to retry the payment?',
             buttons: [
-              { label: '🔄 Retry Payment', value: 'retry_payment', action: 'retry_payment' },
-              { label: '❌ Cancel', value: 'cancel', action: 'cancel_order' },
+              { label: 'Retry Payment', value: 'retry_payment', action: 'retry_payment' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel_order' },
             ],
           },
         },
@@ -2449,8 +2425,8 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: '🎉 **Order Confirmed!**\n\n📦 Order ID: #{{order_result.orderId}}\n📍 From: {{pickup_address.address}}\n📍 To: {{delivery_address.address}}\n👤 Recipient: {{recipient_details.name}}\n💰 Total: ₹{{pricing.total_charge}}\n⏱️ ETA: 30-45 minutes\n\n📍 Track your order:\n{{order_result.trackingUrl}}\n\nYou\'ll receive WhatsApp updates on each step!',
             buttons: [
-              { label: '📍 Track Order', value: 'track', action: 'track_order' },
-              { label: '🏠 Home', value: 'home', action: 'home' },
+              { label: 'Track Order', value: 'track', action: 'track_order' },
+              { label: 'Home', value: 'home', action: 'home' },
             ],
           },
           output: '_last_response',
@@ -2488,7 +2464,7 @@ Return ONLY the numeric ID, nothing else.`,
     wait_profile_answer: {
       type: 'wait',
       description: 'Wait for profile answer',
-      timeout: 30000, // 30 seconds, then skip
+      timeout: TIMEOUT.PROFILE_ANSWER,
       onEntry: [],
       transitions: {
         default: 'save_profile_answer',
@@ -2672,8 +2648,8 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: "❌ I couldn't place your order. Please check your details and try again.",
             buttons: [
-              { label: '🔄 Try Again', value: 'retry_order' },
-              { label: '❌ Cancel', value: 'cancel' },
+              { label: 'Try Again', value: 'retry_order' },
+              { label: 'Cancel', value: 'cancel' },
             ],
           },
         },
@@ -2704,9 +2680,9 @@ Return ONLY the numeric ID, nothing else.`,
           config: {
             message: '❌ Order cancelled.\n\nHow else can I help you?',
             buttons: [
-              { label: '📦 Send Parcel', value: 'parcel', action: 'send_parcel' },
-              { label: '🍔 Order Food', value: 'food', action: 'order_food' },
-              { label: '❓ Help', value: 'help', action: 'help' },
+              { label: 'Send Parcel', value: 'parcel', action: 'send_parcel' },
+              { label: 'Order Food', value: 'food', action: 'order_food' },
+              { label: 'Help', value: 'help', action: 'help' },
             ],
           },
         },

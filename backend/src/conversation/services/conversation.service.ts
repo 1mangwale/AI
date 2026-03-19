@@ -18,8 +18,6 @@ import { OrderOrchestratorService } from '../../order-flow/services/order-orches
 import { Platform } from '../../common/enums/platform.enum';
 import { NluClientService } from '../../services/nlu-client.service';
 import { ConversationCaptureService } from '../../services/conversation-capture.service';
-// DEPRECATED: ParcelService with external admin backend calls is removed
-// Parcel flows now go through unified AgentOrchestratorService -> FlowEngineService
 import { AgentOrchestratorService } from '../../agents/services/agent-orchestrator.service';
 import { ModuleType } from '../../agents/types/agent.types';
 // Gamification disabled - 82 TypeScript errors, needs Prisma schema fixes
@@ -43,22 +41,6 @@ import { AuthFlowBridgeService } from './auth-flow-bridge.service';
  * - Voice
  * 
  * Uses MessagingService for channel-agnostic message sending.
- * 
- * ⚠️ MIGRATION TODO (January 2026):
- * DEPRECATED AUTH METHODS - Remove in v2.0.0:
- * 
- * The following methods are DEPRECATED and should NOT be used:
- * - requestPhoneNumber()
- * - handlePhoneNumberInput()
- * - sendOtpForLogin()
- * - offerRegistration()
- * 
- * Auth is now handled by:
- * - FlowEngineService.startFlow('auth_v1', context)
- * - auth.executor.ts (validates phone, sends OTP, verifies OTP)
- * - centralizedAuthService.authenticateUser() (Redis + PostgreSQL sync)
- * 
- * See: AUTHENTICATION_AUDIT_JAN_21_2026.md for migration details.
  * 
  * PHASE 2: Auto-Training
  * - Logs all conversations to Admin Backend for continuous learning
@@ -101,7 +83,6 @@ export class ConversationService {
     private nluClientService: NluClientService,
     // Auto-training conversation logger (Phase 2)
     private conversationCaptureService: ConversationCaptureService,
-    // DEPRECATED: ParcelService removed - now uses unified AgentOrchestratorService
     // 🤖 AI Agent System (Phase 3) - LLM-powered intelligent responses
     private agentOrchestratorService: AgentOrchestratorService,
     // 🎮 Gamification System - DISABLED (archived to _gamification_archived/)
@@ -679,15 +660,7 @@ export class ConversationService {
     }
   }
 
-  /**
-   * Send OTP for existing user login
-   * 
-   * @deprecated REMOVE IN v2.0.0: This method is no longer used.
-   * Auth is now handled by auth.flow.ts via FlowEngineService.
-   * See: AUTHENTICATION_AUDIT_JAN_21_2026.md for details.
-   * 
-   * @see backend/src/flow-engine/flows/auth.flow.ts
-   */
+  /** @deprecated Use auth.flow.ts via FlowEngineService instead. */
   private async sendOtpForLogin(phoneNumber: string, inputPhone: string): Promise<void> {
     this.logger.warn(`⚠️ DEPRECATED sendOtpForLogin called for ${phoneNumber} - routing to flow engine`);
     await this.handleLoginMethod(phoneNumber, 'login');
@@ -720,15 +693,7 @@ export class ConversationService {
     }
   }
 
-  /**
-   * Offer registration for new users
-   * 
-   * @deprecated REMOVE IN v2.0.0: This method is no longer used.
-   * Auth is now handled by auth.flow.ts via FlowEngineService.
-   * See: AUTHENTICATION_AUDIT_JAN_21_2026.md for details.
-   * 
-   * @see backend/src/flow-engine/flows/auth.flow.ts
-   */
+  /** @deprecated Use auth.flow.ts via FlowEngineService instead. */
   private async offerRegistration(phoneNumber: string, inputPhone: string): Promise<void> {
     this.logger.warn(`⚠️ DEPRECATED offerRegistration called for ${phoneNumber} - routing to flow engine`);
     await this.handleLoginMethod(phoneNumber, 'login');
@@ -746,12 +711,7 @@ export class ConversationService {
     await this.sessionService.setStep(phoneNumber, 'registration_choice');
   }
 
-  /**
-   * Handle registration choice
-   * 
-   * @deprecated Legacy auth handler. Use auth.flow.ts via FlowEngineService instead.
-   * @see backend/src/flow-engine/flows/auth.flow.ts
-   */
+  /** @deprecated Use auth.flow.ts via FlowEngineService instead. */
   private async handleRegistrationChoice(phoneNumber: string, messageText: string): Promise<void> {
     this.logger.warn(`⚠️ DEPRECATED handleRegistrationChoice called for ${phoneNumber} - routing to flow engine`);
     await this.handleLoginMethod(phoneNumber, 'login');
@@ -1402,21 +1362,7 @@ export class ConversationService {
   private async handleNaturalLanguageMainMenu(phoneNumber: string, messageText: string): Promise<void> {
     try {
       const session = await this.sessionService.getSession(phoneNumber);
-      
-      // 🎮 Game trigger disabled - Prisma schema mismatch
-      // const lowerText = messageText.toLowerCase();
-      // if (lowerText.includes('play game') || 
-      //     lowerText.includes('earn points') || 
-      //     lowerText.includes('training game')) {
-      //   this.logger.log(`🎮 Game trigger detected: "${messageText}"`);
-      //   await this.flowEngineService.startFlow('training_game_v1', {
-      //     sessionId: phoneNumber,
-      //     phoneNumber,
-      //     userId: session?.user_id,
-      //   });
-      //   return; // Don't process through AI
-      // }
-      
+
       // Detect module from session or default to 'food'
       const module = (session?.data?.module_name || 'food').toLowerCase();
       

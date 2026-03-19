@@ -1,4 +1,5 @@
 import { FlowDefinition } from '../types/flow.types';
+import { MODULE_ID, SEARCH } from '../../config/flow.constants';
 
 export const ecommerceOrderFlow: FlowDefinition = {
   id: 'ecommerce_order_v1',
@@ -94,7 +95,7 @@ export const ecommerceOrderFlow: FlowDefinition = {
           config: {
             index: 'ecom_items_v2',
             queryPath: '_user_message',
-            size: 15,
+            size: SEARCH.ECOM_RESULT_LIMIT,
             fields: ['title', 'category', 'brand', 'description', 'tags'],
           },
           output: 'search_results',
@@ -119,8 +120,8 @@ export const ecommerceOrderFlow: FlowDefinition = {
             cardsPath: 'search_results.cards',
             buttonsPath: 'search_results.filterButtons',
             buttons: [
-              { id: 'btn_view_cart', label: '🛒 View Cart', value: 'view cart' },
-              { id: 'btn_checkout', label: '✅ Checkout', value: 'checkout' },
+              { id: 'btn_view_cart', label: 'View Cart', value: 'view cart' },
+              { id: 'btn_checkout', label: 'Checkout', value: 'checkout' },
             ],
           },
           output: '_last_response',
@@ -217,9 +218,9 @@ export const ecommerceOrderFlow: FlowDefinition = {
           config: {
             message: '🛒 **Your Cart**\n\n{{#each cart_items}}{{@index_plus_1}}. *{{this.title}}* x{{this.quantity}} — ₹{{this.total}}\n{{/each}}\n\n💰 **Subtotal:** ₹{{pricing.itemsTotal}}',
             buttons: [
-              { label: '✅ Checkout', value: 'checkout', action: 'proceed_checkout' },
-              { label: '🔄 Continue Shopping', value: 'continue', action: 'continue_shopping' },
-              { label: '🗑️ Clear Cart', value: 'clear', action: 'clear_cart' },
+              { label: 'Checkout', value: 'checkout', action: 'proceed_checkout' },
+              { label: 'Continue Shopping', value: 'continue', action: 'continue_shopping' },
+              { label: 'Clear Cart', value: 'clear', action: 'clear_cart' },
             ],
           },
           output: '_last_response',
@@ -316,7 +317,7 @@ export const ecommerceOrderFlow: FlowDefinition = {
           id: 'fetch_last_order',
           executor: 'quick_reorder',
           config: {
-            moduleId: 5,
+            moduleId: MODULE_ID.ECOMMERCE,
             token: '{{session.auth_token}}',
           },
           output: 'reorder_result',
@@ -446,7 +447,7 @@ export const ecommerceOrderFlow: FlowDefinition = {
           config: {
             latPath: 'delivery_address.lat',
             lngPath: 'delivery_address.lng',
-            moduleId: 5,  // e-commerce
+            moduleId: MODULE_ID.ECOMMERCE,
           },
           output: 'delivery_zone',
         },
@@ -503,8 +504,8 @@ export const ecommerceOrderFlow: FlowDefinition = {
 
 Type "confirm" to place your order or "cancel" to go back.`,
             buttons: [
-              { id: 'btn_confirm', label: '✅ Confirm Order', value: 'confirm' },
-              { id: 'btn_cancel', label: '❌ Cancel', value: 'cancel' },
+              { id: 'btn_confirm', label: 'Confirm Order', value: 'confirm' },
+              { id: 'btn_cancel', label: 'Cancel', value: 'cancel' },
             ],
           },
           output: '_last_response',
@@ -551,32 +552,25 @@ Type "confirm" to place your order or "cancel" to go back.`,
     // Payment method selection
     select_payment_method: {
       type: 'action',
-      description: 'Show payment method options',
+      description: 'Fetch and show payment method options from PHP',
       actions: [
+        {
+          id: 'fetch_payment_methods',
+          executor: 'php_api',
+          config: {
+            action: 'get_payment_methods',
+          },
+          output: 'payment_methods_response',
+        },
         {
           id: 'payment_options_msg',
           executor: 'response',
           config: {
-            channelResponses: {
-              whatsapp: {
-                message: '💳 Select payment method',
-                flow: {
-                  flowId: '{{env.WA_FLOW_PAYMENT_ID}}',
-                  flowType: 'payment_selection',
-                  ctaText: 'Select Payment',
-                  body: '💳 Tap below to choose how you want to pay\n\nOrder Total: ₹{{pricing.total}}',
-                  initialData: {
-                    orderTotal: '{{pricing.total}}',
-                  },
-                },
-              },
-              default: {
-                message: '💳 **How would you like to pay?**\n\nOrder Total: ₹{{pricing.total}}',
-                buttons: [
-                  { label: '📱 UPI / Online', value: 'online', action: 'pay_online' },
-                  { label: '💵 Cash on Delivery', value: 'cod', action: 'pay_cod' },
-                ],
-              },
+            message: '💳 **How would you like to pay?**\n\nOrder Total: ₹{{pricing.total}}',
+            buttonsPath: 'payment_methods_response.methods',
+            buttonConfig: {
+              labelPath: 'name',
+              valuePath: 'id',
             },
           },
           output: '_last_response',

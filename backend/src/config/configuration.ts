@@ -96,6 +96,31 @@ export default () => ({
   logging: {
     level: process.env.LOG_LEVEL || 'info',
   },
+  // Flow-specific values (overridable via env — defaults match flow.constants.ts)
+  flows: {
+    paymentTimeoutMs: parseInt(process.env.FLOW_PAYMENT_TIMEOUT_MS, 10) || 300_000,
+    addressTimeoutMs: parseInt(process.env.FLOW_ADDRESS_TIMEOUT_MS, 10) || 300_000,
+    shortInputTimeoutMs: parseInt(process.env.FLOW_SHORT_INPUT_TIMEOUT_MS, 10) || 120_000,
+    searchRadius: process.env.FLOW_SEARCH_RADIUS || '5km',
+    searchFallbackRadius: process.env.FLOW_SEARCH_FALLBACK_RADIUS || '10km',
+    searchExternalRadiusMeters: parseInt(process.env.FLOW_SEARCH_EXTERNAL_RADIUS_M, 10) || 25_000,
+    searchResultLimit: parseInt(process.env.FLOW_SEARCH_RESULT_LIMIT, 10) || 15,
+    searchFallbackLimit: parseInt(process.env.FLOW_SEARCH_FALLBACK_LIMIT, 10) || 20,
+    categoryLimit: parseInt(process.env.FLOW_CATEGORY_LIMIT, 10) || 8,
+    storeLimit: parseInt(process.env.FLOW_STORE_LIMIT, 10) || 10,
+    upsellLimit: parseInt(process.env.FLOW_UPSELL_LIMIT, 10) || 3,
+    crossSellLimit: parseInt(process.env.FLOW_CROSS_SELL_LIMIT, 10) || 2,
+    orderHistoryLimit: parseInt(process.env.FLOW_ORDER_HISTORY_LIMIT, 10) || 10,
+  },
+  // Test mode configuration — only active when TEST_MODE=true
+  test: {
+    mockPhoneNumbers: (process.env.TEST_MOCK_PHONES || '8888777766,9999888877').split(','),
+    mockOtp: process.env.TEST_MOCK_OTP || '123456',
+    mockUserIds: {
+      existing: parseInt(process.env.TEST_MOCK_EXISTING_USER_ID, 10) || 88887777,
+      new: parseInt(process.env.TEST_MOCK_NEW_USER_ID, 10) || 99998888,
+    },
+  },
   training: {
     confidenceThresholds: {
       high: parseFloat(process.env.TRAINING_CONFIDENCE_HIGH) || 0.85,
