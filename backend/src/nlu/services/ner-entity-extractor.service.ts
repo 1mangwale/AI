@@ -60,7 +60,7 @@ export class NerEntityExtractorService implements OnModuleInit {
     @Optional() private readonly llmExtractor?: LlmEntityExtractorService,
   ) {
     this.nerServiceUrl = this.configService.get('NER_SERVICE_URL', 'http://localhost:7011');
-    this.searchServiceUrl = this.configService.get('SEARCH_SERVICE_URL', 'http://localhost:3100');
+    this.searchServiceUrl = this.configService.get('SEARCH_API_URL');
   }
 
   async onModuleInit() {

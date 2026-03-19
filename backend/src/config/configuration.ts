@@ -81,7 +81,7 @@ export default () => ({
   mlServices: {
     nerUrl: process.env.NER_SERVICE_URL || 'http://localhost:7011',
     nluUrl: process.env.NLU_SERVICE_URL || 'http://localhost:7012',
-    searchUrl: process.env.SEARCH_SERVICE_URL || 'http://localhost:3100',
+    searchUrl: process.env.SEARCH_API_URL || 'http://localhost:3100',
   },
   voice: {
     asrUrl: process.env.ASR_SERVICE_URL || 'http://localhost:7001',

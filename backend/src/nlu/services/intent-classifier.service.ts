@@ -4,6 +4,7 @@ import { IndicBERTService } from './indicbert.service';
 import { LlmIntentExtractorService } from './llm-intent-extractor.service';
 import { NluTrainingDataService } from './nlu-training-data.service';
 import { SelfLearningService } from '../../learning/services/self-learning.service';
+import { MistakeTrackerService, MistakeType } from '../../learning/services/mistake-tracker.service';
 import { MetricsService } from '../../metrics/metrics.service';
 
 interface IntentResult {
@@ -12,6 +13,8 @@ interface IntentResult {
   language: string;
   provider: 'indicbert' | 'llm' | 'heuristic' | 'heuristic-priority' | 'fallback';
   semanticSimilarItems?: string[]; // Food items found via semantic search
+  needsClarification?: boolean;
+  clarificationOptions?: string[];
 }
 
 @Injectable()
@@ -43,6 +46,7 @@ export class IntentClassifierService {
     @Optional() private readonly trainingDataService?: NluTrainingDataService,
     @Optional() private readonly selfLearningService?: SelfLearningService,
     @Optional() private readonly metricsService?: MetricsService,
+    @Optional() private readonly mistakeTracker?: MistakeTrackerService,
   ) {
     this.nluEnabled = this.config.get('NLU_AI_ENABLED', 'true') === 'true';
     this.llmFallbackEnabled = this.config.get('NLU_LLM_FALLBACK_ENABLED', 'true') === 'true';
@@ -146,16 +150,31 @@ export class IntentClassifierService {
                 source: 'llm-fallback',
               }).catch(err => this.logger.warn(`Training capture failed: ${err.message}`));
             }
-            
+
             return {
               intent: safeResult.intent,
               confidence: safeResult.confidence,
               language: language,
               provider: 'llm',
+              // Propagate clarification data so context-router can surface "Did you mean?" buttons
+              needsClarification: llmResult.needsClarification || false,
+              clarificationOptions: llmResult.clarificationOptions || [],
             };
           }
         } catch (llmError) {
           this.logger.warn(`LLM fallback failed: ${llmError.message}`);
+          // Log LLM failure as a mistake for pattern detection
+          if (this.mistakeTracker) {
+            this.mistakeTracker.logMistake({
+              messageId: `llm_err_${Date.now()}`,
+              sessionId: context || 'unknown',
+              userMessage: text,
+              predictedIntent: 'unknown',
+              confidence: 0,
+              mistakeType: MistakeType.FLOW_FAILURE,
+              errorDetails: llmError.message,
+            }).catch(() => {});
+          }
         }
       }
 
@@ -164,6 +183,17 @@ export class IntentClassifierService {
       const heuristicResult = this.heuristicClassify(text);
       this.logger.log(`✓ Heuristic fallback: ${heuristicResult.intent} (${(heuristicResult.confidence * 100).toFixed(1)}%)`);
       if (stopTimer) this.metricsService.recordNluClassification(heuristicResult.intent, heuristicResult.confidence, 'heuristic', language, stopTimer());
+      // Log low-confidence heuristic fallback as a mistake for pattern detection
+      if (this.mistakeTracker && heuristicResult.confidence < 0.7) {
+        this.mistakeTracker.logMistake({
+          messageId: `heuristic_${Date.now()}`,
+          sessionId: context || 'unknown',
+          userMessage: text,
+          predictedIntent: heuristicResult.intent,
+          confidence: heuristicResult.confidence,
+          mistakeType: MistakeType.LOW_CONFIDENCE,
+        }).catch(() => {});
+      }
       return heuristicResult;
       
     } catch (error) {

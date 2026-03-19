@@ -76,7 +76,7 @@ export class AgentExecutor implements ActionExecutor {
     private readonly configService: ConfigService,
   ) {
     this.nerUrl = this.configService.get('NER_URL', 'http://localhost:7011');
-    this.searchUrl = this.configService.get('SEARCH_URL', 'http://localhost:3100');
+    this.searchUrl = this.configService.get('SEARCH_API_URL');
     
     // Register available tools
     this.registerTools();

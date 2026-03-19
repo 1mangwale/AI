@@ -38,7 +38,7 @@ export class OndcCatalogService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
-    this.searchApiUrl = this.configService.get<string>('SEARCH_API_URL') || 'http://localhost:3100';
+    this.searchApiUrl = this.configService.get<string>('SEARCH_API_URL');
     this.subscriberId = this.configService.get<string>('ONDC_SUBSCRIBER_ID') || '';
     this.subscriberUrl = this.configService.get<string>('ONDC_SUBSCRIBER_URL') || '';
     this.storeDomain = this.configService.get<string>('ONDC_DOMAIN') || 'nic2004:52110';

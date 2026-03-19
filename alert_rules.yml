@@ -176,6 +176,24 @@ groups:
           summary: "Low median NLU confidence"
           description: "Median confidence is {{ $value }} (threshold: <0.6)"
 
+      # NLU Confidence P50 below 70% (stricter threshold over 15m window)
+      - alert: NLUConfidenceP50Low
+        expr: histogram_quantile(0.5, rate(mangwale_intent_confidence_bucket[15m])) < 0.70
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NLU median confidence below 70%"
+
+      # High correction rate (>15% of self-learning actions are corrections)
+      - alert: HighCorrectionRate
+        expr: rate(mangwale_self_learning_actions_total{action="prediction_corrected"}[30m]) / rate(mangwale_self_learning_actions_total[30m]) > 0.15
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Correction rate exceeds 15%"
+
   # ═══════════════════════════════════════════════════════════════
   # MCP ALERTS
   # ═══════════════════════════════════════════════════════════════

@@ -35,6 +35,7 @@ import { PersonalizationModule } from '../personalization/personalization.module
 import { UserModule } from '../user/user.module'; // ✨ User sync service
 import { SettingsModule } from '../settings/settings.module';
 import { VoiceCharactersModule } from '../voice-characters/voice-characters.module'; // ✨ Voice character personas for chatbot // ✨ Settings service
+import { VoiceModule } from '../voice/voice.module'; // ✨ Voice IVR pipeline integration
 // Import agent implementations
 import { FAQAgent } from './agents/faq.agent';
 import { SearchAgent } from './agents/search.agent';
@@ -101,6 +102,7 @@ import { GameHandlerService } from './services/game-handler.service'; // ✨ Opt
     LearningModule, // ✨ Self-learning mistake tracker
     ReviewsModule, // ✨ Review intelligence
     PricingModule, // ✨ Value proposition
+    forwardRef(() => VoiceModule), // ✨ Voice IVR pipeline integration
   ],
   controllers: [
     FlowTestController,

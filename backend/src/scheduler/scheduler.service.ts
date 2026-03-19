@@ -52,6 +52,7 @@ const JOB_DEFINITIONS: JobDefinition[] = [
   { jobName: 'proactive_dinner_suggestions', cronExpression: '0 30 18 * * *', defaultEnabled: true, description: 'Send dinner meal suggestions via WhatsApp (daily 6:30PM)' },
   { jobName: 'nlu_fallback_review', cronExpression: '0 4 * * *', defaultEnabled: true, description: 'Auto-approve consistent low-confidence NLU predictions (daily 4AM)' },
   { jobName: 'nlu_auto_augment', cronExpression: '0 5 * * 1', defaultEnabled: true, description: 'Generate synthetic training data for weak intents (weekly Mon 5AM)' },
+  { jobName: 'nlu_drift_detection', cronExpression: '0 6 * * *', defaultEnabled: true, description: 'Detect NLU confidence drift week-over-week (daily 6AM)' },
 ];
 
 @Injectable()
@@ -258,6 +259,58 @@ export class SchedulerService implements OnModuleInit {
     });
   }
 
+  @Cron('0 6 * * *', { name: 'nlu_drift_detection' })
+  async cronNluDriftDetection(): Promise<void> {
+    await this.executeJob('nlu_drift_detection', async () => {
+      this.logger.log('Running NLU drift detection...');
+      const result = await this.pool.query(`
+        SELECT
+          AVG(CASE WHEN created_at > NOW() - INTERVAL '7 days' THEN confidence END) as this_week_avg,
+          AVG(CASE WHEN created_at BETWEEN NOW() - INTERVAL '14 days' AND NOW() - INTERVAL '7 days' THEN confidence END) as last_week_avg,
+          COUNT(CASE WHEN created_at > NOW() - INTERVAL '7 days' THEN 1 END) as this_week_count,
+          COUNT(CASE WHEN created_at BETWEEN NOW() - INTERVAL '14 days' AND NOW() - INTERVAL '7 days' THEN 1 END) as last_week_count
+        FROM nlu_training_data
+        WHERE created_at > NOW() - INTERVAL '14 days'
+      `);
+
+      const row = result.rows[0];
+      const thisWeek = parseFloat(row?.this_week_avg || '0');
+      const lastWeek = parseFloat(row?.last_week_avg || '0');
+
+      if (lastWeek > 0) {
+        const drift = ((lastWeek - thisWeek) / lastWeek) * 100;
+        if (drift > 5) {
+          this.logger.warn(
+            `NLU DRIFT DETECTED: Confidence dropped ${drift.toFixed(1)}% (${lastWeek.toFixed(3)} -> ${thisWeek.toFixed(3)})`,
+          );
+          // Send webhook alert if configured
+          const webhookUrl = this.config.get('ALERT_WEBHOOK_URL');
+          if (webhookUrl) {
+            try {
+              await fetch(webhookUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  text: `*NLU Drift Alert*\nConfidence dropped ${drift.toFixed(1)}%\nLast week: ${lastWeek.toFixed(3)}\nThis week: ${thisWeek.toFixed(3)}\nSamples: ${row?.this_week_count} (this week) vs ${row?.last_week_count} (last week)`,
+                }),
+                signal: AbortSignal.timeout(5000),
+              });
+            } catch (webhookErr: any) {
+              this.logger.warn(`Failed to send drift alert webhook: ${webhookErr.message}`);
+            }
+          }
+          return { drift: drift.toFixed(1), thisWeek, lastWeek, alert: true };
+        } else {
+          this.logger.log(
+            `NLU drift check OK: ${drift.toFixed(1)}% change (${lastWeek.toFixed(3)} -> ${thisWeek.toFixed(3)})`,
+          );
+          return { drift: drift.toFixed(1), thisWeek, lastWeek, alert: false };
+        }
+      }
+      return { drift: null, thisWeek, lastWeek: 0, alert: false, reason: 'No last week data' };
+    });
+  }
+
   // ─── Job Execution Engine ─────────────────────────────────────
 
   private async executeJob(jobName: string, fn: () => Promise<any>): Promise<any> {
@@ -392,6 +445,9 @@ export class SchedulerService implements OnModuleInit {
       },
       nlu_auto_augment: async () => {
         return this.nluTrainingData.generateWeeklyAugmentation();
+      },
+      nlu_drift_detection: async () => {
+        return this.cronNluDriftDetection();
       },
     };
 

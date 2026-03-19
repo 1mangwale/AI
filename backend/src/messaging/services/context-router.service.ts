@@ -28,6 +28,7 @@ import {
   FLOW_SWITCH_BLOCKED_STATES,
   LOCATION_WAIT_STATES,
 } from '../../config/flow.constants';
+import { CorrectionTrackerService, CorrectionType } from '../../learning/services/correction-tracker.service';
 
 /**
  * Router Response - returned for SYNC channels (Web, Voice, Mobile)
@@ -89,6 +90,7 @@ export class ContextRouterService implements OnModuleInit {
     @Optional() private readonly phpReviewService?: PhpReviewService,
     @Optional() private readonly phpCouponService?: PhpCouponService,
     @Optional() private readonly userPreferenceService?: UserPreferenceService,
+    @Optional() private readonly correctionTracker?: CorrectionTrackerService,
   ) {
     this.logger.log('✅ ContextRouter initialized with shared Redis');
   }
@@ -381,6 +383,22 @@ export class ContextRouterService implements OnModuleInit {
       const isParcelFlow = activeFlow?.includes('parcel');
       if (TOP_LEVEL_ACTIONS.has(buttonAction) || (isParcelFlow && PARCEL_ONLY_BREAK_ACTIONS.has(buttonAction))) {
         this.logger.log(`🔀 Top-level button "${buttonAction}" while in flow ${activeFlow} — clearing flow and routing fresh`);
+
+        // Track implicit correction: user abandoned active flow via button click
+        if (this.correctionTracker) {
+          const lastPrediction = session.data?._last_nlu_prediction;
+          if (lastPrediction) {
+            this.correctionTracker.detectImplicitCorrection({
+              sessionId: event.identifier,
+              userId: session.data?.userId,
+              userMessage: lastPrediction.text || event.message,
+              nluPrediction: { intent: lastPrediction.intent, confidence: lastPrediction.confidence },
+              userAction: { type: 'button_click', value: buttonAction },
+              flowContext: { flowId: activeFlow, state: session.data?.flowContext?.currentState || 'unknown' },
+            }).catch(() => {});
+          }
+        }
+
         await this.sessionService.updateSession(event.identifier, {
           activeFlow: null,
           flowContext: null,
@@ -646,6 +664,37 @@ export class ContextRouterService implements OnModuleInit {
     this.logger.log(
       `🧠 NLU Result: intent="${intent.intent}" confidence=${intent.confidence.toFixed(2)}`,
     );
+
+    // Store NLU prediction in session for implicit correction detection downstream
+    if (this.correctionTracker && intent.confidence > 0) {
+      await this.sessionService.setData(event.identifier, '_last_nlu_prediction', {
+        intent: intent.intent,
+        confidence: intent.confidence,
+        text: event.message,
+        timestamp: Date.now(),
+      }).catch(() => {});
+    }
+
+    // Phase 2B: Surface "Did you mean?" clarification when NLU is uncertain
+    if ((intent as any).needsClarification && !activeFlow) {
+      const clarificationOptions = (intent as any).clarificationOptions || [];
+      if (clarificationOptions.length > 0) {
+        this.logger.log(`❓ Surfacing clarification: ${clarificationOptions.join(', ')}`);
+        const buttons = clarificationOptions.slice(0, 3).map((opt: string) => {
+          // Options may come as "intent:description" or just "intent"
+          const parts = opt.split(':');
+          const intentName = parts[0]?.trim() || opt;
+          const label = parts[1]?.trim() || intentName.replace(/_/g, ' ');
+          return { label, value: intentName, action: intentName };
+        });
+        return {
+          message: `I want to make sure I understand. Did you mean:`,
+          buttons: [...buttons, { label: 'Something else', value: 'help', action: 'help' }],
+          routedTo: 'direct' as const,
+          intent,
+        };
+      }
+    }
 
     // STEP 3: Check for Command Intents (Highest Priority)
     // BUT NOT if user is in an active flow with low-confidence classification
@@ -1541,6 +1590,11 @@ export class ContextRouterService implements OnModuleInit {
             intent: routeDecision.translatedIntent,
             confidence: classifierResult.confidence,
             routeDecision,
+            // Propagate clarification data from LLM for "Did you mean?" UI
+            ...(classifierResult.needsClarification ? {
+              needsClarification: true,
+              clarificationOptions: classifierResult.clarificationOptions || [],
+            } : {}),
           };
         } catch (classifierError) {
           this.logger.error(`❌ IntentClassifier failed: ${classifierError.message}`);

@@ -138,7 +138,7 @@ export class TrainingDataGeneratorService implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly httpService: HttpService,
   ) {
-    this.opensearchUrl = this.config.get('OPENSEARCH_URL', 'http://localhost:9200');
+    this.opensearchUrl = this.config.get('OPENSEARCH_URL');
     this.outputDir = path.join(process.cwd(), 'training-data', 'generated');
   }
 

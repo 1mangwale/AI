@@ -7,6 +7,7 @@ import { ClassifyTextDto } from '../dto/classify-text.dto';
 import { ClassificationResultDto } from '../dto/classification-result.dto';
 import { SemanticFoodDetectorService } from '../services/semantic-food-detector.service';
 import { IndicBERTService } from '../services/indicbert.service';
+import { PrismaService } from '../../database/prisma.service';
 
 @Controller('nlu')
 export class NluController {
@@ -19,6 +20,7 @@ export class NluController {
     private readonly indicBertService: IndicBERTService,
     @Optional() private readonly nerExtractor?: NerEntityExtractorService,
     @Optional() private readonly trainingDataService?: NluTrainingDataService,
+    @Optional() private readonly prisma?: PrismaService,
   ) {}
 
   @Post('classify')
@@ -144,6 +146,13 @@ export class NluController {
       info: Record<string, any> | null;
       health: Awaited<ReturnType<IndicBERTService['healthCheck']>>;
     };
+    learningStats?: {
+      pendingReviewCount: number;
+      avgConfidence24h: number | null;
+      totalTrainingSamples: number;
+      correctionCount7d: number;
+      correctionRate7d: number | null;
+    };
   }> {
     const nluEnabled = process.env.NLU_AI_ENABLED === 'true';
     const [upstreamHealth, upstreamInfo] = await Promise.all([
@@ -151,7 +160,7 @@ export class NluController {
       this.indicBertService.getInfo(),
     ]);
 
-    return {
+    const result: any = {
       status: 'ok',
       nluEnabled,
       upstream: {
@@ -159,5 +168,48 @@ export class NluController {
         health: upstreamHealth,
       },
     };
+
+    // Gather learning stats from PostgreSQL if PrismaService is available
+    if (this.prisma) {
+      try {
+        const [pendingRows, confidenceRows, totalRows, correctionRows] = await Promise.all([
+          this.prisma.$queryRaw<any[]>`
+            SELECT COUNT(*)::int as count FROM nlu_training_data WHERE status = 'pending_review'
+          `,
+          this.prisma.$queryRaw<any[]>`
+            SELECT AVG(confidence) as avg_confidence FROM nlu_training_data WHERE created_at > NOW() - INTERVAL '24 hours'
+          `,
+          this.prisma.$queryRaw<any[]>`
+            SELECT COUNT(*)::int as count FROM nlu_training_data
+          `,
+          this.prisma.$queryRaw<any[]>`
+            SELECT COUNT(*)::int as count FROM nlu_corrections WHERE created_at > NOW() - INTERVAL '7 days'
+          `,
+        ]);
+
+        const pendingReviewCount = pendingRows[0]?.count ?? 0;
+        const avgConfidence24h = confidenceRows[0]?.avg_confidence
+          ? parseFloat(confidenceRows[0].avg_confidence)
+          : null;
+        const totalTrainingSamples = totalRows[0]?.count ?? 0;
+        const correctionCount7d = correctionRows[0]?.count ?? 0;
+        const correctionRate7d = totalTrainingSamples > 0
+          ? correctionCount7d / totalTrainingSamples
+          : null;
+
+        result.learningStats = {
+          pendingReviewCount,
+          avgConfidence24h,
+          totalTrainingSamples,
+          correctionCount7d,
+          correctionRate7d,
+        };
+      } catch (error: any) {
+        this.logger.warn(`Failed to fetch learning stats: ${error.message}`);
+        result.learningStats = null;
+      }
+    }
+
+    return result;
   }
 }

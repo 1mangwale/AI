@@ -39,7 +39,7 @@ export class OpenSearchService {
     private readonly httpService: HttpService,
     private readonly config: ConfigService,
   ) {
-    this.opensearchUrl = this.config.get('OPENSEARCH_URL', 'http://localhost:9200');
+    this.opensearchUrl = this.config.get('OPENSEARCH_URL');
     this.username = this.config.get('OPENSEARCH_USERNAME', 'admin');
     this.password = this.config.get('OPENSEARCH_PASSWORD');
     

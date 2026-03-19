@@ -262,6 +262,33 @@ export class LearningAdminController {
   }
 
   /**
+   * Export training data as JSONL (Mercury-compatible format)
+   * Returns {"text": "...", "intent": "..."} per line — matches nlu_v*_final.jsonl format
+   */
+  @Get('export-jsonl')
+  async exportJsonl() {
+    try {
+      const rows = await this.prisma.$queryRaw<Array<{ text: string; intent: string }>>`
+        SELECT text, intent FROM nlu_training_data
+        WHERE status IN ('auto_approved', 'approved')
+        AND text IS NOT NULL AND intent IS NOT NULL
+        ORDER BY created_at ASC
+      `;
+
+      const jsonl = rows.map(r => JSON.stringify({ text: r.text, intent: r.intent })).join('\n');
+      return {
+        success: true,
+        format: 'jsonl',
+        count: rows.length,
+        data: jsonl,
+      };
+    } catch (error: any) {
+      this.logger.error(`JSONL export failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * Get auto-approval statistics
    */
   @Get('auto-approval-stats')

@@ -3,17 +3,21 @@ import {
   Get,
   Post,
   Body,
+  Res,
   Logger,
   HttpException,
   HttpStatus,
   UseInterceptors,
   UploadedFile,
+  Optional,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
+import { Response } from 'express';
 import FormData = require('form-data');
+import { VoiceService } from '../../voice/services/voice.service';
 
 /**
  * Voice Controller
@@ -32,6 +36,7 @@ export class VoiceController {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    @Optional() private readonly voiceService?: VoiceService,
   ) {
     this.asrUrl = this.configService.get('ASR_SERVICE_URL', 'http://100.117.131.56:7001');
     this.ttsUrl = this.configService.get('TTS_SERVICE_URL', 'http://100.117.131.56:7002');
@@ -365,5 +370,78 @@ export class VoiceController {
       services: checks,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  // ============== VOICE NLU PIPELINE ==============
+
+  /**
+   * POST /voice/process
+   * Process voice text through the same NLU/flow pipeline as chat.
+   * Used by the web frontend's voice mode.
+   */
+  @Post('process')
+  async processVoiceText(
+    @Body() body: { phoneNumber: string; text: string },
+  ) {
+    if (!this.voiceService) {
+      return { success: false, error: 'VoiceService not available' };
+    }
+    if (!body.phoneNumber || !body.text) {
+      return { success: false, error: 'phoneNumber and text are required' };
+    }
+
+    const response = await this.voiceService.processVoiceInput(body.phoneNumber, body.text);
+    return {
+      success: true,
+      message: response.message,
+      buttons: response.buttons || [],
+      routedTo: response.routedTo,
+    };
+  }
+
+  /**
+   * POST /webhook/voice/process
+   * Twilio/Exotel webhook — receives transcribed speech, returns TwiML.
+   * Multi-turn: always includes <Gather> for next speech input.
+   */
+  @Post('webhook/process')
+  async processVoiceWebhook(
+    @Body() body: any,
+    @Res() res: Response,
+  ) {
+    if (!this.voiceService) {
+      res.type('text/xml').send(
+        '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Voice service unavailable.</Say><Hangup/></Response>',
+      );
+      return;
+    }
+
+    // Extract speech from Twilio/Exotel webhook body
+    const speechText = body.SpeechResult || body.speech_result || body.transcript || '';
+    const phoneNumber = body.From || body.from || body.caller_id || '';
+
+    if (!speechText) {
+      const welcome = this.voiceService.generateWelcome();
+      res.type('text/xml').send(welcome.xml);
+      return;
+    }
+
+    this.logger.log(`📞 Webhook voice input from ${phoneNumber}: "${speechText.substring(0, 50)}..."`);
+
+    try {
+      const response = await this.voiceService.processVoiceInput(phoneNumber, speechText);
+      // Strip markdown formatting for voice (bold, bullets, etc.)
+      const cleanText = (response.message || '')
+        .replace(/\*\*/g, '')
+        .replace(/[*_~`#]/g, '')
+        .replace(/\n+/g, '. ');
+
+      const twiml = this.voiceService.generateSpeechResponse(cleanText, true);
+      res.type('text/xml').send(twiml.xml);
+    } catch (error: any) {
+      this.logger.error(`Voice webhook processing failed: ${error.message}`);
+      const errorTwiml = this.voiceService.generateError();
+      res.type('text/xml').send(errorTwiml.xml);
+    }
   }
 }

@@ -38,7 +38,7 @@ export class TrendingController {
     @Optional() private readonly httpService?: HttpService,
     @Optional() private readonly configService?: ConfigService,
   ) {
-    this.searchApiUrl = this.configService?.get<string>('SEARCH_API_URL') || 'http://localhost:3100';
+    this.searchApiUrl = this.configService?.get<string>('SEARCH_API_URL');
   }
 
   private rangeToWindow(range: string): string {

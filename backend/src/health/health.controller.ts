@@ -38,7 +38,7 @@ export class HealthController {
     this.nluServiceUrl = this.configService.get<string>('NLU_PRIMARY_ENDPOINT', 'http://192.168.0.151:7012');
     this.nerServiceUrl = this.configService.get<string>('NER_SERVICE_URL', 'http://192.168.0.151:7011');
     this.vllmUrl = this.configService.get<string>('VLLM_URL', 'http://localhost:8002');
-    this.searchApiUrl = this.configService.get<string>('SEARCH_API_URL', 'http://localhost:3100');
+    this.searchApiUrl = this.configService.get<string>('SEARCH_API_URL');
 
     // Start background PHP health check
     this.checkPhpHealthBackground();

@@ -42,7 +42,7 @@ export class McpToolsService {
     @Optional() private readonly searchAI?: SearchAIIntegrationService,
   ) {
     this.phpBaseUrl = this.config.get('PHP_API_BASE_URL') || 'https://new.mangwale.com';
-    this.searchApiUrl = this.config.get('SEARCH_API_URL') || 'http://localhost:3100';
+    this.searchApiUrl = this.config.get('SEARCH_API_URL');
   }
 
   // ─── Discovery Tools (No Auth) ──────────────────────────────

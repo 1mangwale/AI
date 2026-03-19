@@ -9,7 +9,10 @@
  * 4. Prevent repeated mistakes
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../../database/prisma.service';
 import { LogCollectorService } from '../../healing/services/log-collector.service';
 import { createHash, randomUUID } from 'crypto';
@@ -66,10 +69,15 @@ export class MistakeTrackerService {
   // In-memory cache of known mistake patterns (for quick lookup)
   private knownPatterns: Map<string, MistakePattern> = new Map();
 
+  private readonly webhookUrl: string;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly logCollector: LogCollectorService,
+    @Optional() private readonly configService?: ConfigService,
+    @Optional() private readonly httpService?: HttpService,
   ) {
+    this.webhookUrl = this.configService?.get('ALERT_WEBHOOK_URL', '') || '';
     this.loadKnownPatterns();
   }
 
@@ -204,8 +212,16 @@ export class MistakeTrackerService {
       lastOccurrence: new Date(),
     });
 
-    // TODO: Send webhook/notification to admin
-    // await this.notifyAdmin(messageHash, count, intents);
+    // Send webhook notification to admin
+    if (this.webhookUrl && this.httpService) {
+      try {
+        await firstValueFrom(this.httpService.post(this.webhookUrl, {
+          text: `🚨 *Repeated NLU Mistake Pattern*\nHash: \`${messageHash}\`\nOccurrences: ${count}\nIntents: ${intents.join(', ')}\n*Action required:* Add training samples for this pattern`,
+        }, { timeout: 5000 }));
+      } catch (webhookErr) {
+        this.logger.debug(`Webhook notification failed: ${webhookErr?.message}`);
+      }
+    }
   }
 
   /**

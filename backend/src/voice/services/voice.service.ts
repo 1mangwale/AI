@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { ContextRouterService, RouterResponse } from '../../messaging/services/context-router.service';
+import { SessionService } from '../../session/session.service';
 
 /**
  * 📞 Voice IVR Service
@@ -62,6 +64,9 @@ export class VoiceService {
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    @Optional() @Inject(forwardRef(() => ContextRouterService))
+    private readonly contextRouter?: ContextRouterService,
+    @Optional() private readonly sessionService?: SessionService,
   ) {
     // Twilio
     this.twilioAccountSid = this.configService.get('TWILIO_ACCOUNT_SID', '');
@@ -398,6 +403,50 @@ export class VoiceService {
     } catch (error: any) {
       this.logger.error(`Outbound call failed: ${error.message}`);
       return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Process voice input through the same NLU/flow pipeline as chat.
+   * Links voice sessions with existing chat sessions by phone number.
+   */
+  async processVoiceInput(
+    phoneNumber: string,
+    speechText: string,
+  ): Promise<RouterResponse> {
+    if (!this.contextRouter || !this.sessionService) {
+      this.logger.warn('Voice pipeline not wired: ContextRouter or SessionService unavailable');
+      return { message: 'Voice processing is not available.', routedTo: 'direct' };
+    }
+
+    try {
+      // Normalize phone number (remove +, ensure it's the session identifier format)
+      const identifier = phoneNumber.replace(/^\+/, '');
+
+      // Get or create session — reuses existing chat session for same phone
+      let session = await this.sessionService.getSession(identifier);
+      if (!session) {
+        session = await this.sessionService.createSession(identifier);
+      }
+
+      this.logger.log(`📞 Voice input from ${identifier}: "${speechText.substring(0, 50)}..."`);
+
+      // Route through the SAME pipeline as chat (NLU → flow → agent)
+      const response = await this.contextRouter.routeSync({
+        messageId: `voice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        identifier,
+        message: speechText,
+        channel: 'voice',
+        sessionId: identifier,
+        timestamp: Date.now(),
+        metadata: { source: 'voice_call', platform: 'voice' },
+      });
+
+      this.logger.log(`📞 Voice response: "${(response?.message || '').substring(0, 50)}..."`);
+      return response || { message: 'I could not process that. Please try again.', routedTo: 'direct' };
+    } catch (error: any) {
+      this.logger.error(`Voice processing failed: ${error.message}`);
+      return { message: 'Sorry, there was an error processing your request.', routedTo: 'direct' };
     }
   }
 }

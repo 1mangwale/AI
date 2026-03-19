@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { VoiceWebhookController } from './controllers/voice-webhook.controller';
 import { VoiceService } from './services/voice.service';
@@ -33,11 +33,11 @@ import { MessagingModule } from '../messaging/messaging.module';
       maxRedirects: 5,
     }),
     SessionModule,
-    AgentsModule,
+    forwardRef(() => AgentsModule), // For AgentOrchestratorService (forwardRef: circular dep)
     DatabaseModule,
     AsrModule,  // Speech-to-Text
     TtsModule,  // Text-to-Speech
-    MessagingModule, // For MessageGatewayService
+    forwardRef(() => MessagingModule), // For ContextRouterService (forwardRef: circular via AgentsModule)
   ],
   controllers: [VoiceWebhookController],
   providers: [VoiceService],

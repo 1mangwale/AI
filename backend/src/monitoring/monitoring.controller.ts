@@ -80,7 +80,7 @@ export class MonitoringController {
       { name: 'NLU (Mercury)', url: process.env.NLU_SERVICE_URL ? `${process.env.NLU_SERVICE_URL}/health` : 'http://192.168.0.151:7012/health' },
       { name: 'NER (Mercury)', url: process.env.NER_SERVICE_URL ? `${process.env.NER_SERVICE_URL}/health` : 'http://192.168.0.151:7011/health' },
       { name: 'Training Server', url: process.env.TRAINING_SERVER_URL ? `${process.env.TRAINING_SERVER_URL}/health` : 'http://192.168.0.151:8082/health' },
-      { name: 'Search API', url: process.env.SEARCH_SERVICE_URL ? `${process.env.SEARCH_SERVICE_URL}/health` : 'http://localhost:3100/health' },
+      { name: 'Search API', url: `${process.env.SEARCH_API_URL || 'http://localhost:3100'}/health` },
       { name: 'ASR', url: process.env.ASR_SERVICE_URL ? `${process.env.ASR_SERVICE_URL}/health` : 'http://localhost:7001/health' },
       { name: 'TTS', url: process.env.TTS_SERVICE_URL ? `${process.env.TTS_SERVICE_URL}/health` : 'http://localhost:7002/health' },
       { name: 'Voice Orchestrator', url: process.env.VOICE_ORCHESTRATOR_URL ? `${process.env.VOICE_ORCHESTRATOR_URL}/health` : 'http://localhost:7000/health' },

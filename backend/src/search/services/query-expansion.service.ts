@@ -190,7 +190,7 @@ export class QueryExpansionService implements OnModuleInit {
     });
 
     // Initialize OpenSearch for spell check
-    const opensearchUrl = this.configService.get('OPENSEARCH_URL') || 'http://opensearch:9200';
+    const opensearchUrl = this.configService.get('OPENSEARCH_URL');
     this.opensearch = axios.create({
       baseURL: opensearchUrl,
       headers: { 'Content-Type': 'application/json' },

@@ -39,7 +39,7 @@ export class SearchAnalyticsAdminController {
       idleTimeoutMillis: 30000,
     });
 
-    this.searchApiUrl = this.configService?.get('SEARCH_API_URL') || 'http://localhost:3100';
+    this.searchApiUrl = this.configService?.get('SEARCH_API_URL');
     this.logger.log('✅ SearchAnalyticsAdminController initialized');
   }
 
