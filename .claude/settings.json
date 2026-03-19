@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for file in /home/ubuntu/Devs/MangwaleAI/frontend/src/app/admin/*/page.tsx)",
+      "Bash(do wc -l \"$file\")",
+      "Bash(sshpass -p 'Mangwale@2014' ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ubuntu@192.168.0.148 \"echo ''SSH OK''; docker ps --format ''{{.Names}} | {{.Ports}} | {{.Status}}'' 2>/dev/null; echo ''---PM2---''; pm2 list 2>/dev/null | head -20; echo ''---APPS---''; find /home/ubuntu -maxdepth 3 -name ''package.json'' 2>/dev/null | head -20; echo ''---PORTS---''; ss -tlnp 2>/dev/null | grep -E ''LISTEN'' | head -20\")",
+      "Bash(sudo -S apt-get install -y sshpass)",
+      "Bash(docker inspect mangwale-dashboard --format '{{index .Config.Labels \"\"com.docker.compose.project.config_files\"\"}}')",
+      "WebFetch(domain:developers.facebook.com)",
+      "WebFetch(domain:developer.vonage.com)",
+      "WebFetch(domain:docs.360dialog.com)",
+      "WebFetch(domain:www.together.ai)",
+      "WebFetch(domain:support.gupshup.io)",
+      "WebFetch(domain:www.bepragma.ai)",
+      "WebFetch(domain:www.interakt.shop)",
+      "Read(//place_order:/,/transitions:/**)",
+      "Read(//set_payment_cod:|set_payment_online:/,/transitions:/**)",
+      "Read(//home/ubuntu/Devs/MangwaleAI/**)",
+      "Bash(for f in dashboards/*.json)",
+      "Bash(do node -e \"const d=require\\(''./$f''\\); require\\(''fs''\\).writeFileSync\\(''$f'', JSON.stringify\\(d.dashboard, null, 2\\)+''\\\\n''\\)\")",
+      "Bash(npm test:*)",
+      "Bash(npx prisma:*)",
+      "Bash(find /home/ubuntu/Devs/MangwaleAI -type f \\\\\\(-name claude.config.json -o -name .claude* -o -name plugin.json -o -name openapi.json -o -name openapi.yaml \\\\\\))",
+      "Bash(git commit:*)",
+      "Bash(npm audit:*)",
+      "Bash(2)",
+      "Bash(npm list:*)",
+      "Bash(npm install:*)",
+      "Bash(unzip -l \"/home/ubuntu/Devs/MangwaleAI/.claude/files \\(1\\).zip\")",
+      "Bash(unzip -o \"/home/ubuntu/Devs/MangwaleAI/.claude/files \\(1\\).zip\" -d /tmp/skill-extract)",
+      "Bash(unzip -l /tmp/skill-extract/autonomous-engineer-v6.skill)",
+      "Bash(unzip -o /tmp/skill-extract/autonomous-engineer-v6.skill -d /tmp/skill-extract/skill-contents)",
+      "Bash(mkdir -p /home/ubuntu/Devs/MangwaleAI/.claude/skills)",
+      "Bash(cp -r /tmp/skill-extract/skill-contents/autonomous-engineer-v6 /home/ubuntu/Devs/MangwaleAI/.claude/skills/)"
+    ],
+    "additionalDirectories": [
+      "/home/ubuntu/Devs/MangwaleAI/.claude/skills/autonomous-engineer-v6"
+    ]
+  }
+}
