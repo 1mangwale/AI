@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { LlmService } from '../../llm/services/llm.service';
 import { PrismaService } from '../../database/prisma.service';
+import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../../redis/redis.module';
 
 export interface LlmIntentExtractionResult {
   intent: string;
@@ -17,6 +19,7 @@ export interface LlmIntentExtractionResult {
 export interface LlmIntentContext {
   activeModule?: string; // 'food', 'ecommerce', 'parcel', etc.
   activeFlow?: string; // Current flow ID like 'food_order_v1'
+  activeState?: string; // Current state in the flow state machine
   lastBotQuestion?: string; // What the bot asked before this message
   conversationHistory?: string[]; // Recent messages for context
 }
@@ -25,10 +28,18 @@ export interface LlmIntentContext {
 export class LlmIntentExtractorService {
   private readonly logger = new Logger(LlmIntentExtractorService.name);
 
+  private static readonly CACHE_PREFIX = 'llm_intent:';
+  private static readonly CACHE_TTL = 7200; // 2 hours
+
   constructor(
     private readonly llmService: LlmService,
-    private readonly prisma: PrismaService
-  ) {}
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
+  ) {
+    if (this.redis) {
+      this.logger.log('Redis available for LLM intent cache');
+    }
+  }
 
   /**
    * Use LLM to extract intent when NLU confidence is low
@@ -126,8 +137,22 @@ export class LlmIntentExtractorService {
       }
     }
 
+    // Check Redis cache before making LLM call
+    const cacheKey = `${LlmIntentExtractorService.CACHE_PREFIX}${text.toLowerCase().trim().slice(0, 100)}`;
+    if (this.redis) {
+      try {
+        const cached = await this.redis.get(cacheKey);
+        if (cached) {
+          this.logger.log(`[LLM-CACHE] Hit for "${text.slice(0, 30)}..."`);
+          return JSON.parse(cached) as LlmIntentExtractionResult;
+        }
+      } catch (cacheErr) {
+        this.logger.warn(`[LLM-CACHE] Read error: ${cacheErr.message}`);
+      }
+    }
+
     let intentList = '';
-    
+
     try {
       // Fetch intents from database (no enabled field in schema)
       const dbIntents = await this.prisma.intentDefinition.findMany();
@@ -211,10 +236,11 @@ export class LlmIntentExtractorService {
       ).join('\n');
     }
 
-    // Build context section for the prompt
+    // Build context section for the system prompt (flow/module info only — no user-supplied strings)
     let contextSection = '';
-    if (context?.activeModule || context?.lastBotQuestion) {
-      contextSection = `\n\nCONTEXT (very important):`;
+    const hasFlowContext = context?.activeModule || context?.activeFlow || context?.activeState;
+    if (hasFlowContext) {
+      contextSection = `\n\nCONVERSATION CONTEXT (very important):`;
       if (context.activeModule) {
         contextSection += `\n- User is currently in the "${context.activeModule}" module/flow`;
         if (context.activeModule === 'food') {
@@ -225,15 +251,16 @@ export class LlmIntentExtractorService {
           contextSection += ` (booking parcel delivery)`;
         }
       }
-      if (context.lastBotQuestion) {
-        contextSection += `\n- Bot just asked: "${context.lastBotQuestion}"`;
-      }
       if (context.activeFlow) {
         contextSection += `\n- Active flow: ${context.activeFlow}`;
       }
+      if (context.activeState) {
+        contextSection += `\n- Current state: ${context.activeState}`;
+      }
       contextSection += `\n\nIMPORTANT: If user's message is a RESPONSE to the bot's question, interpret it in that context!
 - If bot asked "What do you want to eat?" and user says "kya khula hai" → browse_menu (0.9) NOT search_product
-- If bot asked about food and user says "yes" or short answer → stay in food context`;
+- If bot asked about food and user says "yes" or short answer → stay in food context
+- Short replies like "yes", "no", "2", numbers, or single words during an active flow are almost always contextual responses (affirm/deny/select_item)`;
     }
 
     const systemPrompt = `You are an expert intent classifier for a delivery and e-commerce platform in India.
@@ -281,10 +308,17 @@ If needs_clarification=true, include options like:
 "clarification_options": ["order_food: Are you looking for restaurants?", "search_product: Looking for products to buy?"]`;
 
     try {
+      // Build user message: include lastBotQuestion in user role (not system) for security
+      // This prevents user-supplied content from being treated as system instructions
+      let userMessage = text;
+      if (context?.lastBotQuestion) {
+        userMessage = `[Bot previously asked: "${context.lastBotQuestion}"]\nUser reply: ${text}`;
+      }
+
       const response = await this.llmService.chat({
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: text },
+          { role: 'user', content: userMessage },
         ],
         // Auto mode: try vLLM first, fallback to cloud (Groq/OpenRouter)
         provider: 'auto',
@@ -298,6 +332,16 @@ If needs_clarification=true, include options like:
       this.logger.log(
         `LLM extracted: ${result.intent} (${result.confidence.toFixed(2)}) - ${result.reasoning}`,
       );
+
+      // Cache successful LLM result in Redis
+      if (this.redis) {
+        try {
+          await this.redis.setex(cacheKey, LlmIntentExtractorService.CACHE_TTL, JSON.stringify(result));
+          this.logger.debug(`[LLM-CACHE] Stored for "${text.slice(0, 30)}..." (TTL: ${LlmIntentExtractorService.CACHE_TTL}s)`);
+        } catch (cacheErr) {
+          this.logger.warn(`[LLM-CACHE] Write error: ${cacheErr.message}`);
+        }
+      }
 
       return result;
     } catch (error) {

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { MetricsService } from '../../metrics/metrics.service';
+import { PrismaService } from '../../database/prisma.service';
 
 /**
  * Retraining Request
@@ -49,6 +50,7 @@ export class RetrainingCoordinatorService {
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    private readonly prisma: PrismaService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.trainingServerUrl = this.configService.get(
@@ -167,10 +169,11 @@ export class RetrainingCoordinatorService {
       this.logger.log(`✅ Retraining job started: ${jobId}`);
       this.notifyRetrainingStarted(request, jobId).catch(() => {});
 
-      // Reset flag after a delay (training is async)
-      setTimeout(() => {
+      // Poll for training completion asynchronously (don't block the response)
+      this.pollAndFinalize(jobId, request, dataFile).catch((err) => {
+        this.logger.error(`Training poll/finalize failed for job ${jobId}: ${err.message}`);
         this.isRetrainingInProgress = false;
-      }, 60000); // Reset after 1 minute (training starts async)
+      });
 
       return {
         accepted: true,
@@ -204,6 +207,187 @@ export class RetrainingCoordinatorService {
     const timeSinceLastRequest = now - this.lastRetrainingRequest;
     const remaining = this.cooldownMs - timeSinceLastRequest;
     return remaining > 0 ? remaining : 0;
+  }
+
+  /**
+   * Poll training server for job completion, then record history and auto-deploy if better
+   */
+  private async pollAndFinalize(jobId: string, request: RetrainingRequest, dataFile: string): Promise<void> {
+    try {
+      const result = await this.waitForTraining(jobId);
+
+      if (result.success) {
+        this.logger.log(`✅ Training job ${jobId} completed with accuracy: ${result.accuracy}`);
+
+        // Record in model_training_history
+        await this.recordTrainingHistory(jobId, dataFile, request, result.accuracy);
+
+        // Auto-deploy if accuracy is acceptable
+        if (result.accuracy !== undefined) {
+          await this.autoDeployIfBetter(jobId, result.accuracy);
+        }
+      } else {
+        this.logger.warn(`❌ Training job ${jobId} failed or timed out`);
+        this.notifyRetrainingFailed(request, 'Training job failed or timed out').catch(() => {});
+      }
+    } finally {
+      this.isRetrainingInProgress = false;
+    }
+  }
+
+  /**
+   * Wait for training job to complete by polling the training server
+   */
+  private async waitForTraining(jobId: string, maxWaitMs = 600000): Promise<{ success: boolean; accuracy?: number }> {
+    const pollInterval = 15000; // 15 seconds
+    let elapsed = 0;
+    while (elapsed < maxWaitMs) {
+      try {
+        const status = await this.checkJobStatus(jobId);
+        if (status.state === 'completed') return { success: true, accuracy: status.accuracy };
+        if (status.state === 'failed') return { success: false };
+      } catch {
+        // Transient error — keep polling
+      }
+      await new Promise(r => setTimeout(r, pollInterval));
+      elapsed += pollInterval;
+    }
+    return { success: false }; // timeout
+  }
+
+  /**
+   * Check a training job's status on the training server
+   */
+  private async checkJobStatus(jobId: string): Promise<{ state: string; accuracy?: number }> {
+    const response = await firstValueFrom(
+      this.httpService.get(`${this.trainingServerUrl}/jobs/${jobId}`, { timeout: 10000 }),
+    );
+    return {
+      state: response.data?.state || response.data?.status || 'unknown',
+      accuracy: response.data?.accuracy,
+    };
+  }
+
+  /**
+   * Record training run in model_training_history table
+   */
+  private async recordTrainingHistory(
+    jobId: string,
+    dataFile: string,
+    request: RetrainingRequest,
+    accuracy?: number,
+  ): Promise<void> {
+    try {
+      const modelVersion = `indicbert_v${jobId}`;
+      const accValue = accuracy ?? 0;
+      const notes = `${request.reason} (data: ${dataFile})`;
+
+      await this.prisma.$executeRaw`
+        INSERT INTO model_training_history
+          (id, model_name, model_version, training_samples, accuracy, triggered_by, notes, status, trained_at, is_active, created_at)
+        VALUES
+          (gen_random_uuid(), 'chotu-nlu', ${modelVersion}, ${request.newExamplesCount ?? 0}, ${accValue},
+           ${request.source}, ${notes}, 'completed', NOW(), false, NOW())
+      `;
+      this.logger.log(`📝 Recorded training history for job ${jobId} (accuracy: ${accValue})`);
+    } catch (err) {
+      this.logger.error(`Failed to record training history: ${err.message}`);
+    }
+  }
+
+  /**
+   * Auto-deploy the new model if its accuracy is acceptable compared to the current active model.
+   * Deploys if new accuracy >= current accuracy - 0.02 (2% tolerance).
+   * Otherwise, alerts via webhook and keeps the current model.
+   */
+  private async autoDeployIfBetter(jobId: string, newAccuracy: number): Promise<void> {
+    try {
+      // Get current active model's accuracy
+      const activeModels = await this.prisma.$queryRaw<Array<{ accuracy: number; model_version: string }>>`
+        SELECT accuracy, model_version FROM model_training_history
+        WHERE is_active = true AND model_name = 'chotu-nlu'
+        ORDER BY trained_at DESC
+        LIMIT 1
+      `;
+
+      const currentAccuracy = activeModels.length > 0 ? Number(activeModels[0].accuracy) : 0;
+      const currentVersion = activeModels.length > 0 ? activeModels[0].model_version : 'none';
+      const modelVersion = `indicbert_v${jobId}`;
+
+      this.logger.log(
+        `📊 Comparing models: new=${newAccuracy.toFixed(4)} vs current=${currentAccuracy.toFixed(4)} (threshold: ${(currentAccuracy - 0.02).toFixed(4)})`,
+      );
+
+      if (newAccuracy >= currentAccuracy - 0.02) {
+        // Deploy: tell training server to activate the new model
+        try {
+          await firstValueFrom(
+            this.httpService.post(
+              `${this.trainingServerUrl}/deploy`,
+              { job_id: jobId, model_version: modelVersion },
+              { timeout: 30000 },
+            ),
+          );
+        } catch (deployErr) {
+          this.logger.error(`Deploy API call failed: ${deployErr.message}`);
+          return;
+        }
+
+        // Update is_active flags in DB: deactivate old, activate new
+        await this.prisma.$executeRaw`
+          UPDATE model_training_history SET is_active = false
+          WHERE is_active = true AND model_name = 'chotu-nlu'
+        `;
+        await this.prisma.$executeRaw`
+          UPDATE model_training_history SET is_active = true
+          WHERE model_version = ${modelVersion} AND model_name = 'chotu-nlu'
+        `;
+
+        this.logger.log(`🚀 Auto-deployed model ${modelVersion} (accuracy: ${newAccuracy.toFixed(4)}, replacing ${currentVersion})`);
+
+        // Notify success
+        if (this.webhookUrl) {
+          await firstValueFrom(
+            this.httpService.post(this.webhookUrl, {
+              text: `🚀 NLU Model Auto-Deployed`,
+              attachments: [{
+                color: '#36A64F',
+                title: `New Model: ${modelVersion}`,
+                fields: [
+                  { title: 'New Accuracy', value: `${(newAccuracy * 100).toFixed(2)}%`, short: true },
+                  { title: 'Previous Accuracy', value: `${(currentAccuracy * 100).toFixed(2)}%`, short: true },
+                  { title: 'Previous Model', value: currentVersion, short: true },
+                ],
+              }],
+            }, { timeout: 5000 }),
+          ).catch(() => {});
+        }
+      } else {
+        // New model is worse — alert and keep current
+        this.logger.warn(
+          `⚠️ New model ${modelVersion} (${newAccuracy.toFixed(4)}) is worse than current ${currentVersion} (${currentAccuracy.toFixed(4)}). Skipping deploy.`,
+        );
+
+        if (this.webhookUrl) {
+          await firstValueFrom(
+            this.httpService.post(this.webhookUrl, {
+              text: `⚠️ NLU Model NOT Deployed — Accuracy Regression`,
+              attachments: [{
+                color: '#FF9900',
+                title: `Rejected Model: ${modelVersion}`,
+                fields: [
+                  { title: 'New Accuracy', value: `${(newAccuracy * 100).toFixed(2)}%`, short: true },
+                  { title: 'Current Accuracy', value: `${(currentAccuracy * 100).toFixed(2)}%`, short: true },
+                  { title: 'Threshold', value: `${((currentAccuracy - 0.02) * 100).toFixed(2)}%`, short: true },
+                ],
+              }],
+            }, { timeout: 5000 }),
+          ).catch(() => {});
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Auto-deploy check failed: ${err.message}`);
+    }
   }
 
   /**

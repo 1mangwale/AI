@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IndicBERTService } from './indicbert.service';
-import { LlmIntentExtractorService } from './llm-intent-extractor.service';
+import { LlmIntentExtractorService, LlmIntentContext } from './llm-intent-extractor.service';
 import { NluTrainingDataService } from './nlu-training-data.service';
 import { SelfLearningService } from '../../learning/services/self-learning.service';
 import { MistakeTrackerService, MistakeType } from '../../learning/services/mistake-tracker.service';
@@ -24,6 +24,16 @@ export class IntentClassifierService {
   private readonly llmFallbackEnabled: boolean;
   private readonly confidenceThreshold: number;
   private readonly llmTimeoutMs: number;
+
+  // Provider-specific confidence thresholds: LLM results need higher confidence
+  // than IndicBERT since LLM intent extraction is less calibrated
+  private readonly providerThresholds: Record<string, number> = {
+    'indicbert': 0.65,
+    'llm': 0.75,
+    'heuristic': 0.90,
+    'heuristic-priority': 0.95,
+    'fallback': 0.50,
+  };
 
   // All 33 canonical intents + extras for LLM fallback (single source of truth)
   private static readonly AVAILABLE_INTENTS = [
@@ -54,10 +64,19 @@ export class IntentClassifierService {
     this.llmTimeoutMs = parseInt(this.config.get('NLU_LLM_TIMEOUT_MS', '10000'), 10);
   }
 
+  /**
+   * Get the confidence threshold for a given provider.
+   * Falls back to the base confidenceThreshold (from env) if provider is unknown.
+   */
+  private getThreshold(provider: string): number {
+    return this.providerThresholds[provider] ?? this.confidenceThreshold;
+  }
+
   async classify(
     text: string,
     language: string = 'auto',
     context?: string,
+    flowContext?: LlmIntentContext,
   ): Promise<IntentResult> {
     const stopTimer = this.metricsService?.startTimer();
 
@@ -95,9 +114,9 @@ export class IntentClassifierService {
       // Step 1.5: Apply post-classification correction for known misclassifications
       const corrected = this.applyPostClassificationCorrection(text, result.intent, result.confidence);
 
-      if (corrected.intent && corrected.confidence >= this.confidenceThreshold) {
+      if (corrected.intent && corrected.confidence >= this.getThreshold('indicbert')) {
         this.logger.log(`✓ IndicBERT v3: ${corrected.intent} (${(corrected.confidence * 100).toFixed(1)}%)${corrected.corrected ? ' [CORRECTED from ' + result.intent + ']' : ''}`);
-        
+
         // Use SelfLearningService for proper routing (auto-approve/review/label-studio)
         if (this.selfLearningService) {
           this.selfLearningService.processPrediction({
@@ -121,19 +140,19 @@ export class IntentClassifierService {
 
       // IndicBERT returned result but low confidence - log it
       if (corrected.intent) {
-        this.logger.debug(`IndicBERT v3 low confidence: ${corrected.intent} (${(corrected.confidence * 100).toFixed(1)}%) < threshold ${this.confidenceThreshold * 100}%`);
+        this.logger.debug(`IndicBERT v3 low confidence: ${corrected.intent} (${(corrected.confidence * 100).toFixed(1)}%) < threshold ${this.getThreshold('indicbert') * 100}%`);
       }
 
       // Step 2: LLM Fallback (if enabled and IndicBERT wasn't confident)
       if (this.llmFallbackEnabled) {
-        this.logger.debug(`Trying LLM fallback for: "${text}"`);
+        this.logger.debug(`Trying LLM fallback for: "${text}"${flowContext?.activeFlow ? ` (flow: ${flowContext.activeFlow})` : ''}`);
         try {
           const llmResult = await Promise.race([
-            this.llmIntentExtractor.extractIntent(text, language, IntentClassifierService.AVAILABLE_INTENTS),
+            this.llmIntentExtractor.extractIntent(text, language, IntentClassifierService.AVAILABLE_INTENTS, flowContext),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`LLM timeout after ${this.llmTimeoutMs}ms`)), this.llmTimeoutMs)),
           ]);
 
-          if (llmResult.intent && llmResult.confidence >= this.confidenceThreshold) {
+          if (llmResult.intent && llmResult.confidence >= this.getThreshold('llm')) {
             // Apply food override safety net for LLM results
             const safeResult = this.applyFoodOrderOverride(text, llmResult.intent, llmResult.confidence);
             this.logger.log(`✓ LLM: ${safeResult.intent} (${(safeResult.confidence * 100).toFixed(1)}%)${safeResult.overridden ? ' [FOOD OVERRIDE]' : ''}`);
@@ -203,10 +222,10 @@ export class IntentClassifierService {
       if (this.llmFallbackEnabled) {
         try {
           const llmResult = await Promise.race([
-            this.llmIntentExtractor.extractIntent(text, language, IntentClassifierService.AVAILABLE_INTENTS),
+            this.llmIntentExtractor.extractIntent(text, language, IntentClassifierService.AVAILABLE_INTENTS, flowContext),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`LLM timeout after ${this.llmTimeoutMs}ms`)), this.llmTimeoutMs)),
           ]);
-          if (llmResult.intent && llmResult.confidence >= this.confidenceThreshold) {
+          if (llmResult.intent && llmResult.confidence >= this.getThreshold('llm')) {
             this.logger.log(`✓ LLM (after IndicBERT failure): ${llmResult.intent}`);
             if (stopTimer) this.metricsService.recordNluClassification(llmResult.intent, llmResult.confidence, 'llm', language, stopTimer());
             return {

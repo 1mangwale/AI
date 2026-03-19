@@ -3,6 +3,7 @@ import { PrismaService } from '../database/prisma.service';
 import { FlowContextService } from './flow-context.service';
 import { ExecutorRegistryService } from './executor-registry.service';
 import { InputValidatorService, ValidationResult } from './executors/input-validator.service';
+import { SelfLearningService } from '../learning/services/self-learning.service';
 import {
   FlowDefinition,
   FlowContext,
@@ -49,6 +50,7 @@ export class StateMachineEngine {
     private readonly executorRegistry: ExecutorRegistryService,
     private readonly inputValidator: InputValidatorService,
     @Optional() private readonly contextSchemaValidator?: any,  // ContextSchemaValidatorService
+    @Optional() private readonly selfLearningService?: SelfLearningService,
   ) {}
 
   /**
@@ -298,6 +300,20 @@ export class StateMachineEngine {
         } catch (err) {
           // Don't fail flow if validation crashes
           this.logger.error(`Context validation error: ${err.message}`);
+        }
+      }
+
+      // 🎯 POSITIVE TRAINING SIGNAL: When a flow reaches a terminal success state,
+      // confirm the original NLU classification was correct (fire-and-forget).
+      if (completed && this.selfLearningService && this.isSuccessTerminalState(currentStateName, state)) {
+        const originalIntent = context.data._nlu_intent || context.data.originalIntent || context.data.intent;
+        if (originalIntent) {
+          this.selfLearningService.trackPositiveOutcome({
+            sessionId: context._system.sessionId,
+            intent: originalIntent,
+            flowId: context._system.flowId,
+            completedSuccessfully: true,
+          }).catch(() => {}); // fire-and-forget
         }
       }
 
@@ -750,5 +766,48 @@ export class StateMachineEngine {
 
     // Try flow ID first, then module, then base
     return flowIdSchemaMap[flow.id] || moduleSchemaMap[flow.module] || 'base';
+  }
+
+  /**
+   * Determine if a terminal state represents a successful outcome.
+   * Only returns true for clear success states — excludes cancellations,
+   * errors, and failures to avoid false positive training signals.
+   */
+  private isSuccessTerminalState(stateName: string, state: FlowState): boolean {
+    // Must be an end/final state type
+    if (state.type !== 'end' && state.type !== 'final') {
+      return false;
+    }
+
+    const lower = stateName.toLowerCase();
+
+    // Explicit failure/cancel states — NOT a positive outcome
+    const negativePatterns = [
+      'cancel', 'fail', 'error', 'timeout', 'abort', 'reject',
+      'expired', 'declined', 'denied',
+    ];
+    if (negativePatterns.some(p => lower.includes(p))) {
+      return false;
+    }
+
+    // Explicit success states — positive outcome
+    const positivePatterns = [
+      'order_placed', 'order_confirmed', 'order_complete', 'order_success',
+      'booking_confirmed', 'booking_complete', 'booking_success',
+      'payment_success', 'payment_confirmed', 'payment_complete',
+      'delivery_confirmed', 'parcel_booked',
+      'success', 'completed', 'confirmed', 'done', 'finish',
+    ];
+    if (positivePatterns.some(p => lower.includes(p))) {
+      return true;
+    }
+
+    // Generic END state — treat as success (most flows use END as the happy path)
+    if (lower === 'end') {
+      return true;
+    }
+
+    // Unknown terminal state — be conservative, don't signal
+    return false;
   }
 }

@@ -213,14 +213,18 @@ export class SelfLearningService {
    * Track auto-approval patterns for model improvement
    */
   private async trackAutoApproval(prediction: NLUPrediction): Promise<void> {
-    await this.prisma.$executeRaw`
-      INSERT INTO auto_approval_stats (intent, count, avg_confidence, last_approved_at)
-      VALUES (${prediction.intent}, 1, ${prediction.confidence}, NOW())
-      ON CONFLICT (intent) DO UPDATE SET
-        count = auto_approval_stats.count + 1,
-        avg_confidence = (auto_approval_stats.avg_confidence * auto_approval_stats.count + ${prediction.confidence}) / (auto_approval_stats.count + 1),
-        last_approved_at = NOW()
-    `;
+    try {
+      await this.prisma.$executeRaw`
+        INSERT INTO auto_approval_stats (intent, count, avg_confidence, last_approved_at)
+        VALUES (${prediction.intent}, 1, ${prediction.confidence}, NOW())
+        ON CONFLICT (intent) DO UPDATE SET
+          count = auto_approval_stats.count + 1,
+          avg_confidence = (auto_approval_stats.avg_confidence * auto_approval_stats.count + ${prediction.confidence}) / (auto_approval_stats.count + 1),
+          last_approved_at = NOW()
+      `;
+    } catch (error: any) {
+      this.logger.warn(`trackAutoApproval failed for ${prediction.intent}: ${error.message}`);
+    }
   }
 
   /**
@@ -540,6 +544,51 @@ export class SelfLearningService {
       avgConfidence: stats[0].avg_confidence || 0,
       topIntents: topIntents.map(t => ({ intent: t.intent, count: t.count }))
     };
+  }
+
+  /**
+   * Track a positive outcome from a successfully completed flow.
+   * When a user completes a flow (e.g., order placed), this confirms
+   * the original NLU intent classification was correct — boosting
+   * confidence in that prediction for future training.
+   */
+  async trackPositiveOutcome(params: {
+    sessionId: string;
+    intent: string;
+    flowId: string;
+    completedSuccessfully: boolean;
+  }): Promise<void> {
+    const { sessionId, intent, flowId, completedSuccessfully } = params;
+
+    if (!intent || !completedSuccessfully) return;
+
+    try {
+      // Mark any pending-review entries for this session+intent as auto-approved,
+      // since the user successfully completed the flow — confirming the classification.
+      const updated = await this.prisma.$executeRaw`
+        UPDATE nlu_training_data
+        SET status = 'auto_approved',
+            auto_approved_at = NOW(),
+            source = COALESCE(source, 'flow_completion')
+        WHERE conversation_id = ${sessionId}
+          AND intent = ${intent}
+          AND status = 'pending_review'
+      `;
+
+      if (updated > 0) {
+        this.logger.log(
+          `Positive signal: ${updated} prediction(s) auto-approved for intent "${intent}" (flow: ${flowId}, session: ${sessionId})`,
+        );
+        this.metricsService?.recordSelfLearningAction('flow_confirmed');
+      } else {
+        this.logger.debug(
+          `Positive signal logged for intent "${intent}" (flow: ${flowId}) — no pending predictions to confirm`,
+        );
+      }
+    } catch (error: any) {
+      // Non-critical — never block the flow
+      this.logger.warn(`trackPositiveOutcome failed: ${error.message}`);
+    }
   }
 
   /**

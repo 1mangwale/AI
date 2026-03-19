@@ -159,7 +159,16 @@ export class ContextRouterService implements OnModuleInit {
 
       // For async channels, send response via MessagingService
       await this.sendAsyncResponse(event, response);
-      
+
+      // Store last bot message on session so LLM intent extractor can use it as context
+      if (response.message) {
+        this.sessionService.updateSession(event.identifier, {
+          lastBotMessage: typeof response.message === 'string'
+            ? response.message.substring(0, 200)
+            : undefined,
+        }).catch(() => {}); // fire-and-forget, don't block response
+      }
+
       this.logRoutingDecision(response.routedTo, startTime);
     } catch (error) {
       this.logger.error(`❌ Routing failed: ${error.message}`, error.stack);
@@ -209,6 +218,16 @@ export class ContextRouterService implements OnModuleInit {
       }
 
       this.logRoutingDecision(response.routedTo, startTime);
+
+      // Store last bot message on session so LLM intent extractor can use it as context
+      if (response.message) {
+        this.sessionService.updateSession(event.identifier, {
+          lastBotMessage: typeof response.message === 'string'
+            ? response.message.substring(0, 200)
+            : undefined,
+        }).catch(() => {}); // fire-and-forget, don't block response
+      }
+
       return response;
     } catch (error) {
       this.logger.error(`❌ Sync routing failed: ${error.message}`, error.stack);
@@ -1567,8 +1586,18 @@ export class ContextRouterService implements OnModuleInit {
       // Pipeline: IndicBERT (0.7+ conf) → LLM fallback (0.5+ conf) → Heuristics
       if (this.intentClassifierService) {
         try {
+          // Build flow context from session to help LLM understand mid-conversation state
+          const sessionFlowContext = session.data?.flowContext;
+          const activeFlowId = session.data?.activeFlow || sessionFlowContext?.flowId;
+          const flowContextForNlu = activeFlowId ? {
+            activeModule: this.deriveModuleFromFlowId(activeFlowId),
+            activeFlow: activeFlowId,
+            activeState: sessionFlowContext?.currentState,
+            lastBotQuestion: session.data?.lastBotMessage,
+          } : undefined;
+
           const startTime = Date.now();
-          const classifierResult = await this.intentClassifierService.classify(text);
+          const classifierResult = await this.intentClassifierService.classify(text, 'auto', undefined, flowContextForNlu);
           const processingTime = Date.now() - startTime;
           
           // 🔄 Use centralized IntentRouterService for ALL translation/override logic
@@ -2057,6 +2086,22 @@ export class ContextRouterService implements OnModuleInit {
   /**
    * Get module type from intent
    */
+  /**
+   * Derive the module name from a flow ID for LLM context.
+   * e.g. 'food_order_v1' → 'food', 'ecommerce_order_v1' → 'ecommerce', 'parcel_delivery_v1' → 'parcel'
+   */
+  private deriveModuleFromFlowId(flowId: string): string | undefined {
+    if (!flowId) return undefined;
+    const lower = flowId.toLowerCase();
+    if (lower.includes('food')) return 'food';
+    if (lower.includes('ecom')) return 'ecommerce';
+    if (lower.includes('parcel')) return 'parcel';
+    if (lower.includes('support') || lower.includes('ticket')) return 'support';
+    if (lower.includes('auth') || lower.includes('login')) return 'auth';
+    if (lower.includes('onboard')) return 'onboarding';
+    return undefined;
+  }
+
   private getModuleFromIntent(intent: string): ModuleType {
     if (intent.includes('food') || intent.includes('search')) {
       return ModuleType.FOOD;

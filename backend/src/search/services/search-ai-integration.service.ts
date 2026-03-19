@@ -71,6 +71,8 @@ export class SearchAIIntegrationService {
       zone_id?: number;
       user_location?: { lat: number; lng: number };
       conversation_history?: string[];
+      nluIntent?: string;
+      nluConfidence?: number;
     } = {},
   ): Promise<SearchUnderstanding | null> {
     if (!this.enabled) {
@@ -78,18 +80,26 @@ export class SearchAIIntegrationService {
     }
 
     try {
-      this.logger.debug(`🧠 Understanding query: "${query}"`);
-      
+      this.logger.debug(`🧠 Understanding query: "${query}"${context.nluIntent ? ` (NLU hint: ${context.nluIntent}@${context.nluConfidence?.toFixed(2)})` : ''}`);
+
+      const payload: Record<string, any> = {
+        query,
+        module_id: context.module_id || this.getModuleId(context),
+        zone_id: context.zone_id,
+        user_location: context.user_location,
+        conversation_history: context.conversation_history?.slice(-3), // Last 3 messages
+      };
+
+      // Pass NLU intent hint so Search API can skip re-classification when intent is already known
+      if (context.nluIntent && context.nluConfidence && context.nluConfidence >= 0.65) {
+        payload.intent_hint = context.nluIntent;
+        payload.intent_hint_confidence = context.nluConfidence;
+      }
+
       const response = await firstValueFrom(
         this.httpService.post(
           `${this.searchApiUrl}/v3/search/understand`,
-          {
-            query,
-            module_id: context.module_id || this.getModuleId(context),
-            zone_id: context.zone_id,
-            user_location: context.user_location,
-            conversation_history: context.conversation_history?.slice(-3), // Last 3 messages
-          },
+          payload,
           { timeout: 3000 },
         ),
       );

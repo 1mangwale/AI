@@ -729,6 +729,8 @@ export class SearchExecutor implements ActionExecutor {
             module_id: index.includes('food') ? 4 : 5,
             zone_id: zone_id || context.data.zone_id,
             user_location: lat && lng ? { lat: parseFloat(String(lat)), lng: parseFloat(String(lng)) } : undefined,
+            nluIntent: context.data._nlu_intent,
+            nluConfidence: context.data._nlu_confidence,
           });
           
           if (understanding && understanding.confidence > 0.7) {

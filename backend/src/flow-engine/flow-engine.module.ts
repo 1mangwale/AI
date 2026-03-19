@@ -90,6 +90,7 @@ import { AddressValidatorService } from '../common/validators/address.validator'
 import { BroadcastModule } from '../broadcast/broadcast.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { SupportModule } from '../support/support.module';
+import { LearningModule } from '../learning/learning.module';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { SupportModule } from '../support/support.module';
     forwardRef(() => BroadcastModule), // For BroadcastExecutor
     forwardRef(() => WhatsAppModule), // For WhatsAppNotifyExecutor
     SupportModule, // For SupportTicketExecutor
+    LearningModule, // For SelfLearningService (positive training signals on flow completion)
   ],
   controllers: [FlowBuilderController, FlowsController],
   providers: [
