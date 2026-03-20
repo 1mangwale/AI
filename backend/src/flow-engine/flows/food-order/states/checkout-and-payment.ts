@@ -298,8 +298,21 @@ export const checkoutAndPaymentStates: Record<string, FlowState> = {
     },
 
     collect_address: {
-      type: 'decision',
-      description: 'Route address collection by channel — WhatsApp Flow or standard input',
+      type: 'action',
+      description: 'Load smart address default then route address collection by channel',
+      actions: [
+        {
+          // Personalization: load suggested address for this user (non-blocking)
+          id: 'adaptive_suggest_address',
+          executor: 'adaptive',
+          config: {
+            action: 'get_defaults',
+            flowType: 'food_order',
+          },
+          output: '_suggested_address',
+          onError: 'continue', // Non-blocking: continue if adaptive fails
+        },
+      ],
       conditions: [
         {
           expression: `context.platform === 'whatsapp' && !!('${process.env.WA_FLOW_ADDRESS_ID || ''}')`,
@@ -792,8 +805,19 @@ Reply "confirm" to book the rider.`,
 
     check_saved_payment: {
       type: 'action',
-      description: 'Load preferred payment method from session (if previously saved)',
+      description: 'Load preferred payment method from session (if previously saved) + smart defaults',
       actions: [
+        {
+          // Personalization: load suggested payment for this user (non-blocking)
+          id: 'adaptive_suggest_payment',
+          executor: 'adaptive',
+          config: {
+            action: 'get_defaults',
+            flowType: 'food_order',
+          },
+          output: '_suggested_payment',
+          onError: 'continue', // Non-blocking: continue if adaptive fails
+        },
         {
           id: 'load_pref',
           executor: 'session',

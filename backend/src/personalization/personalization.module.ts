@@ -11,6 +11,7 @@ import { BehavioralAnalyticsService } from './services/behavioral-analytics.serv
 import { RecommendationEngineService } from './services/recommendation-engine.service';
 import { CollectionsService } from './collections.service';
 import { NluPreferenceExtractorService } from './nlu-preference-extractor.service';
+import { ProfileContextBuilderService } from './profile-context-builder.service';
 import { PersonalizationController } from './personalization.controller';
 import { RecommendationsController } from './controllers/recommendations.controller';
 import { CustomerIntelligenceController } from './controllers/customer-intelligence.controller';
@@ -20,6 +21,7 @@ import { UserContextModule } from '../user-context/user-context.module';
 import { PhpIntegrationModule } from '../php-integration/php-integration.module';
 import { StoresModule } from '../stores/stores.module';
 import { SessionModule } from '../session/session.module';
+import { RedisModule } from '../redis/redis.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 /**
@@ -52,6 +54,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     PhpIntegrationModule,
     StoresModule,
     SessionModule,
+    RedisModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [PersonalizationController, RecommendationsController, CustomerIntelligenceController],
@@ -68,6 +71,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     RecommendationEngineService,
     CollectionsService,
     NluPreferenceExtractorService,
+    ProfileContextBuilderService,
   ],
   exports: [
     ConversationAnalyzerService,
@@ -82,6 +86,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     RecommendationEngineService,
     CollectionsService,
     NluPreferenceExtractorService,
+    ProfileContextBuilderService,
   ],
 })
 export class PersonalizationModule {}

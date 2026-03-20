@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Logger, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Logger, HttpCode, Optional } from '@nestjs/common';
 import { ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { UserProfilingService } from './user-profiling.service';
 import { ConversationAnalyzerService } from './conversation-analyzer.service';
@@ -6,6 +6,7 @@ import { PrismaService } from '../database/prisma.service';
 import { CollectionsService } from './collections.service';
 import { PhpWishlistService } from '../php-integration/services/php-wishlist.service';
 import { SessionService } from '../session/session.service';
+import { ProfileContextBuilderService } from './profile-context-builder.service';
 
 /**
  * Personalization API Controller
@@ -27,6 +28,7 @@ export class PersonalizationController {
     private readonly collectionsService: CollectionsService,
     private readonly phpWishlistService: PhpWishlistService,
     private readonly sessionService: SessionService,
+    @Optional() private readonly profileContextBuilder?: ProfileContextBuilderService,
   ) {}
 
   /**
@@ -67,14 +69,41 @@ export class PersonalizationController {
         module,
       );
 
+      // Enrich with profile context search boosts when available
+      let profileBoosts: any = null;
+      if (this.profileContextBuilder) {
+        try {
+          // Look up phone from user_profiles for the profile context
+          const profile = await this.prisma.$queryRawUnsafe(
+            `SELECT phone FROM user_profiles WHERE user_id = $1 LIMIT 1`,
+            parsedUserId,
+          ) as any[];
+          const phone = profile?.[0]?.phone || '';
+          if (phone) {
+            profileBoosts = await this.profileContextBuilder.getSearchBoosts(parsedUserId, phone);
+          }
+        } catch (err) {
+          this.logger.debug(`Profile context boosts unavailable: ${err.message}`);
+        }
+      }
+
       return {
         userId: parsedUserId,
         module,
         ...boosts,
+        // Merge dietary-aware boosts from ProfileContext
+        ...(profileBoosts ? {
+          profileBoosts: {
+            boostVeg: profileBoosts.boostVeg,
+            boostCuisines: profileBoosts.boostCuisines,
+            priceRange: profileBoosts.priceRange,
+            favoriteStores: profileBoosts.favoriteStores,
+          },
+        } : {}),
       };
     } catch (error) {
       this.logger.error(`Failed to get boosts for user ${userId}:`, error);
-      
+
       // Return empty boosts on error (graceful degradation)
       return {
         userId: parsedUserId,

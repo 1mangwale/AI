@@ -31,6 +31,7 @@ import {
 import { CorrectionTrackerService, CorrectionType } from '../../learning/services/correction-tracker.service';
 import { NluPreferenceExtractorService } from '../../personalization/nlu-preference-extractor.service';
 import { UserProfilingService } from '../../personalization/user-profiling.service';
+import { AdaptiveFlowService } from '../../personalization/adaptive-flow.service';
 
 /**
  * Router Response - returned for SYNC channels (Web, Voice, Mobile)
@@ -95,6 +96,7 @@ export class ContextRouterService implements OnModuleInit {
     @Optional() private readonly correctionTracker?: CorrectionTrackerService,
     @Optional() private readonly nluPreferenceExtractor?: NluPreferenceExtractorService,
     @Optional() private readonly userProfilingService?: UserProfilingService,
+    @Optional() private readonly adaptiveFlowService?: AdaptiveFlowService,
   ) {
     this.logger.log('✅ ContextRouter initialized with shared Redis');
   }
@@ -274,6 +276,16 @@ export class ContextRouterService implements OnModuleInit {
     const flowAge = session.data?.flowStartedAt ? Date.now() - session.data.flowStartedAt : 0;
     if (staleFlowId && flowAge > STALE_FLOW_MS) {
       this.logger.log(`🕐 Stale flow detected: ${staleFlowId} (age: ${Math.round(flowAge / 60000)}min) — clearing`);
+      // Track abandonment interaction (fire-and-forget)
+      const staleUserId = session.data?.userId;
+      if (staleUserId && this.adaptiveFlowService) {
+        const currentState = session.data?.flowContext?.currentState || 'unknown';
+        this.adaptiveFlowService.recordInteraction(staleUserId, 'abandon', {
+          stage: currentState,
+          flowId: staleFlowId,
+          ageMinutes: Math.round(flowAge / 60000),
+        }).catch(() => {});
+      }
       await this.sessionService.updateSession(event.identifier, {
         activeFlow: null,
         flowContext: null,
@@ -295,6 +307,13 @@ export class ContextRouterService implements OnModuleInit {
             filters: lastSearch.filters,
             timestamp: lastSearch.timestamp,
           };
+          // Track search interaction for adaptive personalization (fire-and-forget)
+          if (this.adaptiveFlowService) {
+            this.adaptiveFlowService.recordInteraction(session.data.userId, 'search', {
+              query: lastSearch.query,
+              resultCount: lastSearch.resultsCount,
+            }).catch(() => {});
+          }
           this.logger.debug(`📚 Added last search to context: "${lastSearch.query}"`);
         }
       } catch (error) {
@@ -1939,6 +1958,27 @@ export class ContextRouterService implements OnModuleInit {
       );
 
       if (flowResult && flowResult.response) {
+        // Track interactions (fire-and-forget)
+        const trackUserId = session.data?.userId;
+        if (trackUserId && this.adaptiveFlowService) {
+          if (flowResult.completed) {
+            // Flow completed — track checkout/completion
+            this.adaptiveFlowService.recordInteraction(trackUserId, 'checkout', {
+              flowId,
+              orderId: flowResult.metadata?.orderId,
+              total: flowResult.metadata?.total,
+            }).catch(() => {});
+          }
+          // Track item selection when cards are shown (search results displayed)
+          if (flowResult.cards?.length && buttonEvent) {
+            this.adaptiveFlowService.recordInteraction(trackUserId, 'item_select', {
+              itemId: event.message,
+              flowId,
+              state: flowResult.currentState,
+            }).catch(() => {});
+          }
+        }
+
         // FlowProcessingResult has: { flowRunId, currentState, response (string), buttons, cards, completed, metadata }
         return {
           message: flowResult.response,
@@ -1946,8 +1986,8 @@ export class ContextRouterService implements OnModuleInit {
           cards: flowResult.cards, // Pass through cards from flow
           routedTo: 'flow',
           intent,
-          metadata: { 
-            flowId, 
+          metadata: {
+            flowId,
             flowRunId: flowResult.flowRunId,
             currentState: flowResult.currentState,
             completed: flowResult.completed,

@@ -504,6 +504,16 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
       description: 'Display food items to user and wait for selection',
       onEntry: [
         {
+          // Personalization: record search interaction + load flow adaptations (non-blocking)
+          id: 'adaptive_search_results',
+          executor: 'adaptive',
+          config: {
+            action: 'get_adaptations',
+          },
+          output: '_flow_adaptation',
+          onError: 'continue', // Non-blocking: continue if adaptive fails
+        },
+        {
           id: 'display_items',
           executor: 'response',
           config: {
