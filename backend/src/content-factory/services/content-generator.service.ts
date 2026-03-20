@@ -75,12 +75,27 @@ export class ContentGeneratorService {
       this.logger.warn(`Failed to enrich with learnings: ${e.message}`);
     }
 
-    // 4. Interpolate user prompt template
+    // 4. Interpolate user prompt template — condense business data to save tokens
+    let businessDataStr = 'No specific data available';
+    if (request.businessData) {
+      const bd = request.businessData;
+      const parts: string[] = [];
+      if (bd.total_orders) parts.push(`${bd.total_orders} orders`);
+      if (bd.total_revenue) parts.push(`₹${bd.total_revenue} revenue`);
+      if (bd.avg_order_value) parts.push(`₹${bd.avg_order_value} avg order`);
+      if (bd.new_users) parts.push(`${bd.new_users} new users`);
+      if (bd.top_stores?.length) parts.push(`Top stores: ${bd.top_stores.slice(0, 5).join(', ')}`);
+      if (bd.top_products?.length) parts.push(`Top items: ${bd.top_products.slice(0, 5).join(', ')}`);
+      if (bd.orders_by_module) {
+        const modules = Object.entries(bd.orders_by_module).map(([k, v]) => `${k}: ${v}`).join(', ');
+        if (modules) parts.push(`By module: ${modules}`);
+      }
+      businessDataStr = parts.join('. ') || 'No specific data available';
+    }
+
     const templateVars: Record<string, string> = {
       hook: hook?.hookText || '',
-      business_data: request.businessData
-        ? JSON.stringify(request.businessData)
-        : 'No specific data available',
+      business_data: businessDataStr,
       tone: request.tone || 'engaging',
       language: request.language || 'English',
       additional: additionalInstructions,
@@ -96,7 +111,22 @@ export class ContentGeneratorService {
       `Generating ${request.contentType} for ${request.platform} via ${provider} (Claude fallback ${this.anthropic ? 'available' : 'unavailable'})`,
     );
 
-    result = await this.callVllm(prompt.systemPrompt, userPrompt);
+    // Thinking mode decision: use for complex creative types when model has enough context
+    // Qwen3.5-4B-AWQ (4096 ctx) — thinking eats ~2000 tokens, leaving too little for output
+    // Only enable thinking for models with >8k context (check max_model_len from /v1/models)
+    const isComplexType = ['reel_script', 'carousel'].includes(request.contentType);
+    const modelContextLen = 4096; // TODO: fetch from vLLM /v1/models dynamically
+    const estimatedPromptChars = prompt.systemPrompt.length + userPrompt.length;
+    const estimatedPromptTokens = Math.ceil(estimatedPromptChars / 3.5);
+    // Thinking needs ~2000 extra tokens for reasoning; only enable if model has room
+    const useThinking = isComplexType && modelContextLen >= 8192 && estimatedPromptTokens < (modelContextLen / 4);
+
+    this.logger.log(
+      `Content type=${request.contentType} promptChars=${estimatedPromptChars} ` +
+      `estTokens=${estimatedPromptTokens} thinking=${useThinking}`,
+    );
+
+    result = await this.callVllm(prompt.systemPrompt, userPrompt, useThinking);
 
     // 5. Record hook usage if one was used
     if (hook) {
@@ -158,19 +188,35 @@ export class ContentGeneratorService {
   private async callVllm(
     systemPrompt: string,
     userPrompt: string,
+    enableThinking = false,
   ): Promise<{ content: string; costInr: number }> {
     try {
-      const response = await fetch('http://localhost:8002/v1/chat/completions', {
+      const vllmUrl = this.config.get('VLLM_CHAT_ENDPOINT') || 'http://localhost:8002/v1/chat/completions';
+      const vllmModel = this.config.get('VLLM_MODEL') || 'Qwen/Qwen3.5-4B';
+
+      // Force non-thinking: prepend JSON-only instruction to system prompt
+      const finalSystemPrompt = enableThinking
+        ? systemPrompt
+        : `IMPORTANT: Output ONLY valid JSON. No thinking, no explanation, no markdown fences. Start your response with { and end with }.\n\n${systemPrompt}`;
+
+      this.logger.log(
+        `vLLM call: model=${vllmModel} thinking=${enableThinking} ` +
+        `sysLen=${finalSystemPrompt.length} userLen=${userPrompt.length} ` +
+        `totalChars=${finalSystemPrompt.length + userPrompt.length}`,
+      );
+
+      const response = await fetch(vllmUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'Qwen/Qwen2.5-7B-Instruct-AWQ',
+          model: vllmModel,
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: finalSystemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          temperature: 0.7,
-          max_tokens: 2048,
+          temperature: enableThinking ? 0.6 : 0.7,
+          max_tokens: enableThinking ? 3000 : 2048,
+          chat_template_kwargs: { enable_thinking: enableThinking },
         }),
       });
 
@@ -180,7 +226,10 @@ export class ContentGeneratorService {
       }
 
       const data = await response.json();
-      const content = data.choices?.[0]?.message?.content || '';
+      let content = data.choices?.[0]?.message?.content || '';
+
+      // Strip thinking process if model outputs it (Qwen3.5 may think even with enable_thinking=false)
+      content = this.stripThinkingOutput(content);
 
       return { content, costInr: 0 };
     } catch (error: any) {
@@ -216,6 +265,31 @@ export class ContentGeneratorService {
     });
 
     return result;
+  }
+
+  private stripThinkingOutput(content: string): string {
+    // Qwen3.5 reasoning models may output "Thinking Process:" or "<think>...</think>" blocks
+    // Strip these and extract the actual content (JSON)
+
+    // Strip <think>...</think> blocks
+    content = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+    // If content starts with "Thinking Process:" — extract JSON after the thinking
+    if (content.startsWith('Thinking')) {
+      // Try to find JSON in a code block after thinking
+      const fenceMatch = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+      if (fenceMatch) {
+        return fenceMatch[1].trim();
+      }
+      // Try to find first { after thinking
+      const firstBrace = content.indexOf('{');
+      const lastBrace = content.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        return content.substring(firstBrace, lastBrace + 1);
+      }
+    }
+
+    return content;
   }
 
   private parseJsonFromResponse(raw: string): Record<string, any> {

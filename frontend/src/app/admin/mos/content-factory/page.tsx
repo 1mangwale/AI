@@ -85,7 +85,7 @@ interface Milestone {
   date: string;
 }
 
-type Tab = 'content' | 'generate' | 'hooks' | 'business' | 'prompts';
+type Tab = 'content' | 'generate' | 'hooks' | 'business' | 'prompts' | 'analytics';
 
 // ---- Status / Badge Helpers ----
 
@@ -188,6 +188,7 @@ export default function ContentFactoryPage() {
     { id: 'hooks', label: 'Hooks', icon: <Zap size={16} /> },
     { id: 'business', label: 'Business Data', icon: <Database size={16} /> },
     { id: 'prompts', label: 'Prompts', icon: <BookOpen size={16} /> },
+    { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={16} /> },
   ];
 
   return (
@@ -287,6 +288,9 @@ export default function ContentFactoryPage() {
           )}
           {activeTab === 'prompts' && (
             <PromptsTab onError={setError} />
+          )}
+          {activeTab === 'analytics' && (
+            <AnalyticsTab onError={setError} />
           )}
         </>
       )}
@@ -1937,6 +1941,277 @@ function StatCard({
 }
 
 // ---- Helpers ----
+
+// ---- Analytics Tab ----
+
+interface AnalyticsSummary {
+  totalTrackedPosts: number;
+  totalEntries: number;
+  avgEngagementRate: number;
+  totalImpressions: number;
+  totalReach: number;
+  totalLikes: number;
+  totalComments: number;
+  totalShares: number;
+  totalSaves: number;
+  totalClicks: number;
+  totalVideoViews: number;
+  byPlatform: {
+    platform: string;
+    trackedPosts: number;
+    avgEngagementRate: number;
+    totalImpressions: number;
+    totalLikes: number;
+  }[];
+}
+
+interface TopPerformingItem {
+  content_piece_id: string;
+  title: string;
+  content_type: string;
+  platform: string;
+  engagement_rate: number;
+  impressions: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  saves: number;
+}
+
+interface Learning {
+  id: string;
+  learning_type: string;
+  insight: string;
+  confidence: number;
+  evidence: any;
+  created_at: string;
+}
+
+function AnalyticsTab({ onError }: { onError: (msg: string) => void }) {
+  const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
+  const [topPerforming, setTopPerforming] = useState<TopPerformingItem[]>([]);
+  const [learnings, setLearnings] = useState<Learning[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
+  const [manualContentId, setManualContentId] = useState('');
+  const [manualPlatform, setManualPlatform] = useState('instagram');
+  const [manualMetrics, setManualMetrics] = useState({
+    impressions: '', reach: '', likes: '', comments: '', shares: '', saves: '', clicks: '', videoViews: '', avgWatchTimeSec: '',
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadAnalytics = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [summaryRes, topRes, learningsRes] = await Promise.all([
+        mangwaleAIClient.get('/mos/content-factory/analytics/summary'),
+        mangwaleAIClient.get('/mos/content-factory/analytics/top-performing?limit=10'),
+        mangwaleAIClient.get('/mos/content-factory/learnings?limit=20'),
+      ]);
+      setSummary(summaryRes.data);
+      setTopPerforming(Array.isArray(topRes.data) ? topRes.data : []);
+      setLearnings(Array.isArray(learningsRes.data) ? learningsRes.data : []);
+    } catch (err: any) {
+      onError(err.message || 'Failed to load analytics');
+    } finally {
+      setLoading(false);
+    }
+  }, [onError]);
+
+  useEffect(() => { loadAnalytics(); }, [loadAnalytics]);
+
+  const submitManualEntry = async () => {
+    if (!manualContentId.trim()) return;
+    setSubmitting(true);
+    try {
+      const metrics: Record<string, number> = {};
+      for (const [k, v] of Object.entries(manualMetrics)) {
+        if (v) metrics[k] = parseInt(v);
+      }
+      await mangwaleAIClient.post(`/mos/content-factory/analytics/${manualContentId}/manual`, {
+        platform: manualPlatform,
+        ...metrics,
+      });
+      setManualEntryOpen(false);
+      setManualContentId('');
+      setManualMetrics({ impressions: '', reach: '', likes: '', comments: '', shares: '', saves: '', clicks: '', videoViews: '', avgWatchTimeSec: '' });
+      loadAnalytics();
+    } catch (err: any) {
+      onError(err.message || 'Failed to submit analytics');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const triggerAnalysis = async () => {
+    try {
+      await mangwaleAIClient.post('/mos/content-factory/learnings/analyze', {});
+      loadAnalytics();
+    } catch (err: any) {
+      onError(err.message || 'Analysis failed');
+    }
+  };
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20 text-gray-400"><RefreshCw className="animate-spin mr-2" size={20} /> Loading analytics...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      {summary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          {[
+            { label: 'Tracked Posts', value: summary.totalTrackedPosts, icon: <FileText size={18} />, color: 'text-blue-600' },
+            { label: 'Avg Engagement', value: `${summary.avgEngagementRate.toFixed(1)}%`, icon: <TrendingUp size={18} />, color: 'text-green-600' },
+            { label: 'Total Impressions', value: summary.totalImpressions.toLocaleString(), icon: <Eye size={18} />, color: 'text-purple-600' },
+            { label: 'Total Reach', value: summary.totalReach.toLocaleString(), icon: <Users size={18} />, color: 'text-indigo-600' },
+            { label: 'Total Likes', value: summary.totalLikes.toLocaleString(), icon: <Award size={18} />, color: 'text-red-500' },
+            { label: 'Video Views', value: summary.totalVideoViews.toLocaleString(), icon: <Eye size={18} />, color: 'text-orange-500' },
+          ].map((card) => (
+            <div key={card.label} className="bg-white rounded-xl border p-4">
+              <div className={`flex items-center gap-2 mb-1 ${card.color}`}>{card.icon}<span className="text-xs text-gray-500">{card.label}</span></div>
+              <div className="text-2xl font-bold text-gray-900">{card.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Platform Breakdown */}
+      {summary && summary.byPlatform.length > 0 && (
+        <div className="bg-white rounded-xl border p-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Globe size={20} /> Platform Breakdown</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {summary.byPlatform.map((p) => (
+              <div key={p.platform} className="border rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  {p.platform === 'instagram' ? <Instagram size={18} className="text-pink-500" /> : <Linkedin size={18} className="text-blue-600" />}
+                  <span className="font-semibold capitalize">{p.platform}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div><span className="text-gray-500">Posts:</span> {p.trackedPosts}</div>
+                  <div><span className="text-gray-500">Engagement:</span> {p.avgEngagementRate.toFixed(1)}%</div>
+                  <div><span className="text-gray-500">Impressions:</span> {p.totalImpressions.toLocaleString()}</div>
+                  <div><span className="text-gray-500">Likes:</span> {p.totalLikes.toLocaleString()}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-3">
+        <button onClick={() => setManualEntryOpen(!manualEntryOpen)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+          <Plus size={16} /> Manual Entry
+        </button>
+        <button onClick={triggerAnalysis} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+          <TrendingUp size={16} /> Analyze Performance
+        </button>
+        <button onClick={loadAnalytics} className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+          <RefreshCw size={16} /> Refresh
+        </button>
+      </div>
+
+      {/* Manual Entry Form */}
+      {manualEntryOpen && (
+        <div className="bg-white rounded-xl border p-6">
+          <h3 className="text-lg font-semibold mb-4">Manual Analytics Entry</h3>
+          <p className="text-sm text-gray-500 mb-4">Enter metrics from Instagram Insights or LinkedIn Analytics dashboards.</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Content ID</label>
+              <input type="text" value={manualContentId} onChange={(e) => setManualContentId(e.target.value)} placeholder="Paste content piece ID" className="w-full px-3 py-2 border rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Platform</label>
+              <select value={manualPlatform} onChange={(e) => setManualPlatform(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm">
+                <option value="instagram">Instagram</option>
+                <option value="linkedin">LinkedIn</option>
+              </select>
+            </div>
+            {Object.entries({ impressions: 'Impressions', reach: 'Reach', likes: 'Likes', comments: 'Comments', shares: 'Shares', saves: 'Saves', clicks: 'Clicks', videoViews: 'Video Views', avgWatchTimeSec: 'Avg Watch (sec)' }).map(([key, label]) => (
+              <div key={key}>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+                <input type="number" value={manualMetrics[key as keyof typeof manualMetrics]} onChange={(e) => setManualMetrics((prev) => ({ ...prev, [key]: e.target.value }))} placeholder="0" className="w-full px-3 py-2 border rounded-lg text-sm" />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3">
+            <button onClick={submitManualEntry} disabled={submitting || !manualContentId.trim()} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
+              {submitting ? 'Submitting...' : 'Submit'}
+            </button>
+            <button onClick={() => setManualEntryOpen(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Top Performing */}
+      {topPerforming.length > 0 && (
+        <div className="bg-white rounded-xl border p-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Award size={20} className="text-yellow-500" /> Top Performing Content</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-gray-500">
+                  <th className="pb-2 pr-4">Title</th>
+                  <th className="pb-2 pr-4">Type</th>
+                  <th className="pb-2 pr-4">Platform</th>
+                  <th className="pb-2 pr-4">Engagement</th>
+                  <th className="pb-2 pr-4">Impressions</th>
+                  <th className="pb-2 pr-4">Likes</th>
+                  <th className="pb-2 pr-4">Comments</th>
+                  <th className="pb-2">Shares</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topPerforming.map((item) => (
+                  <tr key={item.content_piece_id} className="border-b last:border-0 hover:bg-gray-50">
+                    <td className="py-3 pr-4 font-medium">{item.title ? truncateText(item.title, 40) : 'Untitled'}</td>
+                    <td className="py-3 pr-4"><span className="px-2 py-0.5 bg-gray-100 rounded text-xs">{item.content_type}</span></td>
+                    <td className="py-3 pr-4 capitalize">{item.platform}</td>
+                    <td className="py-3 pr-4 font-semibold text-green-600">{item.engagement_rate?.toFixed(1)}%</td>
+                    <td className="py-3 pr-4">{item.impressions?.toLocaleString()}</td>
+                    <td className="py-3 pr-4">{item.likes?.toLocaleString()}</td>
+                    <td className="py-3 pr-4">{item.comments?.toLocaleString()}</td>
+                    <td className="py-3">{item.shares?.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Learnings / Insights */}
+      <div className="bg-white rounded-xl border p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Sparkles size={20} className="text-purple-500" /> AI Learnings</h3>
+        {learnings.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <TrendingUp size={40} className="mx-auto mb-3 opacity-50" />
+            <p className="font-medium">No learnings yet</p>
+            <p className="text-sm mt-1">Generate and track 10+ content pieces with analytics to unlock AI-driven insights.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {learnings.map((l) => (
+              <div key={l.id} className="border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">{l.learning_type}</span>
+                  <span className="text-xs text-gray-500">Confidence: {(l.confidence * 100).toFixed(0)}%</span>
+                </div>
+                <p className="text-sm text-gray-800">{l.insight}</p>
+                <p className="text-xs text-gray-400 mt-2">{new Date(l.created_at).toLocaleDateString()}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function formatCurrency(amount: number): string {
   if (amount >= 10000000) return `Rs ${(amount / 10000000).toFixed(1)}Cr`;

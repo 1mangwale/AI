@@ -25,11 +25,11 @@ export class DataSyncService implements OnModuleInit {
     this.pool = new Pool({ connectionString: databaseUrl, max: 3 });
 
     // MySQL connection (PHP backend — readonly)
-    const mysqlHost = this.config.get('PHP_MYSQL_HOST') || '103.160.107.208';
-    const mysqlPort = parseInt(this.config.get('PHP_MYSQL_PORT') || '3307', 10);
-    const mysqlUser = this.config.get('PHP_MYSQL_USER') || 'mangwale_readonly';
-    const mysqlPassword = this.config.get('PHP_MYSQL_PASSWORD') || '';
-    const mysqlDatabase = this.config.get('PHP_MYSQL_DATABASE') || 'mangwale';
+    const mysqlHost = this.config.get('MYSQL_HOST') || this.config.get('PHP_MYSQL_HOST') || '103.160.107.208';
+    const mysqlPort = parseInt(this.config.get('MYSQL_PORT') || this.config.get('PHP_MYSQL_PORT') || '3307', 10);
+    const mysqlUser = this.config.get('MYSQL_USERNAME') || this.config.get('PHP_MYSQL_USER') || 'mangwale_readonly';
+    const mysqlPassword = this.config.get('MYSQL_PASSWORD') || this.config.get('PHP_MYSQL_PASSWORD') || '';
+    const mysqlDatabase = this.config.get('MYSQL_DATABASE') || this.config.get('PHP_MYSQL_DATABASE') || 'mangwale';
 
     try {
       this.mysqlPool = mysql.createPool({
@@ -116,8 +116,8 @@ export class DataSyncService implements OnModuleInit {
       const [orderRows] = await this.mysqlPool.query(
         `SELECT
            COUNT(*) as total_orders,
-           COALESCE(SUM(total_amount), 0) as total_revenue,
-           COALESCE(AVG(total_amount), 0) as avg_order_value
+           COALESCE(SUM(order_amount), 0) as total_revenue,
+           COALESCE(AVG(order_amount), 0) as avg_order_value
          FROM orders
          WHERE DATE(created_at) = ?`,
         [metricsDate],
@@ -205,10 +205,10 @@ export class DataSyncService implements OnModuleInit {
     // Top 10 stores by order count
     try {
       const [storeRows] = await this.mysqlPool.query(
-        `SELECT store_id, store_name, COUNT(*) as order_count
+        `SELECT orders.store_id, stores.name as store_name, COUNT(*) as order_count
          FROM orders JOIN stores ON orders.store_id = stores.id
          WHERE orders.created_at >= NOW() - INTERVAL 7 DAY
-         GROUP BY store_id, store_name
+         GROUP BY orders.store_id, stores.name
          ORDER BY order_count DESC
          LIMIT 10`,
       );
@@ -228,10 +228,11 @@ export class DataSyncService implements OnModuleInit {
     // Top 10 products by quantity
     try {
       const [productRows] = await this.mysqlPool.query(
-        `SELECT product_name, SUM(quantity) as total_qty
-         FROM order_items
-         WHERE created_at >= NOW() - INTERVAL 7 DAY
-         GROUP BY product_name
+        `SELECT items.name as product_name, SUM(od.quantity) as total_qty
+         FROM order_details od
+         JOIN items ON od.item_id = items.id
+         WHERE od.created_at >= NOW() - INTERVAL 7 DAY
+         GROUP BY items.name
          ORDER BY total_qty DESC
          LIMIT 10`,
       );

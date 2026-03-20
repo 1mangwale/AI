@@ -144,7 +144,7 @@ export class VllmService {
 
     // Log request start
     this.logger.log(`🚀 [${requestId}] vLLM Request Started`);
-    this.logger.debug(`   Model: ${dto.model || 'Qwen/Qwen2.5-7B-Instruct-AWQ'}`);
+    this.logger.debug(`   Model: ${dto.model || 'Qwen/Qwen3.5-4B'}`);
     this.logger.debug(`   Messages: ${dto.messages.length}`);
     this.logger.debug(`   Temperature: ${dto.temperature ?? 0.7}`);
 
@@ -154,7 +154,7 @@ export class VllmService {
       try {
         // Build request body
         const requestBody: any = {
-          model: dto.model || 'Qwen/Qwen2.5-7B-Instruct-AWQ',
+          model: dto.model || 'Qwen/Qwen3.5-4B',
           messages: dto.messages,
           temperature: dto.temperature ?? 0.7,
           max_tokens: dto.maxTokens || 2000,
@@ -166,6 +166,11 @@ export class VllmService {
         if (dto.functions && dto.functions.length > 0) {
           requestBody.functions = dto.functions;
           requestBody.function_call = 'auto';
+        }
+
+        // Disable thinking mode for Qwen3.5 models (generates verbose CoT otherwise)
+        if ((requestBody.model || '').includes('Qwen3.5')) {
+          requestBody.chat_template_kwargs = { enable_thinking: false };
         }
 
         // Advanced sampling parameters
@@ -218,7 +223,7 @@ export class VllmService {
         // Build result
         const result: ChatCompletionResultDto = {
           id: data.id || `vllm-${Date.now()}`,
-          model: data.model || dto.model || 'Qwen/Qwen2.5-7B-Instruct-AWQ',
+          model: data.model || dto.model || 'Qwen/Qwen3.5-4B',
           provider: 'vllm',
           content: choice.message?.content || '',
           finishReason: choice.finish_reason || 'stop',
@@ -375,7 +380,7 @@ export class VllmService {
   async chatStream(dto: ChatCompletionDto): Promise<any> {
     try {
       const requestBody: any = {
-        model: dto.model || 'Qwen/Qwen2.5-7B-Instruct-AWQ',
+        model: dto.model || 'Qwen/Qwen3.5-4B',
         messages: dto.messages,
         temperature: dto.temperature ?? 0.7,
         max_tokens: dto.maxTokens || 2000,
