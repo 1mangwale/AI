@@ -7,7 +7,7 @@ import {
 } from './centralized-auth.service';
 import { PhpAuthService } from '../php-integration/services/php-auth.service';
 import { PrismaService } from '../database/prisma.service';
-import { UserProfileEnrichmentService } from '../personalization/user-profile-enrichment.service';
+import { UserProfilingService } from '../personalization/user-profiling.service';
 import { REDIS_CLIENT, REDIS_PUBLISHER } from '../redis/redis.module';
 
 // Mock Redis
@@ -109,7 +109,7 @@ describe('CentralizedAuthService', () => {
           useValue: mockPrismaService,
         },
         {
-          provide: UserProfileEnrichmentService,
+          provide: UserProfilingService,
           useValue: mockProfileEnrichment,
         },
       ],

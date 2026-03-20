@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { Pool } from 'pg';
-import { CustomerHealthService } from '../personalization/services/customer-health.service';
+import { BehavioralAnalyticsService } from '../personalization/services/behavioral-analytics.service';
 import { RiderTierService } from '../gamification/services/rider-tier.service';
 import { PrepTimePredictionService } from '../analytics/services/prep-time-prediction.service';
 import { CohortRetentionService } from '../analytics/services/cohort-retention.service';
@@ -74,7 +74,7 @@ export class SchedulerService implements OnModuleInit {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly customerHealth: CustomerHealthService,
+    private readonly customerHealth: BehavioralAnalyticsService,
     private readonly riderTier: RiderTierService,
     private readonly prepTime: PrepTimePredictionService,
     private readonly cohortRetention: CohortRetentionService,

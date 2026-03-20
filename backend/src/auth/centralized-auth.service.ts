@@ -4,7 +4,7 @@ import Redis from 'ioredis';
 import { PhpAuthService } from '../php-integration/services/php-auth.service';
 import { normalizePhoneNumber } from '../common/utils/helpers';
 import { PrismaService } from '../database/prisma.service';
-import { UserProfileEnrichmentService } from '../personalization/user-profile-enrichment.service';
+import { UserProfilingService } from '../personalization/user-profiling.service';
 import { REDIS_CLIENT, REDIS_PUBLISHER } from '../redis/redis.module';
 
 export interface AuthenticatedUser {
@@ -52,7 +52,7 @@ export class CentralizedAuthService {
     private readonly configService: ConfigService,
     private readonly phpAuthService: PhpAuthService,
     private readonly prisma: PrismaService,
-    private readonly profileEnrichment: UserProfileEnrichmentService,
+    private readonly profileEnrichment: UserProfilingService,
   ) {
     this.logger.log('✅ Centralized Auth Service initialized with shared Redis, PostgreSQL sync & profile enrichment');
   }

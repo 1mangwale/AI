@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ActionExecutor, ActionExecutionResult, FlowContext } from '../types/flow.types';
-import { AdaptiveFlowService, FlowAdaptation } from '../../personalization/adaptive-flow.service';
-import { SmartDefaultsService, SmartDefaults } from '../../personalization/smart-defaults.service';
+import { AdaptiveFlowService, FlowAdaptation, SmartDefaults } from '../../personalization/adaptive-flow.service';
 
 /**
  * Adaptive Executor
@@ -24,7 +23,6 @@ export class AdaptiveExecutor implements ActionExecutor {
 
   constructor(
     private adaptiveFlowService: AdaptiveFlowService,
-    private smartDefaultsService: SmartDefaultsService,
   ) {}
 
   async execute(
@@ -111,7 +109,7 @@ export class AdaptiveExecutor implements ActionExecutor {
     config: Record<string, any>,
     context: FlowContext
   ): Promise<ActionExecutionResult> {
-    const defaults = await this.smartDefaultsService.getSmartDefaults(userId, {
+    const defaults = await this.adaptiveFlowService.getSmartDefaults(userId, {
       flowType: config.flowType || context.data.flowType,
       currentTime: new Date(),
       searchQuery: context.data.searchQuery || context.data.userMessage,
@@ -197,7 +195,7 @@ export class AdaptiveExecutor implements ActionExecutor {
    * Get quick reorder suggestions
    */
   private async getQuickReorder(userId: number): Promise<ActionExecutionResult> {
-    const suggestions = await this.smartDefaultsService.getQuickReorderSuggestions(userId);
+    const suggestions = await this.adaptiveFlowService.getQuickReorderSuggestions(userId);
 
     if (!suggestions.canQuickReorder) {
       return {

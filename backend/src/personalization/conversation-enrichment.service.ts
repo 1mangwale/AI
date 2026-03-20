@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PreferenceExtractorService, ExtractedPreference } from './preference-extractor.service';
+import { ConversationAnalyzerService, ExtractedPreference } from './conversation-analyzer.service';
 import { UserPreferenceService } from './user-preference.service';
-import { ConversationAnalyzerService } from './conversation-analyzer.service';
 
 /**
  * 🎯 Conversation Enrichment Service
@@ -33,9 +32,8 @@ export class ConversationEnrichmentService {
   private readonly TONE_ANALYSIS_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
   constructor(
-    private preferenceExtractor: PreferenceExtractorService,
-    private userPreferenceService: UserPreferenceService,
     private conversationAnalyzer: ConversationAnalyzerService,
+    private userPreferenceService: UserPreferenceService,
   ) {}
 
   /**
@@ -48,7 +46,7 @@ export class ConversationEnrichmentService {
   ): Promise<EnrichmentSuggestion | null> {
     try {
       // 1. Extract preferences from message
-      const extraction = await this.preferenceExtractor.extractFromMessage(
+      const extraction = await this.conversationAnalyzer.extractFromMessage(
         userId,
         message,
         conversationHistory,
@@ -126,7 +124,7 @@ export class ConversationEnrichmentService {
     userId: number,
     orderData: any,
   ): Promise<void> {
-    await this.preferenceExtractor.extractFromOrder(userId, orderData);
+    await this.conversationAnalyzer.extractFromOrder(userId, orderData);
     
     // Update order count for frequency calculation
     await this.userPreferenceService.inferPreferences(userId);
@@ -140,7 +138,7 @@ export class ConversationEnrichmentService {
     recentMessages: string[],
   ): Promise<void> {
     if (recentMessages.length >= 5) {
-      await this.preferenceExtractor.analyzeMessageStyle(userId, recentMessages);
+      await this.conversationAnalyzer.analyzeMessageStyle(userId, recentMessages);
     }
   }
 
@@ -168,7 +166,7 @@ export class ConversationEnrichmentService {
     }
 
     // Generate confirmation question
-    const question = await this.preferenceExtractor.generateConfirmationQuestion(
+    const question = await this.conversationAnalyzer.generateConfirmationQuestion(
       userId,
       pref,
     );
@@ -302,7 +300,7 @@ export class ConversationEnrichmentService {
     // Detect yes/no from response
     const isYes = this.detectConfirmation(userResponse);
     
-    await this.preferenceExtractor.confirmPreference(
+    await this.conversationAnalyzer.confirmPreference(
       userId,
       preferenceKey,
       isYes,
@@ -341,7 +339,7 @@ export class ConversationEnrichmentService {
     nextSuggestedQuestion?: string;
   }> {
     const prefs = await this.userPreferenceService.getPreferences(userId);
-    const pending = await this.preferenceExtractor.getPendingConfirmations(userId);
+    const pending = await this.conversationAnalyzer.getPendingConfirmations(userId);
     const proactive = await this.getProactiveQuestion(userId);
 
     return {

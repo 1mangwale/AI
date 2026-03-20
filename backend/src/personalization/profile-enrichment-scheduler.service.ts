@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../database/prisma.service';
-import { UserProfileEnrichmentService } from './user-profile-enrichment.service';
+import { UserProfilingService } from './user-profiling.service';
 import { ProgressiveProfileService } from './progressive-profile.service';
 
 /**
@@ -27,7 +27,7 @@ export class ProfileEnrichmentScheduler {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly enrichmentService: UserProfileEnrichmentService,
+    private readonly enrichmentService: UserProfilingService,
     private readonly progressiveProfile: ProgressiveProfileService,
   ) {
     this.logger.log('✅ ProfileEnrichmentScheduler initialized');

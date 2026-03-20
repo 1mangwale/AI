@@ -2,12 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConversationAnalyzerService } from './conversation-analyzer.service';
 import { UserProfilingService } from './user-profiling.service';
 import { UserPreferenceService } from './user-preference.service';
-import { PreferenceExtractorService } from './preference-extractor.service';
 import { ConversationEnrichmentService } from './conversation-enrichment.service';
-import { UserProfileEnrichmentService } from './user-profile-enrichment.service';
 import { ProgressiveProfileService } from './progressive-profile.service';
 import { AdaptiveFlowService } from './adaptive-flow.service';
-import { SmartDefaultsService } from './smart-defaults.service';
 import { OrderSyncService } from './order-sync.service';
 import { ProfileEnrichmentScheduler } from './profile-enrichment-scheduler.service';
 import { BehavioralAnalyticsService } from './services/behavioral-analytics.service';
@@ -16,7 +13,6 @@ import { CollectionsService } from './collections.service';
 import { PersonalizationController } from './personalization.controller';
 import { RecommendationsController } from './controllers/recommendations.controller';
 import { CustomerIntelligenceController } from './controllers/customer-intelligence.controller';
-import { CustomerHealthService } from './services/customer-health.service';
 import { LlmModule } from '../llm/llm.module';
 import { DatabaseModule } from '../database/database.module';
 import { UserContextModule } from '../user-context/user-context.module';
@@ -62,35 +58,27 @@ import { ScheduleModule } from '@nestjs/schedule';
     ConversationAnalyzerService,
     UserProfilingService,
     UserPreferenceService,
-    PreferenceExtractorService,
     ConversationEnrichmentService,
-    UserProfileEnrichmentService,
     ProgressiveProfileService,
     AdaptiveFlowService,
-    SmartDefaultsService,
     OrderSyncService,
     ProfileEnrichmentScheduler,
     BehavioralAnalyticsService,
     RecommendationEngineService,
     CollectionsService,
-    CustomerHealthService,
   ],
   exports: [
     ConversationAnalyzerService,
     UserProfilingService,
     UserPreferenceService,
-    PreferenceExtractorService,
     ConversationEnrichmentService,
-    UserProfileEnrichmentService,
     ProgressiveProfileService,
     AdaptiveFlowService,
-    SmartDefaultsService,
     OrderSyncService,
     ProfileEnrichmentScheduler,
     BehavioralAnalyticsService,
     RecommendationEngineService,
     CollectionsService,
-    CustomerHealthService,
   ],
 })
 export class PersonalizationModule {}
