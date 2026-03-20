@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConversationAnalyzerService, ExtractedPreference } from './conversation-analyzer.service';
 import { UserPreferenceService } from './user-preference.service';
+import { NluPreferenceExtractorService } from './nlu-preference-extractor.service';
+import { PreferenceSignal } from './preference-signal.interface';
 
 /**
  * 🎯 Conversation Enrichment Service
@@ -34,32 +36,57 @@ export class ConversationEnrichmentService {
   constructor(
     private conversationAnalyzer: ConversationAnalyzerService,
     private userPreferenceService: UserPreferenceService,
+    private nluPreferenceExtractor: NluPreferenceExtractorService,
   ) {}
 
   /**
    * Main entry point: Enrich profile after user message
+   *
+   * Phase 2 change: replaced per-message vLLM call
+   * (conversationAnalyzer.extractFromMessage) with lightweight NER+regex
+   * extraction via NluPreferenceExtractorService.  ~2-3 ms instead of ~800 ms.
    */
   async enrichProfileFromMessage(
     userId: number,
     message: string,
     conversationHistory?: string[],
+    nerEntities?: Record<string, any> | any[],
   ): Promise<EnrichmentSuggestion | null> {
     try {
-      // 1. Extract preferences from message
-      const extraction = await this.conversationAnalyzer.extractFromMessage(
-        userId,
+      // 1. Extract preferences using lightweight NER + regex (NO vLLM call)
+      const signals: PreferenceSignal[] = this.nluPreferenceExtractor.extractFromNerEntities(
+        nerEntities || {},
         message,
-        conversationHistory,
       );
 
-      // 2. Analyze communication tone (with cooldown to avoid excess LLM calls)
+      // Convert PreferenceSignal[] to ExtractedPreference[] for downstream compatibility
+      const preferences: ExtractedPreference[] = signals.map(s => ({
+        category: this.signalKeyToCategory(s.key),
+        key: s.key,
+        value: s.value,
+        confidence: s.confidence,
+        source: s.source,
+        shouldConfirm: s.confidence >= 0.7 && s.confidence < 0.85,
+      }));
+
+      // Auto-save high-confidence preferences (>= 0.85) without asking
+      for (const pref of preferences) {
+        if (pref.confidence >= 0.85) {
+          await this.userPreferenceService.updatePreference(
+            userId,
+            pref.key,
+            pref.value,
+            'inferred' as 'explicit' | 'inferred' | 'gamification',
+            pref.confidence,
+          ).catch(err => this.logger.warn(`Auto-save failed for ${pref.key}: ${err.message}`));
+        }
+      }
+
+      // 2. Analyze communication tone (pattern-based, cheap — keep as-is)
       this.analyzeToneIfNeeded(userId, message, conversationHistory);
 
       // 3. Check if we should ask a confirmation question
-      const suggestion = await this.shouldAskConfirmation(
-        userId,
-        extraction.preferences,
-      );
+      const suggestion = await this.shouldAskConfirmation(userId, preferences);
 
       if (suggestion) {
         this.markAsked(userId, suggestion.preference.key);
@@ -76,6 +103,24 @@ export class ConversationEnrichmentService {
     } catch (error) {
       this.logger.error(`Enrichment failed: ${error.message}`);
       return null;
+    }
+  }
+
+  /**
+   * Map PreferenceSignalKey to ExtractedPreference category
+   */
+  private signalKeyToCategory(key: string): 'dietary' | 'shopping' | 'communication' | 'personality' {
+    switch (key) {
+      case 'dietary_type':
+      case 'allergies':
+      case 'spice_level':
+      case 'favorite_items':
+        return 'dietary';
+      case 'price_sensitivity':
+      case 'favorite_stores':
+        return 'shopping';
+      default:
+        return 'dietary';
     }
   }
 

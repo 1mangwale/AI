@@ -29,6 +29,8 @@ import {
   LOCATION_WAIT_STATES,
 } from '../../config/flow.constants';
 import { CorrectionTrackerService, CorrectionType } from '../../learning/services/correction-tracker.service';
+import { NluPreferenceExtractorService } from '../../personalization/nlu-preference-extractor.service';
+import { UserProfilingService } from '../../personalization/user-profiling.service';
 
 /**
  * Router Response - returned for SYNC channels (Web, Voice, Mobile)
@@ -91,6 +93,8 @@ export class ContextRouterService implements OnModuleInit {
     @Optional() private readonly phpCouponService?: PhpCouponService,
     @Optional() private readonly userPreferenceService?: UserPreferenceService,
     @Optional() private readonly correctionTracker?: CorrectionTrackerService,
+    @Optional() private readonly nluPreferenceExtractor?: NluPreferenceExtractorService,
+    @Optional() private readonly userProfilingService?: UserProfilingService,
   ) {
     this.logger.log('✅ ContextRouter initialized with shared Redis');
   }
@@ -692,6 +696,26 @@ export class ContextRouterService implements OnModuleInit {
         text: event.message,
         timestamp: Date.now(),
       }).catch(() => {});
+    }
+
+    // Phase 2: Extract preference signals from NER entities + message text (fire-and-forget)
+    // Lightweight regex — adds ~2-3ms, no LLM call
+    if (this.nluPreferenceExtractor && session.data?.userId) {
+      try {
+        const nerEntities = intent.entities || {};
+        const signals = this.nluPreferenceExtractor.extractFromNerEntities(nerEntities, event.message);
+        if (signals.length > 0 && this.userProfilingService) {
+          const highConfSignals = signals.filter(s => s.confidence >= 0.7);
+          if (highConfSignals.length > 0) {
+            // Async fire-and-forget — don't block message routing
+            this.userProfilingService.updateFromSignals(session.data.userId, highConfSignals)
+              .catch(err => this.logger.warn(`Preference signal save failed: ${err.message}`));
+          }
+        }
+      } catch (prefErr) {
+        // Never block routing for preference extraction failures
+        this.logger.debug(`Preference extraction skipped: ${prefErr.message}`);
+      }
     }
 
     // Phase 2B: Surface "Did you mean?" clarification when NLU is uncertain

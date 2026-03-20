@@ -10,6 +10,7 @@ import { ProfileEnrichmentScheduler } from './profile-enrichment-scheduler.servi
 import { BehavioralAnalyticsService } from './services/behavioral-analytics.service';
 import { RecommendationEngineService } from './services/recommendation-engine.service';
 import { CollectionsService } from './collections.service';
+import { NluPreferenceExtractorService } from './nlu-preference-extractor.service';
 import { PersonalizationController } from './personalization.controller';
 import { RecommendationsController } from './controllers/recommendations.controller';
 import { CustomerIntelligenceController } from './controllers/customer-intelligence.controller';
@@ -66,6 +67,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     BehavioralAnalyticsService,
     RecommendationEngineService,
     CollectionsService,
+    NluPreferenceExtractorService,
   ],
   exports: [
     ConversationAnalyzerService,
@@ -79,6 +81,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     BehavioralAnalyticsService,
     RecommendationEngineService,
     CollectionsService,
+    NluPreferenceExtractorService,
   ],
 })
 export class PersonalizationModule {}

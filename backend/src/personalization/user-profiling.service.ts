@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import * as mysql from 'mysql2/promise';
 import { ConversationAnalyzerService, ConversationAnalysis, MessageInsight } from './conversation-analyzer.service';
+import { PreferenceSignal } from './preference-signal.interface';
 
 /**
  * Merged from UserProfileEnrichmentService:
@@ -520,6 +521,87 @@ export class UserProfilingService {
           );
         }
       }
+    }
+  }
+
+  /**
+   * Update user profile from NER-extracted PreferenceSignals.
+   * Called from context-router as fire-and-forget after NLU classification.
+   */
+  async updateFromSignals(userId: number, signals: PreferenceSignal[]): Promise<void> {
+    if (!signals || signals.length === 0) return;
+
+    try {
+      for (const signal of signals) {
+        switch (signal.key) {
+          case 'dietary_type':
+            await this.pool.query(
+              `UPDATE user_profiles
+               SET food_preferences = jsonb_set(COALESCE(food_preferences, '{}'::jsonb), '{dietary_type}', $2::jsonb),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE user_id = $1`,
+              [userId, JSON.stringify(signal.value)],
+            );
+            break;
+
+          case 'allergies':
+            // signal.value is string[]
+            for (const allergen of (Array.isArray(signal.value) ? signal.value : [signal.value])) {
+              await this.pool.query(
+                `UPDATE user_profiles
+                 SET dietary_restrictions = array_append(COALESCE(dietary_restrictions, ARRAY[]::text[]), $2),
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE user_id = $1 AND NOT ($2 = ANY(COALESCE(dietary_restrictions, ARRAY[]::text[])))`,
+                [userId, allergen],
+              );
+            }
+            break;
+
+          case 'spice_level':
+            await this.pool.query(
+              `UPDATE user_profiles
+               SET food_preferences = jsonb_set(COALESCE(food_preferences, '{}'::jsonb), '{spice_level}', $2::jsonb),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE user_id = $1`,
+              [userId, JSON.stringify(signal.value)],
+            );
+            break;
+
+          case 'price_sensitivity':
+            await this.pool.query(
+              `UPDATE user_profiles
+               SET food_preferences = jsonb_set(COALESCE(food_preferences, '{}'::jsonb), '{price_sensitivity}', $2::jsonb),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE user_id = $1`,
+              [userId, JSON.stringify(signal.value)],
+            );
+            break;
+
+          case 'favorite_items':
+            // Store as insight rather than overwriting
+            if (Array.isArray(signal.value)) {
+              for (const item of signal.value) {
+                await this.pool.query(
+                  `INSERT INTO conversation_insights
+                   (user_id, insight_type, insight_category, extracted_value, confidence, analyzed_by)
+                   VALUES ($1, 'favorite_item', 'dietary', $2, $3, 'ner_regex')
+                   ON CONFLICT DO NOTHING`,
+                  [userId, JSON.stringify(item), signal.confidence],
+                );
+              }
+            }
+            break;
+
+          default:
+            this.logger.debug(`Unhandled signal key: ${signal.key}`);
+        }
+      }
+
+      // Recalculate completeness
+      await this.updateProfileCompleteness(userId);
+      this.logger.debug(`Updated profile for user ${userId} from ${signals.length} signal(s)`);
+    } catch (error) {
+      this.logger.warn(`Failed to update profile from signals for user ${userId}: ${error.message}`);
     }
   }
 

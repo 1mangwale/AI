@@ -63,7 +63,7 @@ export const firstTimeOnboardingFlow: FlowDefinition = {
           id: 'welcome_short_msg',
           executor: 'response',
           config: {
-            message: "🎉 Welcome to Mangwale!\n\nJust 2 quick questions to personalize your experience:",
+            message: "🎉 Welcome to Mangwale!\n\nJust a few quick questions to personalize your experience:",
           },
         },
       ],
@@ -154,6 +154,83 @@ export const firstTimeOnboardingFlow: FlowDefinition = {
         },
       ],
       transitions: {
+        success: 'ask_spice_short',
+        default: 'ask_spice_short',
+        cancel: 'onboarding_skipped',
+      },
+    },
+
+    // ============ NEW: Spice Level (WhatsApp/Telegram short flow) ============
+    ask_spice_short: {
+      type: 'wait',
+      description: 'Ask spice preference (quick)',
+      onEntry: [
+        {
+          id: 'spice_msg',
+          executor: 'response',
+          config: {
+            message: "How spicy do you like your food? 🌶️",
+            buttons: [
+              { id: 'mild', label: '😌 Mild', value: 'mild' },
+              { id: 'medium', label: '🌶️ Medium', value: 'medium' },
+              { id: 'spicy', label: '🔥 Spicy', value: 'spicy' },
+              { id: 'extra_spicy', label: '🌋 Extra Spicy', value: 'extra_spicy' },
+            ],
+          },
+        },
+      ],
+      actions: [
+        {
+          id: 'save_spice',
+          executor: 'profile',
+          config: {
+            action: 'save_preference',
+            key: 'spice_level',
+            value: '{{_user_message}}',
+          },
+          output: 'spice_result',
+        },
+      ],
+      transitions: {
+        success: 'ask_allergies_short',
+        default: 'ask_allergies_short',
+        cancel: 'onboarding_skipped',
+      },
+    },
+
+    // ============ NEW: Allergies (WhatsApp/Telegram short flow) ============
+    ask_allergies_short: {
+      type: 'wait',
+      description: 'Ask about food allergies (quick)',
+      onEntry: [
+        {
+          id: 'allergies_msg',
+          executor: 'response',
+          config: {
+            message: "Do you have any food allergies? 🏥",
+            buttons: [
+              { id: 'dairy', label: '🥛 Dairy', value: 'dairy' },
+              { id: 'nuts', label: '🥜 Nuts', value: 'nuts' },
+              { id: 'gluten', label: '🌾 Gluten', value: 'gluten' },
+              { id: 'shellfish', label: '🦐 Shellfish', value: 'shellfish' },
+              { id: 'none', label: '✅ None', value: 'none' },
+            ],
+          },
+        },
+      ],
+      actions: [
+        {
+          id: 'save_allergies',
+          executor: 'profile',
+          config: {
+            action: 'save_preference',
+            key: 'allergies',
+            value: '{{_user_message}}',
+          },
+          output: 'allergies_result',
+        },
+      ],
+      transitions: {
         success: 'onboarding_complete_short',
         default: 'onboarding_complete_short',
         cancel: 'onboarding_skipped',
@@ -179,7 +256,7 @@ export const firstTimeOnboardingFlow: FlowDefinition = {
           config: {
             action: 'save',
             key: 'profile_completeness',
-            value: 70,
+            value: 80,
           },
         },
         {
@@ -359,6 +436,82 @@ export const firstTimeOnboardingFlow: FlowDefinition = {
           config: {
             action: 'save_preference',
             key: 'dietary_type',
+            value: '{{_user_message}}',
+          },
+        },
+      ],
+      transitions: {
+        success: 'ask_spice_full',
+        default: 'ask_spice_full',
+        cancel: 'onboarding_skipped',
+      },
+    },
+
+    // ============ NEW: Spice Level (Web/Mobile full flow) ============
+    ask_spice_full: {
+      type: 'wait',
+      description: 'Ask spice preference (full flow)',
+      onEntry: [
+        {
+          id: 'spice_prompt_full',
+          executor: 'response',
+          config: {
+            message: "How spicy do you like your food? 🌶️",
+            buttons: [
+              { id: 'mild', label: '😌 Mild', value: 'mild' },
+              { id: 'medium', label: '🌶️ Medium', value: 'medium' },
+              { id: 'spicy', label: '🔥 Spicy', value: 'spicy' },
+              { id: 'extra_spicy', label: '🌋 Extra Spicy', value: 'extra_spicy' },
+            ],
+          },
+        },
+      ],
+      actions: [
+        {
+          id: 'save_spice_full',
+          executor: 'profile',
+          config: {
+            action: 'save_preference',
+            key: 'spice_level',
+            value: '{{_user_message}}',
+          },
+        },
+      ],
+      transitions: {
+        success: 'ask_allergies_full',
+        default: 'ask_allergies_full',
+        cancel: 'onboarding_skipped',
+      },
+    },
+
+    // ============ NEW: Allergies (Web/Mobile full flow) ============
+    ask_allergies_full: {
+      type: 'wait',
+      description: 'Ask about food allergies (full flow)',
+      onEntry: [
+        {
+          id: 'allergies_prompt_full',
+          executor: 'response',
+          config: {
+            message: "Do you have any food allergies? (Select all that apply, or type them)",
+            buttons: [
+              { id: 'dairy', label: '🥛 Dairy', value: 'dairy' },
+              { id: 'nuts', label: '🥜 Nuts', value: 'nuts' },
+              { id: 'gluten', label: '🌾 Gluten', value: 'gluten' },
+              { id: 'shellfish', label: '🦐 Shellfish', value: 'shellfish' },
+              { id: 'soy', label: '🫘 Soy', value: 'soy' },
+              { id: 'none', label: '✅ No Allergies', value: 'none' },
+            ],
+          },
+        },
+      ],
+      actions: [
+        {
+          id: 'save_allergies_full',
+          executor: 'profile',
+          config: {
+            action: 'save_preference',
+            key: 'allergies',
             value: '{{_user_message}}',
           },
         },

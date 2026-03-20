@@ -302,6 +302,18 @@ export class ProfileExecutor implements ActionExecutor {
         // Keep as comma-separated list
         return normalizedValue;
 
+      case 'spice_level':
+        if (normalizedValue.includes('extra')) return 'extra_spicy';
+        if (normalizedValue.includes('spicy') || normalizedValue.includes('hot') || normalizedValue.includes('teekha')) return 'spicy';
+        if (normalizedValue.includes('medium') || normalizedValue.includes('regular')) return 'medium';
+        if (normalizedValue.includes('mild') || normalizedValue.includes('halka')) return 'mild';
+        return normalizedValue;
+
+      case 'allergies':
+        // "none" → empty string (no allergies)
+        if (normalizedValue === 'none' || normalizedValue === 'no' || normalizedValue === 'no allergies') return '';
+        return normalizedValue;
+
       default:
         return value;
     }
