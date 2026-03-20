@@ -1527,16 +1527,36 @@ export class ContextRouterService implements OnModuleInit {
     // Check profile completeness - users with incomplete profiles need onboarding
     const profileCompleteness = session.data?.profile_completeness ?? 0;
     const PROFILE_THRESHOLD = 70;
-    
+
     if (profileCompleteness < PROFILE_THRESHOLD) {
       this.logger.log(`🎉 Profile incomplete! Completeness: ${profileCompleteness}% (threshold: ${PROFILE_THRESHOLD}%). Triggering onboarding for ${event.identifier.substring(0, 10)}...`);
+      return true;
+    }
+
+    // Even if profile is "complete", check for missing food safety fields (allergies, spice_level).
+    // Existing users enriched from order history may have high completeness but never been asked
+    // about allergies/spice_level — these are safety-critical and must be collected.
+    const personalityTraits = session.data?.personality_traits || {};
+    const hasAllergies = session.data?.allergies && (Array.isArray(session.data.allergies) ? session.data.allergies.length > 0 : true);
+    const hasSpiceLevel = personalityTraits?.spice_level;
+
+    if (!hasAllergies || !hasSpiceLevel) {
+      this.logger.log(`Safety fields missing (allergies: ${!!hasAllergies}, spice_level: ${!!hasSpiceLevel}) for ${event.identifier.substring(0, 10)} — triggering gap-fill onboarding`);
+      // Set mode so the onboarding flow can ask only missing safety questions
+      await this.sessionService.updateSession(event.identifier, {
+        onboarding_mode: 'fill_gaps',
+        onboarding_missing_fields: [
+          ...(!hasAllergies ? ['allergies'] : []),
+          ...(!hasSpiceLevel ? ['spice_level'] : []),
+        ],
+      });
       return true;
     }
 
     // Check if user is truly new (first message or no profile data)
     const isNewUser = session.data?.is_new_user === true;
     const hasNoProfile = !session.data?.dietary_type && !session.data?.user_name;
-    
+
     if (isNewUser || hasNoProfile) {
       this.logger.log(`🎉 First-time user detected! Platform: ${platform}, isNew: ${isNewUser}, hasNoProfile: ${hasNoProfile}`);
       return true;

@@ -48,18 +48,19 @@ export class ProgressiveProfileService {
    */
   private getProfileQuestions(): ProfileQuestion[] {
     return [
-      // TIER 1: Essential for personalization (high value, low friction)
+      // TIER 0: Safety-critical (bypass rate limits — see getContextualQuestion)
       {
-        id: 'dietary_type',
+        id: 'allergies',
         category: 'food_preference',
-        question: 'Quick question - are you vegetarian? 🥗',
+        question: 'Any food allergies I should know about? 🚫 (Important for your safety)',
         options: [
-          { label: '🥗 Vegetarian', value: 'vegetarian' },
-          { label: '🍗 Non-Vegetarian', value: 'non-vegetarian' },
-          { label: '🥚 Eggetarian', value: 'eggetarian' },
-          { label: '🌱 Vegan', value: 'vegan' },
+          { label: '✅ None', value: 'none' },
+          { label: '🥜 Peanuts', value: 'peanuts' },
+          { label: '🥛 Dairy', value: 'dairy' },
+          { label: '🌾 Gluten', value: 'gluten' },
+          { label: '📝 Other (type it)', value: 'other' },
         ],
-        priority: 1,
+        priority: 0,
         context: 'post_food_order',
       },
       {
@@ -72,10 +73,25 @@ export class ProgressiveProfileService {
           { label: '🔥🔥 Spicy', value: 'spicy' },
           { label: '🔥🔥🔥 Extra Hot', value: 'extra_hot' },
         ],
+        priority: 1,
+        context: 'post_food_order',
+      },
+
+      // TIER 1: Essential for personalization (high value, low friction)
+      {
+        id: 'dietary_type',
+        category: 'food_preference',
+        question: 'Quick question - are you vegetarian? 🥗',
+        options: [
+          { label: '🥗 Vegetarian', value: 'vegetarian' },
+          { label: '🍗 Non-Vegetarian', value: 'non-vegetarian' },
+          { label: '🥚 Eggetarian', value: 'eggetarian' },
+          { label: '🌱 Vegan', value: 'vegan' },
+        ],
         priority: 2,
         context: 'post_food_order',
       },
-      
+
       // TIER 2: Helpful for recommendations
       {
         id: 'cuisine_preference',
@@ -102,22 +118,6 @@ export class ProgressiveProfileService {
         ],
         priority: 4,
         context: 'general',
-      },
-      
-      // TIER 3: Nice to have
-      {
-        id: 'allergies',
-        category: 'food_preference',
-        question: 'Any food allergies I should know about? 🚫',
-        options: [
-          { label: '✅ None', value: 'none' },
-          { label: '🥜 Peanuts', value: 'peanuts' },
-          { label: '🥛 Dairy', value: 'dairy' },
-          { label: '🌾 Gluten', value: 'gluten' },
-          { label: '📝 Other (type it)', value: 'other' },
-        ],
-        priority: 5,
-        context: 'post_food_order',
       },
       {
         id: 'meal_time_preference',
@@ -244,20 +244,40 @@ export class ProgressiveProfileService {
   }
 
   /**
-   * Get contextual profile question based on what user just did
+   * Safety-critical fields that bypass rate limits and completeness checks.
+   * These are food safety questions that MUST be asked regardless of profile state.
+   */
+  private readonly SAFETY_CRITICAL_FIELDS = ['allergies', 'spice_level'];
+
+  /**
+   * Get contextual profile question based on what user just did.
+   *
+   * Safety-critical fields (allergies, spice_level) are ALWAYS returned as
+   * highest priority when missing — they bypass the 3/week rate limit and
+   * the completeness >= 80% gate because they affect food safety.
    */
   async getContextualQuestion(userId: number, context: string): Promise<ProfileQuestion | null> {
     const status = await this.getProfileStatus(userId);
-    
-    if (!status.canAskNow || status.completeness >= 80) {
-      return null; // Don't ask if rate limited or profile mostly complete
+    const allQuestions = this.getProfileQuestions();
+
+    // PRIORITY 0: Safety-critical fields bypass ALL rate limits
+    // Allergies and spice_level are food safety — must always be asked when missing
+    for (const safetyField of this.SAFETY_CRITICAL_FIELDS) {
+      if (status.missingFields.includes(safetyField)) {
+        const safetyQuestion = allQuestions.find(q => q.id === safetyField);
+        if (safetyQuestion) {
+          return safetyQuestion;
+        }
+      }
     }
 
-    const allQuestions = this.getProfileQuestions();
-    
+    if (!status.canAskNow || status.completeness >= 80) {
+      return null; // Don't ask non-safety questions if rate limited or profile mostly complete
+    }
+
     // Find unanswered question matching context
     const contextualQuestion = allQuestions
-      .filter(q => !status.missingFields.includes(q.id) === false) // is in missing
+      .filter(q => status.missingFields.includes(q.id)) // is in missing
       .filter(q => q.context === context || q.context === 'general')
       .sort((a, b) => a.priority - b.priority)[0];
 
@@ -270,6 +290,13 @@ export class ProgressiveProfileService {
   async saveAnswer(userId: number, questionId: string, answer: string): Promise<void> {
     try {
       this.logger.log(`📝 Saving profile answer for user ${userId}: ${questionId} = ${answer}`);
+
+      // Validate answer before saving to prevent garbage data
+      const validationError = this.validateProfileAnswer(questionId, answer);
+      if (validationError) {
+        this.logger.warn(`Invalid profile answer for ${questionId}: ${validationError}. Raw answer: "${answer}"`);
+        return;
+      }
 
       // Map question ID to database field
       const fieldMapping: Record<string, { field: string; isJsonb?: boolean; merge?: boolean }> = {
@@ -347,6 +374,69 @@ export class ProgressiveProfileService {
       this.logger.log(`✅ Profile updated for user ${userId}`);
     } catch (error) {
       this.logger.error(`Failed to save profile answer: ${error.message}`);
+    }
+  }
+
+  /**
+   * Validate profile answer to prevent garbage data (e.g. "Hello" for family_size)
+   * Returns error message if invalid, null if valid.
+   */
+  private validateProfileAnswer(questionId: string, answer: string): string | null {
+    const trimmed = answer.trim().toLowerCase();
+
+    switch (questionId) {
+      case 'family_size': {
+        const validOptions = ['1', '2', '3-4', '5+'];
+        if (!validOptions.includes(trimmed) && !/^\d+$/.test(trimmed)) {
+          return `family_size must be a number or one of: ${validOptions.join(', ')}`;
+        }
+        return null;
+      }
+      case 'dietary_type': {
+        const validDiets = ['vegetarian', 'non-vegetarian', 'eggetarian', 'vegan'];
+        if (!validDiets.includes(trimmed)) {
+          return `dietary_type must be one of: ${validDiets.join(', ')}`;
+        }
+        return null;
+      }
+      case 'spice_level': {
+        const validSpice = ['mild', 'medium', 'spicy', 'extra_hot'];
+        if (!validSpice.includes(trimmed)) {
+          return `spice_level must be one of: ${validSpice.join(', ')}`;
+        }
+        return null;
+      }
+      case 'allergies': {
+        const validAllergies = ['none', 'peanuts', 'dairy', 'gluten', 'other'];
+        // Allow freeform for 'other' but reject clearly non-allergy responses
+        if (!validAllergies.includes(trimmed) && trimmed.length < 2) {
+          return `allergies answer too short`;
+        }
+        return null;
+      }
+      case 'cuisine_preference': {
+        const validCuisines = ['indian', 'chinese', 'italian', 'fast_food', 'street_food'];
+        if (!validCuisines.includes(trimmed) && trimmed.length < 2) {
+          return `cuisine_preference answer too short`;
+        }
+        return null;
+      }
+      case 'price_preference': {
+        const validPrices = ['budget', 'moderate', 'premium'];
+        if (!validPrices.includes(trimmed)) {
+          return `price_preference must be one of: ${validPrices.join(', ')}`;
+        }
+        return null;
+      }
+      case 'meal_time_preference': {
+        const validTimes = ['breakfast', 'lunch', 'evening', 'dinner', 'late_night'];
+        if (!validTimes.includes(trimmed)) {
+          return `meal_time_preference must be one of: ${validTimes.join(', ')}`;
+        }
+        return null;
+      }
+      default:
+        return null; // Unknown question, allow through
     }
   }
 

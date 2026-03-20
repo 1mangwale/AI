@@ -1052,6 +1052,8 @@ export class UserProfilingService {
            order_frequency = $4,
            preferred_meal_times = $5,
            price_sensitivity = $6,
+           favorite_items = $8,
+           favorite_stores = $9,
            profile_completeness = LEAST(100, COALESCE(profile_completeness, 0) + 30),
            last_conversation_analyzed = CURRENT_TIMESTAMP,
            updated_at = CURRENT_TIMESTAMP
@@ -1064,6 +1066,8 @@ export class UserProfilingService {
           JSON.stringify(patterns.preferredMealTimes),
           patterns.priceSensitivity,
           userId,
+          JSON.stringify(patterns.favoriteItems.map(i => i.itemName)),
+          JSON.stringify(patterns.favoriteStores.map(s => s.storeName)),
         ]
       );
     } catch (error) {
@@ -1371,6 +1375,57 @@ export class UserProfilingService {
     } catch (error) {
       this.logger.error(`Failed to get insight stats: ${error.message}`);
       return { totalInsights: 0, uniqueUsers: 0, avgConfidence: 0, last24h: 0, last7d: 0, byType: {} };
+    }
+  }
+
+  /**
+   * Clean garbage data from a user's personality_traits and other profile fields.
+   * Validates each field and removes invalid entries.
+   */
+  async cleanGarbageProfileData(userId: number): Promise<void> {
+    if (!this.enrichmentPgPool) return;
+
+    try {
+      const result = await this.enrichmentPgPool.query(
+        `SELECT personality_traits FROM user_profiles WHERE user_id = $1`,
+        [userId],
+      );
+
+      if (result.rows.length === 0) return;
+
+      const traits = result.rows[0].personality_traits;
+      if (!traits || typeof traits !== 'object') return;
+
+      const cleanedTraits: Record<string, any> = {};
+      const VALID_SPICE = ['mild', 'medium', 'spicy', 'extra_hot'];
+      const VALID_FAMILY = ['1', '2', '3-4', '5+'];
+
+      for (const [key, value] of Object.entries(traits)) {
+        if (key === 'spice_level' && typeof value === 'string' && VALID_SPICE.includes(value.toLowerCase())) {
+          cleanedTraits[key] = value;
+        } else if (key === 'family_size') {
+          const strVal = String(value).trim();
+          if (VALID_FAMILY.includes(strVal) || /^\d+$/.test(strVal)) {
+            cleanedTraits[key] = strVal;
+          } else {
+            this.logger.warn(`Removing garbage family_size for user ${userId}: "${value}"`);
+          }
+        } else {
+          // Keep other traits as-is unless clearly invalid
+          if (typeof value === 'string' && value.length > 0 && value.length < 100) {
+            cleanedTraits[key] = value;
+          }
+        }
+      }
+
+      await this.enrichmentPgPool.query(
+        `UPDATE user_profiles SET personality_traits = $1::jsonb, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+        [JSON.stringify(cleanedTraits), userId],
+      );
+
+      this.logger.log(`Cleaned personality_traits for user ${userId}: ${JSON.stringify(cleanedTraits)}`);
+    } catch (error) {
+      this.logger.error(`Failed to clean garbage data for user ${userId}: ${error.message}`);
     }
   }
 

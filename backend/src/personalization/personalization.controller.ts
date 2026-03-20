@@ -7,6 +7,7 @@ import { CollectionsService } from './collections.service';
 import { PhpWishlistService } from '../php-integration/services/php-wishlist.service';
 import { SessionService } from '../session/session.service';
 import { ProfileContextBuilderService } from './profile-context-builder.service';
+import { ProfileEnrichmentScheduler } from './profile-enrichment-scheduler.service';
 
 /**
  * Personalization API Controller
@@ -29,6 +30,7 @@ export class PersonalizationController {
     private readonly phpWishlistService: PhpWishlistService,
     private readonly sessionService: SessionService,
     @Optional() private readonly profileContextBuilder?: ProfileContextBuilderService,
+    @Optional() private readonly enrichmentScheduler?: ProfileEnrichmentScheduler,
   ) {}
 
   /**
@@ -492,6 +494,34 @@ export class PersonalizationController {
     } catch (err) {
       this.logger.warn(`Wishlist toggle failed: ${err.message}`);
       return { success: false, message: err.message };
+    }
+  }
+
+  /**
+   * Manually trigger enrichment for a single user (admin/testing)
+   *
+   * POST /personalization/enrich?userId=13
+   *
+   * Clears enrichment cache, re-analyzes order history, cleans garbage data.
+   */
+  @Post('enrich')
+  @HttpCode(200)
+  async triggerEnrichment(@Query('userId') userId: string) {
+    const parsedUserId = parseInt(userId, 10);
+    if (isNaN(parsedUserId)) {
+      return { error: 'Invalid userId' };
+    }
+
+    if (!this.enrichmentScheduler) {
+      return { error: 'Enrichment scheduler not available' };
+    }
+
+    try {
+      const result = await this.enrichmentScheduler.triggerEnrichmentForUser(parsedUserId);
+      return result;
+    } catch (error) {
+      this.logger.error(`Manual enrichment failed for user ${userId}:`, error);
+      return { success: false, error: error.message };
     }
   }
 

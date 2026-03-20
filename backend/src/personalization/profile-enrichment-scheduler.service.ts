@@ -237,8 +237,30 @@ export class ProfileEnrichmentScheduler {
               updateData.personality_traits = analysis.personality_traits;
             }
 
-            if (analysis.communication_style?.tone) {
-              updateData.communication_tone = analysis.communication_style.tone.substring(0, 20);
+            // Extract communication_tone with multiple fallback paths
+            // LLM responses may structure the tone field differently
+            const analysisAny = analysis as any;
+            const tone = analysis?.communication_style?.tone
+              || analysisAny?.tone
+              || analysisAny?.communication_tone
+              || null;
+
+            if (tone) {
+              updateData.communication_tone = String(tone).substring(0, 20);
+            } else if (typeof analysis === 'object' && analysis) {
+              // Scan all keys for tone-like values as last resort
+              for (const key of Object.keys(analysis)) {
+                if (key.toLowerCase().includes('tone') && typeof analysisAny[key] === 'string') {
+                  updateData.communication_tone = String(analysisAny[key]).substring(0, 20);
+                  break;
+                }
+              }
+            }
+
+            if (!updateData.communication_tone) {
+              this.logger.warn(
+                `No communication_tone found in analysis for user ${profile.user_id}. Keys: ${Object.keys(analysis || {}).join(', ')}`,
+              );
             }
 
             await this.prisma.user_profiles.update({
@@ -342,6 +364,52 @@ export class ProfileEnrichmentScheduler {
     } catch (error) {
       this.logger.error(`Manual enrichment failed: ${error.message}`);
       throw error;
+    }
+  }
+
+  /**
+   * Manual trigger for a single user (admin/testing).
+   * Clears the enrichment cache and re-runs full profile enrichment.
+   */
+  async triggerEnrichmentForUser(userId: number): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    try {
+      this.logger.log(`Manual enrichment triggered for user ${userId}`);
+
+      // Reset last_conversation_analyzed so batch will also pick them up
+      await this.prisma.user_profiles.update({
+        where: { user_id: userId },
+        data: {
+          last_conversation_analyzed: null,
+          updated_at: new Date(),
+        },
+      });
+
+      // Get phone for enrichment
+      const profile = await this.prisma.user_profiles.findUnique({
+        where: { user_id: userId },
+        select: { phone: true },
+      });
+
+      if (!profile) {
+        return { success: false, message: `No profile found for user ${userId}` };
+      }
+
+      // Run enrichment
+      await this.enrichmentService.enrichUserProfile({
+        userId,
+        phone: profile.phone,
+      });
+
+      // Also clean garbage data
+      await this.enrichmentService.cleanGarbageProfileData(userId);
+
+      return { success: true, message: `Profile enriched and cleaned for user ${userId}` };
+    } catch (error) {
+      this.logger.error(`Manual enrichment failed for user ${userId}: ${error.message}`);
+      return { success: false, message: error.message };
     }
   }
 
