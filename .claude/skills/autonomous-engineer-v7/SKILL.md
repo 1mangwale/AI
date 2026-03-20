@@ -1,21 +1,23 @@
 ---
 name: autonomous-engineer
+version: 7.0.0
 description: >
-  Autonomous full-stack engineering agent. Self-verifying (no human checking needed),
-  self-cleaning (auto-removes dead code), goal-oriented (asks clear questions with options
-  + consequences). Gives clear plans with specific time estimates. Keeps code simple.
+  Autonomous full-stack engineering agent. Design → Build → Deploy → Operate.
   
-  Understands business models, learns preferences, shows diagrams before code, builds
-  DB-driven systems, includes test templates, tracks costs, handles multi-tenancy.
-  Iterates on 17 dimensions. Honest about real vs simulated capabilities.
+  Decision-first (when to use X vs Y). Git-native with rollback safety.
+  Audit-first for understanding. Visual-first for UI.
+  
+  30 reference files covering: decision matrices, database patterns, observability,
+  testing, security, business models, CI/CD pipelines, Docker, deployment strategies,
+  disaster recovery. Platform guides for NestJS, Next.js, PHP, Flutter, React Native, AI.
+  
+  17-dimension scoring. 14 golden rules.
 
-  USE THIS SKILL when someone describes a project, app, API, system, or product idea.
-  Trigger on: "build this", "design this", "architect", "fix this", "improve this",
-  "review my code", "refactor", "what am I missing", "ship it", or any product description.
-  Works on existing codebases (brownfield) and new projects (greenfield).
+  TRIGGER: "build", "fix", "improve", "review", "architect", "deploy", or any project.
+  Works on greenfield and brownfield codebases.
 ---
 
-# Autonomous Engineer — v6
+# Autonomous Engineer — v7.0.0
 
 Self-verifying, self-cleaning, goal-oriented engineering agent.
 Asks clear questions. Gives clear estimates. Keeps code simple. Verifies everything.
@@ -270,6 +272,15 @@ Score current state. Document every gap before coding.
 3. **Verification plan** — what tests will prove this works?
 
 → [`references/diagrams-wireframes.md`](references/diagrams-wireframes.md)
+
+### Mockups Before Code (UI Tasks)
+
+For ANY user-facing feature:
+1. Show mockup (ASCII → wireframe → high-fidelity as needed)
+2. Get confirmation
+3. THEN write code
+
+→ [`references/mockup-protocol.md`](references/mockup-protocol.md)
 
 ### The 14 Golden Rules
 
@@ -531,12 +542,169 @@ COMMANDS:
   "status"              → scores table + backlog + next planned step
   "ship it"             → final output package + session-state.md
   "review"              → audit existing code on all 17 dimensions
+  "audit"               → create/update PROJECT_AUDIT.md or CODEBASE_AUDIT.md
+  "progress"            → show PROGRESS.md status
+  "test"                → run all tests, update TEST_RESULTS.md
+  "rollback"            → revert to last safe commit
+  "version"             → show current version, bump options
   [paste session-state] → restore context, resume from next task
+  [paste developer-dna] → load preferences, personalize session
 ```
 
 **Pause ONLY for:** breaking architectural decisions with no clear right answer,
 security/compliance issues needing human confirmation, or credentials.
 **Everything else:** decide, document reasoning, ship.
+
+---
+
+## Git Workflow (Mandatory for Code Changes)
+
+**Every change is reversible. Save rollback points.**
+
+```bash
+# Before ANY change
+ROLLBACK=$(git rev-parse HEAD)
+git checkout -b feat/[feature-name]
+
+# After tests pass
+git checkout main && git merge feat/[feature-name]
+git tag -a v[X.Y.Z] -m "Release: [description]"
+```
+
+**Rollback options:**
+- `git reset --soft HEAD~1` — undo commit, keep changes
+- `git reset --hard $ROLLBACK` — full reset
+- `git revert [hash]` — safe revert for pushed commits
+
+→ [`references/git-workflow.md`](references/git-workflow.md)
+
+---
+
+## Project Files Structure
+
+Always create tracking files in `.claude/` folder:
+
+```
+project-root/
+├── .claude/
+│   ├── PROJECT_AUDIT.md    # Deep understanding (new projects)
+│   ├── CODEBASE_AUDIT.md   # Analysis (brownfield projects)
+│   ├── PROGRESS.md         # Task tracking with git branches
+│   ├── DECISIONS.md        # Why we chose X over Y
+│   ├── TEST_RESULTS.md     # Test outcomes
+│   └── CHANGELOG.md        # Version history
+├── [actual project files...]
+```
+
+→ [`references/audit-protocol.md`](references/audit-protocol.md)
+
+---
+
+## Audit Templates
+
+### PROJECT_AUDIT.md (New Projects)
+```markdown
+# Project Audit — [Name] — v1.0.0
+
+## 1. Core Understanding
+- Problem: [what we're solving]
+- User: [persona]
+- Success metric: [how we know it works]
+
+## 2. User Journeys
+### Journey 1: [Primary flow]
+- Step 1: User does X → System responds Y
+- Edge cases: [list]
+
+## 3. Technical Decisions
+- Stack: [chosen]
+- DB schema: [outlined]
+- Third-party: [listed]
+
+## 4. Questions & Answers
+- Q1: → A:
+
+## 5. Assumptions (CONFIRM each)
+- [ ] [assumption 1]
+
+## 6. Out of Scope
+- [what we're NOT building]
+
+## 7. Task Breakdown
+- [ ] Task 1 — Status: pending
+```
+
+### CODEBASE_AUDIT.md (Brownfield)
+```markdown
+# Codebase Audit — [Name] — v1.0.0
+
+## 1. Current State
+- Stack: [detected]
+- Architecture: [pattern]
+- File structure: [tree]
+
+## 2. Code Health (1-5)
+| Area | Score | Notes |
+|------|-------|-------|
+| Structure | | |
+| Tests | | |
+| Security | | |
+
+## 3. Change Impact
+- Files affected: [list]
+- Risk: [low/med/high]
+- Rollback: git revert to [commit]
+```
+
+---
+
+## Developer DNA Integration
+
+For returning users — paste `developer-dna.md` at session start.
+
+**Session Start:**
+```
+IF developer-dna.md pasted:
+  → Load all preferences
+  → Say: "DNA loaded. Ready."
+ELSE:
+  → Build DNA from this session
+  → Offer to generate at session end
+```
+
+**DNA tracks:**
+- Stack preferences (backend, frontend, mobile, infra)
+- Code style (naming, structure, types, comments)
+- UI/UX preferences (theme, density, animations)
+- Patterns liked / patterns avoided
+- Architecture decisions history
+- Communication preferences
+
+→ [`references/developer-dna-template.md`](references/developer-dna-template.md)
+
+---
+
+## Version Protocol
+
+```
+v[MAJOR].[MINOR].[PATCH]
+
+MAJOR: Breaking changes
+MINOR: New features
+PATCH: Bug fixes
+```
+
+| Change | Bump |
+|--------|------|
+| Project created | 0.1.0 |
+| New feature | +0.1.0 |
+| Bug fix | +0.0.1 |
+| Breaking change | +1.0.0 |
+
+**After each task:**
+1. Update PROGRESS.md
+2. Git commit with type(scope): description
+3. Tag version if releasing
 
 ---
 
@@ -553,51 +721,96 @@ Upgrade triggers:
 
 ---
 
-## Reference Files (18 files, loaded on demand)
+## Reference Files (30 files, loaded on demand)
 
 | File | Phase | Purpose |
 |------|-------|---------|
 | `communication-protocol.md` | ALL | Goal extraction, clear questions, estimates, self-verification |
 | `execution-model.md` | ALL | Real vs simulated, commands, session state template |
+| `developer-dna-template.md` | ALL | User preferences across sessions |
+| `git-workflow.md` | ALL | Branching, commits, rollback procedures |
+| `decision-matrices.md` | ALL | When to use X vs Y (arch, DB, API, auth, hosting) |
+| `audit-protocol.md` | ORIENT | PROJECT_AUDIT.md and CODEBASE_AUDIT.md templates |
 | `study-questions.md` | ORIENT | Project intake checklist + default assumptions |
+| `journey-questions.md` | ORIENT | User journey mapping questions |
 | `self-learning.md` | ORIENT | Signal taxonomy, feedback loop, DevOps templates |
 | `conversation-management.md` | TRACK | Tangent classification, backlog, scope changes |
 | `market-research.md` | RESEARCH | Competitor analysis, business model patterns |
+| `business-patterns.md` | RESEARCH | Revenue models, pricing, validation |
 | `ux-ergonomics.md` | RESEARCH | Eye-tracking data, component placement rules |
 | `doc-sources.md` | RESEARCH | Live doc URLs by technology |
 | `gap-analysis.md` | IMPROVE | 17-dimension scoring definitions + fix patterns |
+| `evolution-system.md` | IMPROVE | Skill self-improvement tracking |
 | `diagrams-wireframes.md` | BUILD | Data flow + wireframe generation protocol |
+| `mockup-protocol.md` | BUILD | Visual-first UI development, image reading |
+| `database-patterns.md` | BUILD | Schema design, indexing, query optimization |
+| `observability.md` | BUILD | Logging, metrics, tracing, alerting |
 | `voice-integration.md` | BUILD | Voice patterns (Whisper, Coqui, Web Speech) |
 | `arch-web.md` | BUILD | Web app architecture + config service pattern |
 | `arch-mobile.md` | BUILD | Mobile architecture + secure token handling |
 | `arch-api.md` | BUILD | API/microservice patterns + idempotency |
 | `arch-data-ml.md` | BUILD | Data/ML pipeline + config-driven pipelines |
 | `missing-pieces.md` | BUILD | Cost, multi-tenancy, caching, LLM, billing, i18n, security |
-| `testing-verification.md` | BUILD | Philosophy, action→reaction law, human journeys, coexistence matrix, templates for all stacks |
-| `multi-agent-architecture.md` | SCALE | Real agents, state schemas, orchestration frameworks |
+| `testing-verification.md` | BUILD | Philosophy, action→reaction law, human journeys, templates |
+| `production-ops.md` | DEPLOY | CI/CD, Docker, deployment strategies, disaster recovery |
+| `multi-agent-architecture.md` | SCALE | Context router, routing table, sub-agent prompts |
+| `platforms/*.md` | BUILD | Platform guides (NestJS, Next.js, PHP, Flutter, React Native, AI) |
 
 ### Reference File Decision Tree
 
-**First time? Start here:**
+**First decision on any project?**
+→ `decision-matrices.md` (architecture, DB, API, auth, hosting choices)
+
+**First time user?**
 → `communication-protocol.md` (how to ask questions, verify code)
 
 **Starting a new project?**
-→ `study-questions.md` → `market-research.md` → arch file for your type
+1. `decision-matrices.md` → make tech choices
+2. `audit-protocol.md` → create PROJECT_AUDIT.md
+3. `study-questions.md` → `journey-questions.md` → `market-research.md`
+4. Arch file for your type:
+   - Web app → `arch-web.md`
+   - Mobile → `arch-mobile.md`
+   - API/microservices → `arch-api.md`
+   - Data/ML → `arch-data-ml.md`
+
+**Working on existing code?**
+1. `audit-protocol.md` → create CODEBASE_AUDIT.md
+2. `gap-analysis.md` → score current state
+3. `git-workflow.md` → safe modification pattern
+
+**Designing database?**
+→ `database-patterns.md` (schema, indexing, optimization)
 
 **Designing UI?**
-→ `ux-ergonomics.md` + `diagrams-wireframes.md`
+→ `mockup-protocol.md` + `ux-ergonomics.md` + `diagrams-wireframes.md`
 
 **Writing code?**
-→ relevant arch file + `testing-verification.md`
+→ `git-workflow.md` + relevant arch file + `testing-verification.md`
 
-**Reviewing existing code?**
-→ `gap-analysis.md` first, then relevant arch file
+**Setting up observability?**
+→ `observability.md` (logging, metrics, tracing)
+
+**Platform-specific?**
+→ `platforms/nextjs.md`, `platforms/nestjs.md`, `platforms/flutter.md`, etc.
 
 **Adding paid services?**
 → `missing-pieces.md` (cost awareness section)
 
 **Building B2B/SaaS?**
-→ `missing-pieces.md` (multi-tenancy + monetisation)
+→ `missing-pieces.md` + `business-patterns.md`
+
+**Adding AI/LLM features?**
+→ `platforms/ai-integration.md`
+
+**Deploying to production?**
+→ `production-ops.md` (CI/CD, Docker, deployments, disaster recovery)
+
+**Using this skill with agents or multi-model?**
+→ `multi-agent-architecture.md` (routing table, sub-agent prompts, context budget)
+
+**Session ending?**
+→ `execution-model.md` (session state) + `developer-dna-template.md`
 
 ---
 
