@@ -71,6 +71,17 @@ export const finalStatesStates: Record<string, FlowState> = {
           },
           output: '_order_id_persisted',
         },
+        {
+          // Track successful checkout interaction for adaptive learning
+          id: 'record_checkout_interaction',
+          executor: 'adaptive',
+          config: {
+            action: 'record_interaction',
+            type: 'checkout',
+            metadata: {},
+          },
+          onError: 'continue',
+        },
       ],
       transitions: {},
     },
@@ -145,6 +156,17 @@ export const finalStatesStates: Record<string, FlowState> = {
           config: {
             message: 'No worries! Your order has been cancelled. Come back when you\'re hungry! 🍕',
           },
+        },
+        {
+          // Track abandonment interaction for adaptive learning
+          id: 'record_abandon_interaction',
+          executor: 'adaptive',
+          config: {
+            action: 'record_interaction',
+            type: 'abandon',
+            metadata: {},
+          },
+          onError: 'continue',
         },
       ],
       transitions: {},

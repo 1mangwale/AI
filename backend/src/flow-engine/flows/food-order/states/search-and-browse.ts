@@ -514,6 +514,17 @@ export const searchAndBrowseStates: Record<string, FlowState> = {
           onError: 'continue', // Non-blocking: continue if adaptive fails
         },
         {
+          // Track search interaction for adaptive learning
+          id: 'record_search_interaction',
+          executor: 'adaptive',
+          config: {
+            action: 'record_interaction',
+            type: 'search',
+            metadata: {},
+          },
+          onError: 'continue',
+        },
+        {
           id: 'display_items',
           executor: 'response',
           config: {

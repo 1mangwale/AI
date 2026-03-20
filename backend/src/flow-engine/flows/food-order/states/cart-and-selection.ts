@@ -584,6 +584,17 @@ Ask if they want to:
           },
           output: 'cart_update_result',
         },
+        {
+          // Track item selection interaction for adaptive learning
+          id: 'record_item_select_interaction',
+          executor: 'adaptive',
+          config: {
+            action: 'record_interaction',
+            type: 'item_select',
+            metadata: {},
+          },
+          onError: 'continue',
+        },
       ],
       transitions: {
         items_added: 'cart_add_success', // Successful add
