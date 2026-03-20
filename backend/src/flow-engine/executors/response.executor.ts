@@ -152,7 +152,10 @@ export class ResponseExecutor implements ActionExecutor {
 
       // WhatsApp Flow dispatch: if config has `flow` and user is on WhatsApp, send a Flow
       const flowConfig = config.flow as { flowId: string; flowType: string; ctaText?: string; body?: string; screen?: string; initialData?: any } | undefined;
-      if (flowConfig && this.waCloudService && this.waFlowTokenService) {
+      // Guard: skip WhatsApp Flow if flowId is empty (e.g., WA_FLOW_ADDRESS_ID not configured)
+      // This allows graceful fallback to text+buttons response with location sharing
+      const resolvedFlowId = flowConfig ? this.interpolate(flowConfig.flowId, context.data) : '';
+      if (flowConfig && resolvedFlowId && this.waCloudService && this.waFlowTokenService) {
         const phone = context.data?.phone || (context as any).phone || (context as any).identifier;
         if (phone) {
           const flowToken = await this.waFlowTokenService.generateToken(phone, flowConfig.flowType, {

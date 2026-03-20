@@ -363,10 +363,20 @@ export class OrderExecutor implements ActionExecutor {
       || session?.data?.zone_id;
 
     if (!senderZoneId) {
-      this.logger.warn('⚠️ sender_zone_id not available — PHP may reject the order');
+      this.logger.error('❌ sender_zone_id not available — cannot place parcel order without zone');
+      return {
+        success: false,
+        error: 'Could not verify your pickup location is in our service area. Please try sharing your location again.',
+        event: 'error',
+      };
     }
     if (!deliveryZoneId) {
-      this.logger.warn('⚠️ delivery_zone_id not available — PHP may reject the order');
+      this.logger.error('❌ delivery_zone_id not available — cannot place parcel order without zone');
+      return {
+        success: false,
+        error: 'Could not verify your delivery location is in our service area. Please try sharing your location again.',
+        event: 'error',
+      };
     }
 
     const orderResult = await this.phpOrderService.createOrder(authToken, {

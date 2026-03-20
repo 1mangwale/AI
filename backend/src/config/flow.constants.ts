@@ -75,6 +75,10 @@ export const FLOW_SWITCH_BLOCKED_STATES = [
   ...GREETING_CRITICAL_STATES,
   'collect_pickup_location', 'collect_delivery_location',
   'wait_pickup_address', 'wait_delivery_address',
+  // Parcel delivery flow states (parcel-delivery.flow.ts)
+  'collect_pickup', 'collect_delivery',
+  'wait_for_pickup', 'wait_for_delivery',
+  'await_flow_pickup', 'await_flow_delivery',
 ] as const;
 
 // ── Location-wait states ─────────────────────────────────────────────────────
@@ -84,4 +88,8 @@ export const LOCATION_WAIT_STATES = [
   'wait_address_label', 'validate_address',
   'collect_pickup_location', 'collect_delivery_location',
   'wait_pickup_address', 'wait_delivery_address',
+  // Parcel delivery flow states (parcel-delivery.flow.ts)
+  'collect_pickup', 'collect_delivery',
+  'wait_for_pickup', 'wait_for_delivery',
+  'await_flow_pickup', 'await_flow_delivery',
 ] as const;

@@ -815,6 +815,7 @@ Output: {"address": null, "landmark": null, "confidence": 0.0, "needs_clarificat
    * Reverse geocode coordinates to get address text
    */
   private async reverseGeocode(lat: number, lng: number): Promise<string | null> {
+    // Try PHP backend first (proxies Google Geocoding API)
     try {
       const response = await firstValueFrom(
         this.httpService.get(`${this.phpBackendUrl}/api/v1/config/geocode-api`, {
@@ -823,23 +824,39 @@ Output: {"address": null, "landmark": null, "confidence": 0.0, "needs_clarificat
             moduleid: '3',
             zoneid: '1',
           },
+          timeout: 5000, // 5s timeout — don't block flow on slow geocoding
         }),
       );
 
-      // API returns { results: [{ formatted_address: "..." }, ...], status: "OK" }
       const data = response.data;
-      
-      // Try to get from results array first (Google geocode format)
       if (data?.results && data.results.length > 0) {
         return data.results[0].formatted_address || null;
       }
-      
-      // Fallback to direct formatted_address
       return data?.formatted_address || null;
     } catch (error) {
-      this.logger.error(`Reverse geocoding failed: ${error.message}`);
-      return null;
+      this.logger.warn(`PHP reverse geocoding failed (${error.message}), trying Google Maps fallback`);
     }
+
+    // Fallback: Direct Google Maps Geocoding API
+    const googleApiKey = this.configService.get<string>('GOOGLE_MAPS_API_KEY');
+    if (googleApiKey) {
+      try {
+        const response = await firstValueFrom(
+          this.httpService.get('https://maps.googleapis.com/maps/api/geocode/json', {
+            params: { latlng: `${lat},${lng}`, key: googleApiKey },
+            timeout: 5000,
+          }),
+        );
+        const data = response.data;
+        if (data?.status === 'OK' && data.results?.length > 0) {
+          return data.results[0].formatted_address || null;
+        }
+      } catch (fallbackError) {
+        this.logger.error(`Google Maps reverse geocoding also failed: ${fallbackError.message}`);
+      }
+    }
+
+    return null;
   }
 
   /**

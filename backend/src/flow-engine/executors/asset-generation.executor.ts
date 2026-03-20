@@ -87,6 +87,7 @@ export class AssetGenerationExecutor implements ActionExecutor {
         ],
         temperature: 0.8,
         max_tokens: 300,
+        chat_template_kwargs: { enable_thinking: false },
       }),
     });
 

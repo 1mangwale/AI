@@ -832,7 +832,11 @@ export class AddressExecutor implements ActionExecutor {
       // Step 3: Check for location share from session
       // IMPORTANT: Only consume session location when the user explicitly shared location.
       // Otherwise we can accidentally reuse a previous location (e.g., pickup) for delivery.
-      const wantsLocationShare = !userMessage || userMessage === '__LOCATION__';
+      // Match location shares from all channels:
+      // - Web: '__LOCATION__' (button click)
+      // - WhatsApp: 'LOCATION:19.959,73.768' (GPS share via webhook)
+      // - Empty: no user message (location auto-detected)
+      const wantsLocationShare = !userMessage || userMessage === '__LOCATION__' || userMessage.startsWith('LOCATION:');
       if (wantsLocationShare && session?.data?.location && session.data.lastLocationUpdate) {
         const locationAge = Date.now() - session.data.lastLocationUpdate;
 
