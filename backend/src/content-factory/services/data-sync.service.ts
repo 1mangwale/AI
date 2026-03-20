@@ -358,6 +358,34 @@ export class DataSyncService implements OnModuleInit {
   }
 
   // ---------------------------------------------------------------------------
+  // Backfill metrics for a date range
+  // ---------------------------------------------------------------------------
+
+  async backfillMetrics(startDate: string, endDate: string): Promise<{ daysProcessed: number; totalOrders: number }> {
+    this.logger.log(`Backfilling metrics from ${startDate} to ${endDate}`);
+    let daysProcessed = 0;
+    let totalOrders = 0;
+
+    const current = new Date(startDate);
+    const end = new Date(endDate);
+
+    while (current <= end) {
+      const dateStr = current.toISOString().slice(0, 10);
+      try {
+        const result = await this.syncDailyMetrics(dateStr);
+        totalOrders += result.totalOrders;
+        daysProcessed++;
+      } catch (error: any) {
+        this.logger.warn(`Backfill failed for ${dateStr}: ${error.message}`);
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    this.logger.log(`Backfill complete: ${daysProcessed} days processed, ${totalOrders} total orders`);
+    return { daysProcessed, totalOrders };
+  }
+
+  // ---------------------------------------------------------------------------
   // Read helpers
   // ---------------------------------------------------------------------------
 

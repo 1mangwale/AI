@@ -19,6 +19,9 @@ import { NluTrainingDataService } from '../nlu/services/nlu-training-data.servic
 import { DataSyncService } from '../content-factory/services/data-sync.service';
 import { ContentService } from '../content-factory/services/content.service';
 import { HookService } from '../content-factory/services/hook.service';
+import { PublishingService } from '../content-factory/services/publishing.service';
+import { AnalyticsCollectorService } from '../content-factory/services/analytics-collector.service';
+import { LearningEngineService } from '../content-factory/services/learning-engine.service';
 
 export interface SchedulerJob {
   jobName: string;
@@ -57,8 +60,11 @@ const JOB_DEFINITIONS: JobDefinition[] = [
   { jobName: 'nlu_auto_augment', cronExpression: '0 5 * * 1', defaultEnabled: true, description: 'Generate synthetic training data for weak intents (weekly Mon 5AM)' },
   { jobName: 'nlu_drift_detection', cronExpression: '0 6 * * *', defaultEnabled: true, description: 'Detect NLU confidence drift week-over-week (daily 6AM)' },
   { jobName: 'sync_business_data', cronExpression: '0 5 * * *', defaultEnabled: true, description: 'Sync business metrics from PHP MySQL (daily 5AM)' },
-  { jobName: 'generate_daily_content', cronExpression: '0 6 * * *', defaultEnabled: false, description: 'Auto-generate daily content pieces (daily 6AM)' },
+  { jobName: 'generate_daily_content', cronExpression: '0 6 * * *', defaultEnabled: true, description: 'Auto-generate daily content pieces (daily 6AM)' },
   { jobName: 'decay_hook_freshness', cronExpression: '0 3 * * *', defaultEnabled: true, description: 'Decay trending hook freshness scores (daily 3AM)' },
+  { jobName: 'publish_scheduled_content', cronExpression: '*/15 * * * *', defaultEnabled: true, description: 'Publish scheduled content due now (every 15 min)' },
+  { jobName: 'collect_post_analytics', cronExpression: '0 10,22 * * *', defaultEnabled: true, description: 'Collect post analytics from social platforms (10AM/10PM)' },
+  { jobName: 'analyze_content_performance', cronExpression: '0 7 * * 1', defaultEnabled: true, description: 'Analyze content performance and generate learnings (weekly Mon 7AM)' },
 ];
 
 @Injectable()
@@ -85,6 +91,9 @@ export class SchedulerService implements OnModuleInit {
     private readonly dataSync: DataSyncService,
     private readonly contentService: ContentService,
     private readonly hookService: HookService,
+    private readonly publishingService: PublishingService,
+    private readonly analyticsCollector: AnalyticsCollectorService,
+    private readonly learningEngine: LearningEngineService,
   ) {}
 
   async onModuleInit() {
@@ -356,6 +365,50 @@ export class SchedulerService implements OnModuleInit {
     });
   }
 
+  @Cron('*/15 * * * *', { name: 'publish_scheduled_content' })
+  async cronPublishScheduledContent() {
+    await this.executeJob('publish_scheduled_content', async () => {
+      const duePieces = await this.publishingService.getScheduledContentDueNow();
+      let published = 0;
+      let failed = 0;
+
+      for (const piece of duePieces) {
+        try {
+          const result = await this.publishingService.publishContent(
+            piece.id,
+            piece.platform,
+            piece.content_json,
+            piece.content_type,
+          );
+          if (result.status === 'published' || result.status === 'draft_ready') {
+            published++;
+          } else {
+            failed++;
+          }
+        } catch (error: any) {
+          this.logger.warn(`Failed to publish ${piece.id}: ${error.message}`);
+          failed++;
+        }
+      }
+
+      return { total: duePieces.length, published, failed };
+    });
+  }
+
+  @Cron('0 10,22 * * *', { name: 'collect_post_analytics' })
+  async cronCollectPostAnalytics() {
+    await this.executeJob('collect_post_analytics', async () => {
+      return this.analyticsCollector.collectAllPostedContent();
+    });
+  }
+
+  @Cron('0 7 * * 1', { name: 'analyze_content_performance' })
+  async cronAnalyzeContentPerformance() {
+    await this.executeJob('analyze_content_performance', async () => {
+      return this.learningEngine.analyzePerformance();
+    });
+  }
+
   // ─── Job Execution Engine ─────────────────────────────────────
 
   private async executeJob(jobName: string, fn: () => Promise<any>): Promise<any> {
@@ -517,6 +570,25 @@ export class SchedulerService implements OnModuleInit {
       },
       decay_hook_freshness: async () => {
         return this.hookService.decayFreshness();
+      },
+      publish_scheduled_content: async () => {
+        const duePieces = await this.publishingService.getScheduledContentDueNow();
+        let published = 0;
+        let failed = 0;
+        for (const piece of duePieces) {
+          try {
+            const result = await this.publishingService.publishContent(piece.id, piece.platform, piece.content_json, piece.content_type);
+            if (result.status === 'published' || result.status === 'draft_ready') published++;
+            else failed++;
+          } catch { failed++; }
+        }
+        return { total: duePieces.length, published, failed };
+      },
+      collect_post_analytics: async () => {
+        return this.analyticsCollector.collectAllPostedContent();
+      },
+      analyze_content_performance: async () => {
+        return this.learningEngine.analyzePerformance();
       },
     };
 

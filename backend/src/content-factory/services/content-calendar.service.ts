@@ -9,6 +9,7 @@ import {
   ContentPlatform,
   ContentType,
 } from '../interfaces/content-factory.interfaces';
+import { LearningEngineService } from './learning-engine.service';
 
 @Injectable()
 export class ContentCalendarService implements OnModuleInit {
@@ -61,7 +62,10 @@ export class ContentCalendarService implements OnModuleInit {
     google_ads: 1,
   };
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly learningEngine: LearningEngineService,
+  ) {}
 
   async onModuleInit() {
     const databaseUrl = this.config.get('DATABASE_URL') ||
@@ -160,6 +164,22 @@ export class ContentCalendarService implements OnModuleInit {
   }
 
   async getOptimalTimes(platform: string, dayOfWeek?: number): Promise<TimeSlot[]> {
+    // Try data-driven optimal times from learning engine
+    try {
+      const dataDriven = await this.learningEngine.getOptimalPostingSchedule(platform);
+      if (dataDriven.length > 0 && dataDriven[0].sampleCount > 0) {
+        return dataDriven.map(d => ({
+          hour: d.hour,
+          label: `${d.hour > 12 ? d.hour - 12 : d.hour}:00 ${d.hour >= 12 ? 'PM' : 'AM'}`,
+          platform: platform as ContentPlatform,
+          reason: `Data-driven: ${d.avgEngagement.toFixed(2)}% avg engagement (${d.sampleCount} posts)`,
+        }));
+      }
+    } catch (e: any) {
+      this.logger.warn(`Failed to get data-driven optimal times: ${e.message}`);
+    }
+
+    // Fallback to hardcoded times
     return ContentCalendarService.OPTIMAL_TIMES[platform] || [];
   }
 

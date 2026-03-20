@@ -5,11 +5,34 @@ import { ContentGeneratorService } from './services/content-generator.service';
 import { ContentService } from './services/content.service';
 import { DataSyncService } from './services/data-sync.service';
 import { ContentCalendarService } from './services/content-calendar.service';
+import { PublishingService } from './services/publishing.service';
+import { AnalyticsCollectorService } from './services/analytics-collector.service';
+import { LearningEngineService } from './services/learning-engine.service';
 import { ContentFactoryController } from './controllers/content-factory.controller';
 
 @Module({
-  providers: [PromptService, HookService, ContentGeneratorService, ContentService, DataSyncService, ContentCalendarService],
+  providers: [
+    PromptService,
+    HookService,
+    ContentGeneratorService,
+    ContentService,
+    DataSyncService,
+    ContentCalendarService,
+    PublishingService,
+    AnalyticsCollectorService,
+    LearningEngineService,
+  ],
   controllers: [ContentFactoryController],
-  exports: [ContentService, ContentGeneratorService, HookService, PromptService, DataSyncService, ContentCalendarService],
+  exports: [
+    ContentService,
+    ContentGeneratorService,
+    HookService,
+    PromptService,
+    DataSyncService,
+    ContentCalendarService,
+    PublishingService,
+    AnalyticsCollectorService,
+    LearningEngineService,
+  ],
 })
 export class ContentFactoryModule {}

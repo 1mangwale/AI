@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { PromptService } from './prompt.service';
 import { HookService } from './hook.service';
 import { DataSyncService } from './data-sync.service';
+import { LearningEngineService } from './learning-engine.service';
 import {
   ContentGenerationRequest,
   ContentGenerationResult,
@@ -21,6 +22,7 @@ export class ContentGeneratorService {
     private readonly promptService: PromptService,
     private readonly hookService: HookService,
     private readonly dataSyncService: DataSyncService,
+    private readonly learningEngine: LearningEngineService,
   ) {
     const apiKey = this.config.get('ANTHROPIC_API_KEY');
     if (apiKey) {
@@ -59,7 +61,21 @@ export class ContentGeneratorService {
       hook = await this.hookService.suggestHook(request.platform);
     }
 
-    // 3. Interpolate user prompt template
+    // 3. Enrich with performance learnings
+    let additionalInstructions = request.additionalInstructions || '';
+    try {
+      const learningInsights = await this.learningEngine.enrichPromptWithLearnings(
+        request.contentType,
+        request.platform,
+      );
+      if (learningInsights) {
+        additionalInstructions = additionalInstructions + learningInsights;
+      }
+    } catch (e: any) {
+      this.logger.warn(`Failed to enrich with learnings: ${e.message}`);
+    }
+
+    // 4. Interpolate user prompt template
     const templateVars: Record<string, string> = {
       hook: hook?.hookText || '',
       business_data: request.businessData
@@ -67,24 +83,20 @@ export class ContentGeneratorService {
         : 'No specific data available',
       tone: request.tone || 'engaging',
       language: request.language || 'English',
-      additional: request.additionalInstructions || '',
+      additional: additionalInstructions,
       vertical: 'all',
     };
     const userPrompt = this.interpolateTemplate(prompt.userPromptTemplate, templateVars);
 
-    // 4. Route to provider based on content type
-    const provider: ContentProvider = request.contentType === 'ad_copy' ? 'vllm' : 'claude';
+    // 4. Route to provider — vLLM first for all types, Claude as fallback
+    const provider: ContentProvider = 'vllm';
     let result: { content: string; costInr: number };
 
     this.logger.log(
-      `Generating ${request.contentType} for ${request.platform} via ${provider}`,
+      `Generating ${request.contentType} for ${request.platform} via ${provider} (Claude fallback ${this.anthropic ? 'available' : 'unavailable'})`,
     );
 
-    if (provider === 'vllm') {
-      result = await this.callVllm(prompt.systemPrompt, userPrompt);
-    } else {
-      result = await this.callClaude(prompt.systemPrompt, userPrompt);
-    }
+    result = await this.callVllm(prompt.systemPrompt, userPrompt);
 
     // 5. Record hook usage if one was used
     if (hook) {
@@ -158,7 +170,7 @@ export class ContentGeneratorService {
             { role: 'user', content: userPrompt },
           ],
           temperature: 0.7,
-          max_tokens: 1000,
+          max_tokens: 2048,
         }),
       });
 
@@ -172,10 +184,16 @@ export class ContentGeneratorService {
 
       return { content, costInr: 0 };
     } catch (error: any) {
-      this.logger.warn(
-        `vLLM call failed (${error.message}), falling back to Claude`,
+      if (this.anthropic) {
+        this.logger.warn(
+          `vLLM call failed (${error.message}), falling back to Claude`,
+        );
+        return this.callClaude(systemPrompt, userPrompt, 2048);
+      }
+      this.logger.error(
+        `vLLM call failed and ANTHROPIC_API_KEY not set — no fallback available: ${error.message}`,
       );
-      return this.callClaude(systemPrompt, userPrompt, 1000);
+      throw new Error(`Content generation failed: vLLM unavailable and no Claude fallback configured`);
     }
   }
 

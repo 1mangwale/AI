@@ -4,6 +4,9 @@ import { PromptService } from '../services/prompt.service';
 import { HookService } from '../services/hook.service';
 import { DataSyncService } from '../services/data-sync.service';
 import { ContentCalendarService } from '../services/content-calendar.service';
+import { PublishingService } from '../services/publishing.service';
+import { AnalyticsCollectorService } from '../services/analytics-collector.service';
+import { LearningEngineService } from '../services/learning-engine.service';
 import { ContentGenerationRequest } from '../interfaces/content-factory.interfaces';
 
 @Controller('mos/content-factory')
@@ -16,6 +19,9 @@ export class ContentFactoryController {
     private readonly hookService: HookService,
     private readonly dataSyncService: DataSyncService,
     private readonly calendarService: ContentCalendarService,
+    private readonly publishingService: PublishingService,
+    private readonly analyticsCollector: AnalyticsCollectorService,
+    private readonly learningEngine: LearningEngineService,
   ) {}
 
   // --- Content ---
@@ -245,6 +251,16 @@ export class ContentFactoryController {
     }
   }
 
+  @Post('sync/backfill')
+  async backfillMetrics(@Body() body: { startDate: string; endDate: string }) {
+    try {
+      return await this.dataSyncService.backfillMetrics(body.startDate, body.endDate);
+    } catch (e: any) {
+      this.logger.error(`Backfill metrics failed: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
   @Post('sync/all')
   async syncAll() {
     try {
@@ -292,6 +308,144 @@ export class ContentFactoryController {
     try {
       return await this.dataSyncService.getBusinessContext();
     } catch (e: any) {
+      return { error: e.message };
+    }
+  }
+
+  // ---- Publishing ----
+
+  @Post('content/:id/publish')
+  async publishContent(
+    @Param('id') id: string,
+    @Body() body: { platform: string },
+  ) {
+    try {
+      const content = await this.contentService.getById(id);
+      if (!content) {
+        return { error: `Content piece ${id} not found` };
+      }
+      const platform = body.platform || content.platform;
+      return await this.publishingService.publishContent(
+        id,
+        platform,
+        content.contentJson,
+        content.contentType,
+      );
+    } catch (e: any) {
+      this.logger.error(`Publish content ${id} failed: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
+  @Get('content/:id/publish-status')
+  async getPublishStatus(@Param('id') id: string) {
+    try {
+      return await this.publishingService.getPublishStatus(id);
+    } catch (e: any) {
+      this.logger.error(`Get publish status for ${id} failed: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
+  // ---- Analytics ----
+
+  @Get('analytics/summary')
+  async getAnalyticsSummary() {
+    try {
+      return await this.analyticsCollector.getSummary();
+    } catch (e: any) {
+      this.logger.error(`Get analytics summary failed: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
+  @Get('analytics/top-performing')
+  async getTopPerforming(
+    @Query('platform') platform?: string,
+    @Query('metric') metric?: string,
+    @Query('limit') limit?: string,
+  ) {
+    try {
+      return await this.analyticsCollector.getTopPerforming(platform, metric, limit ? parseInt(limit) : undefined);
+    } catch (e: any) {
+      this.logger.error(`Get top performing failed: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
+  @Get('analytics/:contentId')
+  async getAnalytics(@Param('contentId') contentId: string) {
+    try {
+      return await this.analyticsCollector.getAnalytics(contentId);
+    } catch (e: any) {
+      this.logger.error(`Get analytics for ${contentId} failed: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
+  @Post('analytics/:contentId/manual')
+  async manualAnalyticsEntry(
+    @Param('contentId') contentId: string,
+    @Body() body: {
+      platform: string;
+      impressions?: number;
+      reach?: number;
+      likes?: number;
+      comments?: number;
+      shares?: number;
+      saves?: number;
+      clicks?: number;
+      videoViews?: number;
+      avgWatchTimeSec?: number;
+    },
+  ) {
+    try {
+      const { platform, ...metrics } = body;
+      return await this.analyticsCollector.manualEntry(contentId, platform, metrics);
+    } catch (e: any) {
+      this.logger.error(`Manual analytics entry for ${contentId} failed: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
+  // ---- Learning Engine ----
+
+  @Get('learnings')
+  async getLearnings(@Query('limit') limit?: string) {
+    try {
+      return await this.learningEngine.getLearnings(limit ? parseInt(limit) : undefined);
+    } catch (e: any) {
+      this.logger.error(`Get learnings failed: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
+  @Get('learnings/strategy')
+  async getContentStrategy() {
+    try {
+      return await this.learningEngine.suggestContentStrategy();
+    } catch (e: any) {
+      this.logger.error(`Get content strategy failed: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
+  @Get('learnings/optimal-schedule')
+  async getOptimalSchedule(@Query('platform') platform: string) {
+    try {
+      return await this.learningEngine.getOptimalPostingSchedule(platform || 'instagram');
+    } catch (e: any) {
+      this.logger.error(`Get optimal schedule failed: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
+  @Post('learnings/analyze')
+  async analyzePerformance() {
+    try {
+      return await this.learningEngine.analyzePerformance();
+    } catch (e: any) {
+      this.logger.error(`Analyze performance failed: ${e.message}`);
       return { error: e.message };
     }
   }
