@@ -134,6 +134,19 @@ export class MetricsService {
   /** Self-learning actions counter */
   public readonly selfLearningActions: client.Counter<string>;
 
+  // ═══════════════════════════════════════════════════════════════
+  // PERSONALIZATION METRICS
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Profile completeness distribution histogram */
+  public readonly profileCompletenessDistribution: client.Histogram<string>;
+
+  /** Preference signals extracted counter */
+  public readonly preferenceSignalsExtracted: client.Counter<string>;
+
+  /** Enrichment runs counter */
+  public readonly enrichmentRuns: client.Counter<string>;
+
   constructor() {
     this.register = new client.Registry();
 
@@ -353,6 +366,28 @@ export class MetricsService {
       name: 'mangwale_self_learning_actions_total',
       help: 'Self-learning actions counter',
       labelNames: ['action'],
+      registers: [this.register],
+    });
+
+    // Personalization metrics
+    this.profileCompletenessDistribution = new client.Histogram({
+      name: 'mangwale_profile_completeness_distribution',
+      help: 'Distribution of user profile completeness scores',
+      buckets: [10, 25, 50, 75, 90, 100],
+      registers: [this.register],
+    });
+
+    this.preferenceSignalsExtracted = new client.Counter({
+      name: 'mangwale_preference_signals_extracted_total',
+      help: 'Total preference signals extracted from various sources',
+      labelNames: ['source'],
+      registers: [this.register],
+    });
+
+    this.enrichmentRuns = new client.Counter({
+      name: 'mangwale_enrichment_runs_total',
+      help: 'Total profile enrichment runs by trigger type',
+      labelNames: ['type'],
       registers: [this.register],
     });
 
@@ -596,5 +631,25 @@ export class MetricsService {
 
   recordSelfLearningAction(action: string) {
     this.selfLearningActions.labels(action).inc();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PERSONALIZATION CONVENIENCE METHODS
+  // ═══════════════════════════════════════════════════════════════
+
+  recordProfileCompleteness(score: number) {
+    this.profileCompletenessDistribution.observe(score);
+  }
+
+  recordPreferenceSignalExtracted(source: string) {
+    this.preferenceSignalsExtracted.labels(source).inc();
+  }
+
+  recordPreferenceSignalsExtracted(source: string, count: number) {
+    this.preferenceSignalsExtracted.labels(source).inc(count);
+  }
+
+  recordEnrichmentRun(type: 'login' | 'scheduled' | 'batch_llm') {
+    this.enrichmentRuns.labels(type).inc();
   }
 }

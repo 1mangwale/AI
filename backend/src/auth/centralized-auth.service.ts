@@ -5,6 +5,7 @@ import { PhpAuthService } from '../php-integration/services/php-auth.service';
 import { normalizePhoneNumber } from '../common/utils/helpers';
 import { PrismaService } from '../database/prisma.service';
 import { UserProfilingService } from '../personalization/user-profiling.service';
+import { MetricsService } from '../metrics/metrics.service';
 import { REDIS_CLIENT, REDIS_PUBLISHER } from '../redis/redis.module';
 
 export interface AuthenticatedUser {
@@ -53,6 +54,7 @@ export class CentralizedAuthService {
     private readonly phpAuthService: PhpAuthService,
     private readonly prisma: PrismaService,
     private readonly profileEnrichment: UserProfilingService,
+    private readonly metricsService: MetricsService,
   ) {
     this.logger.log('✅ Centralized Auth Service initialized with shared Redis, PostgreSQL sync & profile enrichment');
   }
@@ -209,6 +211,7 @@ export class CentralizedAuthService {
 
       // 📊 CRITICAL: Enrich user profile with order history from MySQL
       // This runs async to not block login, but builds comprehensive profile
+      this.metricsService.recordEnrichmentRun('login');
       this.profileEnrichment.enrichUserProfile({
         userId: userData.userId,
         phone,

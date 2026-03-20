@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PreferenceSignal } from './preference-signal.interface';
+import { MetricsService } from '../metrics/metrics.service';
 
 /**
  * NLU Preference Extractor
@@ -15,6 +16,8 @@ import { PreferenceSignal } from './preference-signal.interface';
 @Injectable()
 export class NluPreferenceExtractorService {
   private readonly logger = new Logger(NluPreferenceExtractorService.name);
+
+  constructor(private readonly metricsService: MetricsService) {}
 
   // ── Allergen vocabulary ──────────────────────────────────────────────
   private static readonly ALLERGENS = [
@@ -57,6 +60,11 @@ export class NluPreferenceExtractorService {
     this.extractFavorites(entityMap, message, signals);
 
     if (signals.length > 0) {
+      // Record metrics for each extracted signal
+      for (const signal of signals) {
+        this.metricsService.recordPreferenceSignalExtracted(signal.source);
+      }
+
       this.logger.debug(
         `Extracted ${signals.length} preference signal(s): ${signals.map(s => `${s.key}=${JSON.stringify(s.value)}`).join(', ')}`,
       );

@@ -3,6 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../database/prisma.service';
 import { UserProfilingService } from './user-profiling.service';
 import { ProgressiveProfileService } from './progressive-profile.service';
+import { ConversationAnalyzerService } from './conversation-analyzer.service';
+import { MetricsService } from '../metrics/metrics.service';
 
 /**
  * Profile Enrichment Scheduler
@@ -25,10 +27,14 @@ export class ProfileEnrichmentScheduler {
   private readonly logger = new Logger(ProfileEnrichmentScheduler.name);
   private isRunning = false;
 
+  private isBatchRunning = false;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly enrichmentService: UserProfilingService,
     private readonly progressiveProfile: ProgressiveProfileService,
+    private readonly conversationAnalyzer: ConversationAnalyzerService,
+    private readonly metricsService: MetricsService,
   ) {
     this.logger.log('✅ ProfileEnrichmentScheduler initialized');
   }
@@ -83,6 +89,8 @@ export class ProfileEnrichmentScheduler {
         return;
       }
 
+      this.metricsService.recordEnrichmentRun('scheduled');
+
       // Enrich each profile
       let successCount = 0;
       let failCount = 0;
@@ -116,6 +124,169 @@ export class ProfileEnrichmentScheduler {
       this.logger.error(`Scheduled enrichment failed: ${error.message}`);
     } finally {
       this.isRunning = false;
+    }
+  }
+
+  /**
+   * Cron job: Runs at 2 AM daily to batch-analyze conversations
+   * for users with incomplete profiles using LLM (vLLM).
+   */
+  @Cron('0 2 * * *')
+  async batchAnalyzeConversations(): Promise<void> {
+    if (this.isBatchRunning) {
+      this.logger.warn('Batch analysis already running, skipping...');
+      return;
+    }
+
+    this.isBatchRunning = true;
+    const startTime = Date.now();
+
+    try {
+      this.logger.log('Starting batch conversation analysis...');
+      this.metricsService.recordEnrichmentRun('batch_llm');
+
+      // 1. Find users with incomplete profiles that haven't been analyzed recently
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const eligibleProfiles = await this.prisma.user_profiles.findMany({
+        where: {
+          profile_completeness: { lt: 50 },
+          OR: [
+            { last_conversation_analyzed: null },
+            { last_conversation_analyzed: { lt: sevenDaysAgo } },
+          ],
+        },
+        select: {
+          user_id: true,
+          phone: true,
+        },
+        take: 100, // Control GPU cost per night
+      });
+
+      this.logger.log(`Found ${eligibleProfiles.length} eligible profiles for batch analysis`);
+
+      if (eligibleProfiles.length === 0) {
+        this.logger.log('No eligible profiles for batch analysis');
+        return;
+      }
+
+      let successCount = 0;
+      let failCount = 0;
+      const batchSize = 20;
+
+      // 2. Process in batches of 20
+      for (let i = 0; i < eligibleProfiles.length; i += batchSize) {
+        const batch = eligibleProfiles.slice(i, i + batchSize);
+
+        for (const profile of batch) {
+          try {
+            // 2a. Fetch last 24h of conversation messages
+            const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const messages = await this.prisma.conversationMessage.findMany({
+              where: {
+                userId: String(profile.user_id),
+                createdAt: { gte: oneDayAgo },
+              },
+              select: {
+                role: true,
+                content: true,
+                sender: true,
+                message: true,
+                messageText: true,
+              },
+              orderBy: { createdAt: 'asc' },
+              take: 50, // Cap messages per user
+            });
+
+            // 2b. Skip if no recent messages
+            if (messages.length === 0) {
+              // Still update timestamp so we don't re-check daily
+              await this.prisma.user_profiles.update({
+                where: { user_id: profile.user_id },
+                data: { last_conversation_analyzed: new Date() },
+              });
+              continue;
+            }
+
+            // Normalize messages to { role, content } format
+            const conversationHistory = messages.map((m) => ({
+              role: m.role || m.sender || 'user',
+              content: m.content || m.message || m.messageText || '',
+            })).filter((m) => m.content.length > 0);
+
+            if (conversationHistory.length === 0) {
+              await this.prisma.user_profiles.update({
+                where: { user_id: profile.user_id },
+                data: { last_conversation_analyzed: new Date() },
+              });
+              continue;
+            }
+
+            // 2c. Call ConversationAnalyzerService
+            const analysis = await this.conversationAnalyzer.analyzeConversation({
+              userId: profile.user_id,
+              phone: profile.phone || '',
+              conversationHistory,
+            });
+
+            // 2d. Update user_profiles with results
+            const updateData: any = {
+              last_conversation_analyzed: new Date(),
+            };
+
+            if (analysis.personality_traits) {
+              updateData.personality_traits = analysis.personality_traits;
+            }
+
+            if (analysis.communication_style?.tone) {
+              updateData.communication_tone = analysis.communication_style.tone.substring(0, 20);
+            }
+
+            await this.prisma.user_profiles.update({
+              where: { user_id: profile.user_id },
+              data: updateData,
+            });
+
+            successCount++;
+
+            // 2e. Log progress every 10 users
+            if (successCount % 10 === 0) {
+              this.logger.debug(`Batch analysis progress: ${successCount} users analyzed`);
+            }
+          } catch (error) {
+            // Per-user try/catch so one failure doesn't stop the batch
+            this.logger.error(
+              `Batch analysis failed for user ${profile.user_id}: ${error.message}`,
+            );
+
+            // Still update timestamp to avoid retrying immediately
+            try {
+              await this.prisma.user_profiles.update({
+                where: { user_id: profile.user_id },
+                data: { last_conversation_analyzed: new Date() },
+              });
+            } catch (_) {
+              // ignore update failure
+            }
+
+            failCount++;
+          }
+        }
+
+        // Small delay between batches to avoid GPU overload
+        if (i + batchSize < eligibleProfiles.length) {
+          await this.sleep(2000); // 2s between batches of 20
+        }
+      }
+
+      // 3. Log summary
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+      this.logger.log(
+        `Batch analysis complete: ${successCount} users analyzed, ${failCount} failed (${duration}s)`,
+      );
+    } catch (error) {
+      this.logger.error(`Batch conversation analysis failed: ${error.message}`);
+    } finally {
+      this.isBatchRunning = false;
     }
   }
 
