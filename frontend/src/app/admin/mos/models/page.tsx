@@ -380,7 +380,7 @@ export default function ModelOrchestraPage() {
           <div className="border rounded-lg p-4 bg-gray-50">
             <div className="flex justify-between text-xs text-gray-500 mb-2">
               <span>Model: {testResult.model} | Provider: {testResult.provider}</span>
-              <span>{testResult.processingTimeMs}ms | {testResult.usage.totalTokens} tokens | ${testResult.estimatedCost.toFixed(6)}</span>
+              <span>{testResult.processingTimeMs}ms | {testResult.usage.totalTokens} tokens | ${(testResult.estimatedCost ?? 0).toFixed(6)}</span>
             </div>
             <p className="text-sm text-gray-800 whitespace-pre-wrap">{testResult.content}</p>
           </div>

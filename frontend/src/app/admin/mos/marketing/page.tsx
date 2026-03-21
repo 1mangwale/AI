@@ -264,7 +264,7 @@ export default function MarketingCommandPage() {
           <OverviewCard
             icon={<Percent size={22} />}
             label="Avg ROI"
-            value={`${(overview.avgROI * 100).toFixed(1)}%`}
+            value={`${((overview.avgROI ?? 0) * 100).toFixed(1)}%`}
             color="purple"
           />
           <OverviewCard
@@ -529,7 +529,7 @@ function SocialTrendsTab({
                         />
                       </svg>
                       <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-gray-900">
-                        {(trend.relevanceScore * 100).toFixed(0)}
+                        {((trend.relevanceScore ?? 0) * 100).toFixed(0)}
                       </span>
                     </div>
                   </div>

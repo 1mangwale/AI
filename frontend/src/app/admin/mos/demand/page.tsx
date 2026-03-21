@@ -327,11 +327,11 @@ function ForecastTab({
         <SmallCard label="Total Actual" value={String(totalActual)} />
         <SmallCard
           label="Avg Confidence"
-          value={`${(avgConfidence * 100).toFixed(1)}%`}
+          value={`${((avgConfidence ?? 0) * 100).toFixed(1)}%`}
         />
         <SmallCard
           label="Avg Accuracy"
-          value={`${(avgAccuracy * 100).toFixed(1)}%`}
+          value={`${((avgAccuracy ?? 0) * 100).toFixed(1)}%`}
         />
       </div>
 
@@ -347,7 +347,7 @@ function ForecastTab({
                 key={f.hour}
                 className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-medium"
               >
-                {f.hour}:00 -- {f.weatherMultiplier.toFixed(2)}x
+                {f.hour}:00 -- {(f.weatherMultiplier ?? 0).toFixed(2)}x
               </span>
             ))}
           </div>
@@ -445,7 +445,7 @@ function ForecastTab({
                   style={{ opacity: 0.4 + conf * 0.6 }}
                 />
                 <div className="hidden group-hover:block absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-10">
-                  {f.hour}:00 -- {f.predictedOrders} orders, {(conf * 100).toFixed(0)}% conf
+                  {f.hour}:00 -- {f.predictedOrders} orders, {((conf ?? 0) * 100).toFixed(0)}% conf
                 </div>
                 <p className="text-[8px] text-gray-400 text-center mt-0.5">
                   {f.hour}

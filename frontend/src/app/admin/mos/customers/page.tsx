@@ -270,7 +270,7 @@ export default function CustomerIntelligencePage() {
                       </span>
                     </td>
                     <td className={`px-4 py-3 text-right font-bold ${getChurnColor(c.churnRisk)}`}>
-                      {(c.churnRisk * 100).toFixed(0)}%
+                      {((c.churnRisk ?? 0) * 100).toFixed(0)}%
                     </td>
                     <td className={`px-4 py-3 text-right font-bold ${getHealthColor(c.healthScore)}`}>
                       {c.healthScore}
@@ -350,9 +350,9 @@ export default function CustomerIntelligencePage() {
                   </td>
                   <td className="px-4 py-3 font-mono text-gray-500">{c.rfmScore || '-'}</td>
                   <td className={`px-4 py-3 text-right font-bold ${getHealthColor(c.healthScore)}`}>{c.healthScore}</td>
-                  <td className={`px-4 py-3 text-right font-bold ${getChurnColor(c.churnRisk)}`}>{(c.churnRisk * 100).toFixed(0)}%</td>
+                  <td className={`px-4 py-3 text-right font-bold ${getChurnColor(c.churnRisk)}`}>{((c.churnRisk ?? 0) * 100).toFixed(0)}%</td>
                   <td className="px-4 py-3 text-right">Rs {c.ltvPredicted}</td>
-                  <td className="px-4 py-3 text-right">Rs {c.avgOrderValue.toFixed(0)}</td>
+                  <td className="px-4 py-3 text-right">Rs {(c.avgOrderValue ?? 0).toFixed(0)}</td>
                   <td className="px-4 py-3 text-right">{c.recencyDays}d ago</td>
                   <td className="px-4 py-3 text-right">{c.frequency90d}</td>
                 </tr>

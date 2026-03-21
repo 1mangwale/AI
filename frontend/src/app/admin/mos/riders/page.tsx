@@ -341,7 +341,7 @@ function QuestsTab({
         <StatCard
           icon={<TrendingUp size={24} />}
           label="Avg Completion Rate"
-          value={`${(stats.avgCompletionRate * 100).toFixed(1)}%`}
+          value={`${((stats.avgCompletionRate ?? 0) * 100).toFixed(1)}%`}
           color="purple"
         />
       </div>
@@ -646,7 +646,7 @@ function TiersTab({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-gray-900">
-                      {rider.score.toFixed(0)}
+                      {(rider.score ?? 0).toFixed(0)}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-700">
                       {rider.deliveries7d}
@@ -664,7 +664,7 @@ function TiersTab({
                           }
                           fill={rider.avgRating7d >= 4.0 ? 'currentColor' : 'none'}
                         />
-                        {rider.avgRating7d.toFixed(1)}
+                        {(rider.avgRating7d ?? 0).toFixed(1)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -677,7 +677,7 @@ function TiersTab({
                               : 'text-red-600'
                         }`}
                       >
-                        {rider.onTimePct7d.toFixed(1)}%
+                        {(rider.onTimePct7d ?? 0).toFixed(1)}%
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -690,7 +690,7 @@ function TiersTab({
                               : 'text-red-600'
                         }`}
                       >
-                        {rider.cancelRate7d.toFixed(1)}%
+                        {(rider.cancelRate7d ?? 0).toFixed(1)}%
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900">

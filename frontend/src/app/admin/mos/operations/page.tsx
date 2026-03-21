@@ -390,7 +390,7 @@ function SlowOrdersTab({
                     {o.transitTimeMins}m
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-gray-900">
-                    Rs {o.orderTotal.toFixed(0)}
+                    Rs {(o.orderTotal ?? 0).toFixed(0)}
                   </td>
                 </tr>
               ))

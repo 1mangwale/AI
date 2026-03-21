@@ -2063,7 +2063,7 @@ function AnalyticsTab({ onError }: { onError: (msg: string) => void }) {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {[
             { label: 'Tracked Posts', value: summary.totalTrackedPosts, icon: <FileText size={18} />, color: 'text-blue-600' },
-            { label: 'Avg Engagement', value: `${summary.avgEngagementRate.toFixed(1)}%`, icon: <TrendingUp size={18} />, color: 'text-green-600' },
+            { label: 'Avg Engagement', value: `${(summary.avgEngagementRate ?? 0).toFixed(1)}%`, icon: <TrendingUp size={18} />, color: 'text-green-600' },
             { label: 'Total Impressions', value: summary.totalImpressions.toLocaleString(), icon: <Eye size={18} />, color: 'text-purple-600' },
             { label: 'Total Reach', value: summary.totalReach.toLocaleString(), icon: <Users size={18} />, color: 'text-indigo-600' },
             { label: 'Total Likes', value: summary.totalLikes.toLocaleString(), icon: <Award size={18} />, color: 'text-red-500' },
@@ -2090,7 +2090,7 @@ function AnalyticsTab({ onError }: { onError: (msg: string) => void }) {
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div><span className="text-gray-500">Posts:</span> {p.trackedPosts}</div>
-                  <div><span className="text-gray-500">Engagement:</span> {p.avgEngagementRate.toFixed(1)}%</div>
+                  <div><span className="text-gray-500">Engagement:</span> {(p.avgEngagementRate ?? 0).toFixed(1)}%</div>
                   <div><span className="text-gray-500">Impressions:</span> {p.totalImpressions.toLocaleString()}</div>
                   <div><span className="text-gray-500">Likes:</span> {p.totalLikes.toLocaleString()}</div>
                 </div>
@@ -2200,7 +2200,7 @@ function AnalyticsTab({ onError }: { onError: (msg: string) => void }) {
               <div key={l.id} className="border rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">{l.learning_type}</span>
-                  <span className="text-xs text-gray-500">Confidence: {(l.confidence * 100).toFixed(0)}%</span>
+                  <span className="text-xs text-gray-500">Confidence: {((l.confidence ?? 0) * 100).toFixed(0)}%</span>
                 </div>
                 <p className="text-sm text-gray-800">{l.insight}</p>
                 <p className="text-xs text-gray-400 mt-2">{new Date(l.created_at).toLocaleDateString()}</p>
