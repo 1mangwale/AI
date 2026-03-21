@@ -252,7 +252,7 @@ export default function ApprovalQueuePage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[item.type] || 'bg-gray-100 text-gray-600'}`}>
-                    {item.type.replace('_', ' ')}
+                    {(item.type || '').replace('_', ' ')}
                   </span>
                   <h3 className="font-medium text-gray-900">{item.title}</h3>
                   <span className={`text-xs px-2 py-0.5 rounded font-medium ${PRIORITY_COLORS[item.priority]}`}>

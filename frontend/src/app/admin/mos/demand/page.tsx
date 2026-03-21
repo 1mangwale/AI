@@ -754,7 +754,7 @@ function DiscountTab({ stats }: { stats: DiscountStats }) {
             {reasons.map(([reason, data]) => (
               <div key={reason} className="flex items-center gap-4">
                 <span className="w-36 text-sm text-gray-700 font-medium truncate">
-                  {reason.replace(/_/g, ' ')}
+                  {(reason || '').replace(/_/g, ' ')}
                 </span>
                 <div className="flex-1 bg-gray-100 rounded-full h-7 relative overflow-hidden">
                   <div

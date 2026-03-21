@@ -222,7 +222,7 @@ export default function CustomerIntelligencePage() {
               <div key={s.segment} className="flex items-center justify-between p-2 rounded hover:bg-gray-50">
                 <div className="flex items-center gap-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${SEGMENT_COLORS[s.segment] || 'bg-gray-100'}`}>
-                    {s.segment.replace(/_/g, ' ')}
+                    {(s.segment || '').replace(/_/g, ' ')}
                   </span>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
@@ -298,7 +298,7 @@ export default function CustomerIntelligencePage() {
             >
               <option value="">All Segments</option>
               {segments.map(s => (
-                <option key={s.segment} value={s.segment}>{s.segment.replace(/_/g, ' ')}</option>
+                <option key={s.segment} value={s.segment}>{(s.segment || '').replace(/_/g, ' ')}</option>
               ))}
             </select>
             <select

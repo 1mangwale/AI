@@ -438,7 +438,7 @@ function QuestsTab({
                       <span
                         className={`px-2 py-0.5 rounded text-xs font-medium ${questTypeBadge(quest.questType)}`}
                       >
-                        {quest.questType.replace(/_/g, ' ')}
+                        {(quest.questType || '').replace(/_/g, ' ')}
                       </span>
                       {!quest.active && (
                         <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-600">

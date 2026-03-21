@@ -504,13 +504,13 @@ function ContentTab({
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_COLORS[item.contentType] || 'bg-gray-100 text-gray-600'}`}>
-                        {item.contentType.replace(/_/g, ' ')}
+                        {(item.contentType || '').replace(/_/g, ' ')}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${PLATFORM_COLORS[item.platform] || 'bg-gray-100 text-gray-600'}`}>
                         {PLATFORM_ICONS[item.platform]}
-                        {item.platform.replace(/_/g, ' ')}
+                        {(item.platform || '').replace(/_/g, ' ')}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -551,11 +551,11 @@ function ContentTab({
           {/* Meta info */}
           <div className="flex items-center gap-3 mb-4 flex-wrap">
             <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_COLORS[selectedItem.contentType] || 'bg-gray-100 text-gray-600'}`}>
-              {selectedItem.contentType.replace(/_/g, ' ')}
+              {(selectedItem.contentType || '').replace(/_/g, ' ')}
             </span>
             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${PLATFORM_COLORS[selectedItem.platform] || 'bg-gray-100 text-gray-600'}`}>
               {PLATFORM_ICONS[selectedItem.platform]}
-              {selectedItem.platform.replace(/_/g, ' ')}
+              {(selectedItem.platform || '').replace(/_/g, ' ')}
             </span>
             <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[selectedItem.status] || 'bg-gray-100 text-gray-600'}`}>
               {selectedItem.status}
@@ -1176,11 +1176,11 @@ function GenerateTab({
 
           <div className="flex items-center gap-3 mb-4 flex-wrap">
             <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_COLORS[generatedContent.contentType] || 'bg-gray-100 text-gray-600'}`}>
-              {generatedContent.contentType.replace(/_/g, ' ')}
+              {(generatedContent.contentType || '').replace(/_/g, ' ')}
             </span>
             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${PLATFORM_COLORS[generatedContent.platform] || 'bg-gray-100 text-gray-600'}`}>
               {PLATFORM_ICONS[generatedContent.platform]}
-              {generatedContent.platform.replace(/_/g, ' ')}
+              {(generatedContent.platform || '').replace(/_/g, ' ')}
             </span>
             <span className="text-xs text-gray-500">Cost: {formatCurrency(generatedContent.cost)}</span>
           </div>
@@ -1450,12 +1450,12 @@ function HooksTab({ onError }: { onError: (msg: string) => void }) {
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${PLATFORM_COLORS[hook.platform] || 'bg-gray-100 text-gray-600'}`}>
                         {PLATFORM_ICONS[hook.platform]}
-                        {hook.platform.replace(/_/g, ' ')}
+                        {(hook.platform || '').replace(/_/g, ' ')}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                        {hook.category.replace(/_/g, ' ')}
+                        {(hook.category || '').replace(/_/g, ' ')}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -1842,13 +1842,13 @@ function PromptRow({
         </td>
         <td className="px-4 py-3">
           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_COLORS[prompt.contentType] || 'bg-gray-100 text-gray-600'}`}>
-            {prompt.contentType.replace(/_/g, ' ')}
+            {(prompt.contentType || '').replace(/_/g, ' ')}
           </span>
         </td>
         <td className="px-4 py-3">
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${PLATFORM_COLORS[prompt.platform] || 'bg-gray-100 text-gray-600'}`}>
             {PLATFORM_ICONS[prompt.platform]}
-            {prompt.platform.replace(/_/g, ' ')}
+            {(prompt.platform || '').replace(/_/g, ' ')}
           </span>
         </td>
         <td className="px-4 py-3 text-center">

@@ -834,7 +834,7 @@ function DayDetailPanel({
                           {formatTime(entry.scheduledAt)}
                         </span>
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${CONTENT_TYPE_COLORS[entry.contentType] || 'bg-gray-100 text-gray-600'}`}>
-                          {entry.contentType.replace(/_/g, ' ')}
+                          {(entry.contentType || '').replace(/_/g, ' ')}
                         </span>
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${platColor?.badge || 'bg-gray-100 text-gray-600'}`}>
                           {platColor?.text || entry.platform}
@@ -1018,7 +1018,7 @@ function WeeklyPlanPanel({
                             {platColor?.text || day.suggestedPlatform}
                           </span>
                           <span className={`px-2 py-0.5 rounded text-xs font-medium ${CONTENT_TYPE_COLORS[day.suggestedType] || 'bg-gray-100 text-gray-600'}`}>
-                            {day.suggestedType.replace(/_/g, ' ')}
+                            {(day.suggestedType || '').replace(/_/g, ' ')}
                           </span>
                         </div>
                         <p className="text-xs text-gray-600">{day.rationale}</p>

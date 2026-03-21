@@ -416,7 +416,7 @@ export default function StrategyLedgerPage() {
                     TYPE_COLORS[type] || 'bg-gray-100 text-gray-600 border-gray-200'
                   }`}
                 >
-                  {type.replace(/_/g, ' ')}: {count}
+                  {(type || '').replace(/_/g, ' ')}: {count}
                 </span>
               ))}
               {Object.keys(stats.byType || {}).length === 0 && (
@@ -627,7 +627,7 @@ function DecisionsTab({
               <option value="">All Types</option>
               {DECISION_TYPES.map((t) => (
                 <option key={t} value={t}>
-                  {t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                  {(t || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
                 </option>
               ))}
             </select>
@@ -685,7 +685,7 @@ function DecisionsTab({
               >
                 {DECISION_TYPES.map((t) => (
                   <option key={t} value={t}>
-                    {t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                    {(t || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
                   </option>
                 ))}
               </select>
@@ -832,7 +832,7 @@ function DecisionsTab({
                             TYPE_COLORS[decision.type] || 'bg-gray-100 text-gray-600 border-gray-200'
                           }`}
                         >
-                          {decision.type.replace(/_/g, ' ')}
+                          {(decision.type || '').replace(/_/g, ' ')}
                         </span>
 
                         {/* Outcome Badge */}
@@ -918,7 +918,7 @@ function DecisionsTab({
                                 className="flex items-center justify-between text-sm"
                               >
                                 <span className="text-gray-500">
-                                  {key.replace(/_/g, ' ')}
+                                  {(key || '').replace(/_/g, ' ')}
                                 </span>
                                 <span className="text-gray-900 font-medium">
                                   {String(val)}
@@ -1039,7 +1039,7 @@ function MemoryTab({
                   : CATEGORY_COLORS[cat.category] || 'bg-gray-100 text-gray-600 border-gray-200'
               } hover:shadow-sm`}
             >
-              {cat.category.replace(/_/g, ' ')}
+              {(cat.category || '').replace(/_/g, ' ')}
               <span className={`px-1.5 py-0.5 rounded-full text-xs ${
                 filter === cat.category ? 'bg-white/20' : 'bg-white/80'
               }`}>
@@ -1213,7 +1213,7 @@ function MemoryTab({
                     CATEGORY_COLORS[item.category] || 'bg-gray-100 text-gray-600 border-gray-200'
                   }`}
                 >
-                  {item.category.replace(/_/g, ' ')}
+                  {(item.category || '').replace(/_/g, ' ')}
                 </span>
                 <span className="flex items-center gap-1 text-xs text-gray-400" title="Access count">
                   <Eye size={12} />

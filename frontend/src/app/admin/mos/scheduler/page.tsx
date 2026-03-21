@@ -245,7 +245,7 @@ export default function SchedulerPage() {
                 <tr key={job.jobName} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <div>
-                      <p className="font-medium text-gray-900">{job.jobName.replace(/_/g, ' ')}</p>
+                      <p className="font-medium text-gray-900">{(job.jobName || '').replace(/_/g, ' ')}</p>
                       <p className="text-xs text-gray-500">{JOB_DESCRIPTIONS[job.jobName] || ''}</p>
                     </div>
                   </td>
@@ -312,7 +312,7 @@ export default function SchedulerPage() {
                 <tr key={action.actionName} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <div>
-                      <p className="font-medium text-gray-900">{action.actionName.replace(/_/g, ' ')}</p>
+                      <p className="font-medium text-gray-900">{(action.actionName || '').replace(/_/g, ' ')}</p>
                       <p className="text-xs text-gray-500">{ACTION_DESCRIPTIONS[action.actionName] || ''}</p>
                     </div>
                   </td>
@@ -388,7 +388,7 @@ export default function SchedulerPage() {
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium text-gray-900">
-              History: {historyTarget.replace(/_/g, ' ')}
+              History: {(historyTarget || '').replace(/_/g, ' ')}
             </h3>
             <button
               onClick={() => setHistoryTarget(null)}

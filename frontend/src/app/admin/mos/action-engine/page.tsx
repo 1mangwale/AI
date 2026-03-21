@@ -822,7 +822,7 @@ function AdExecutionsTab({
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${EXEC_STATUS_COLORS[exec.status] || 'bg-gray-100 text-gray-600'}`}>
-                          {exec.status.replace(/_/g, ' ')}
+                          {(exec.status || '').replace(/_/g, ' ')}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right text-gray-700 font-medium">

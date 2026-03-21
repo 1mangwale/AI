@@ -432,7 +432,7 @@ export default function AdminLayout({
               <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
               <p className="text-xs text-gray-500 truncate">{user.email}</p>
               <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium ${roleBadgeClass}`}>
-                {user.role.replace('_', ' ')}
+                {(user.role || 'user').replace('_', ' ')}
               </span>
             </div>
           )}
