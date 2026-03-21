@@ -545,5 +545,5 @@ function ReorderTopItems({ stats }: { stats: ReorderStats }) {
 function formatCurrency(amount: number): string {
   if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
   if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${amount.toFixed(0)}`;
+  return `Rs ${(amount ?? 0).toFixed(0)}`;
 }

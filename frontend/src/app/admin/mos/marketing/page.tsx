@@ -708,7 +708,7 @@ function CampaignsTab({ campaigns }: { campaigns: Campaign[] }) {
                             />
                           </div>
                           <p className="text-xs text-gray-400 mt-0.5">
-                            {budgetUsed.toFixed(0)}% of budget used
+                            {(budgetUsed ?? 0).toFixed(0)}% of budget used
                           </p>
                         </div>
                       </td>
@@ -725,7 +725,7 @@ function CampaignsTab({ campaigns }: { campaigns: Campaign[] }) {
                         <div>
                           <span className="text-gray-900">{campaign.clicks.toLocaleString()}</span>
                           <span className="text-xs text-gray-400 ml-1">
-                            ({ctr.toFixed(1)}%)
+                            ({(ctr ?? 0).toFixed(1)}%)
                           </span>
                         </div>
                       </td>
@@ -741,7 +741,7 @@ function CampaignsTab({ campaigns }: { campaigns: Campaign[] }) {
                             roi >= 0 ? 'text-green-600' : 'text-red-600'
                           }`}
                         >
-                          {roi >= 0 ? '+' : ''}{roi.toFixed(1)}%
+                          {roi >= 0 ? '+' : ''}{(roi ?? 0).toFixed(1)}%
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -868,7 +868,7 @@ function AttributionTab({
                       </div>
                     </div>
                     <span className="w-16 text-right text-sm font-bold text-gray-700">
-                      {src.percentage.toFixed(1)}%
+                      {(src.percentage ?? 0).toFixed(1)}%
                     </span>
                   </div>
                 );
@@ -923,7 +923,7 @@ function AttributionTab({
                               />
                             </div>
                             <span className="text-gray-700 font-medium w-12 text-right">
-                              {src.percentage.toFixed(1)}%
+                              {(src.percentage ?? 0).toFixed(1)}%
                             </span>
                           </div>
                         </td>
@@ -988,7 +988,7 @@ function formatCurrency(amount: number): string {
   if (amount >= 10000000) return `Rs ${(amount / 10000000).toFixed(1)}Cr`;
   if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
   if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${amount.toFixed(0)}`;
+  return `Rs ${(amount ?? 0).toFixed(0)}`;
 }
 
 function timeAgo(dateStr: string | null): string {

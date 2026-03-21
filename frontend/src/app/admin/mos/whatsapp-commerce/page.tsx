@@ -44,7 +44,7 @@ interface OrderStats {
 // ─── Helpers ────────────────────────────────────────────────────
 
 function formatCurrency(amount: number): string {
-  return `Rs ${amount.toFixed(0)}`;
+  return `Rs ${(amount ?? 0).toFixed(0)}`;
 }
 
 function timeAgo(dateStr: string | null): string {

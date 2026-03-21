@@ -403,7 +403,7 @@ function QuestsTab({
                       {entry.questsCompleted}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900">
-                      Rs {entry.totalReward.toFixed(0)}
+                      Rs {(entry.totalReward ?? 0).toFixed(0)}
                     </td>
                   </tr>
                 ))
@@ -694,7 +694,7 @@ function TiersTab({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900">
-                      Rs {rider.earnings7d.toFixed(0)}
+                      Rs {(rider.earnings7d ?? 0).toFixed(0)}
                     </td>
                   </tr>
                 ))
@@ -897,7 +897,7 @@ function ZonesTab({
                       {spot.orderCount}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-700">
-                      Rs {spot.avgOrderValue.toFixed(0)}
+                      Rs {(spot.avgOrderValue ?? 0).toFixed(0)}
                     </td>
                   </tr>
                 ))
@@ -930,19 +930,19 @@ function PrepTimeTab({
         <StatCard
           icon={<Clock size={24} />}
           label="Avg Prep Time"
-          value={`${stats.avgPrepTime.toFixed(1)}m`}
+          value={`${(stats.avgPrepTime ?? 0).toFixed(1)}m`}
           color="blue"
         />
         <StatCard
           icon={<Clock size={24} />}
           label="Median Prep Time"
-          value={`${stats.medianPrepTime.toFixed(1)}m`}
+          value={`${(stats.medianPrepTime ?? 0).toFixed(1)}m`}
           color="green"
         />
         <StatCard
           icon={<TrendingUp size={24} />}
           label="P90 Prep Time"
-          value={`${stats.p90PrepTime.toFixed(1)}m`}
+          value={`${(stats.p90PrepTime ?? 0).toFixed(1)}m`}
           color="orange"
         />
         <StatCard
@@ -1029,7 +1029,7 @@ function PrepTimeTab({
                               : 'text-yellow-600'
                         }`}
                       >
-                        {kitchen.avgPrepTime.toFixed(1)}m
+                        {(kitchen.avgPrepTime ?? 0).toFixed(1)}m
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -1042,7 +1042,7 @@ function PrepTimeTab({
                               : 'text-yellow-600'
                         }`}
                       >
-                        {kitchen.p90PrepTime.toFixed(1)}m
+                        {(kitchen.p90PrepTime ?? 0).toFixed(1)}m
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right text-gray-600">
@@ -1103,5 +1103,5 @@ function StatCard({
 function formatCurrency(amount: number): string {
   if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
   if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${amount.toFixed(0)}`;
+  return `Rs ${(amount ?? 0).toFixed(0)}`;
 }

@@ -407,7 +407,7 @@ function ForecastTab({
                 />
                 {/* Tooltip */}
                 <div className="hidden group-hover:block absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-10">
-                  {h.hour}:00 -- P:{h.predicted} A:{h.actual} ({(h.accuracy * 100).toFixed(0)}%)
+                  {h.hour}:00 -- P:{h.predicted} A:{h.actual} ({((h.accuracy ?? 0) * 100).toFixed(0)}%)
                 </div>
               </div>
             );
@@ -515,7 +515,7 @@ function PricingTab({
                     Zone {surge.zoneId}
                   </span>
                   <span className="text-2xl font-bold text-orange-600">
-                    {surge.multiplier.toFixed(1)}x
+                    {(surge.multiplier ?? 0).toFixed(1)}x
                   </span>
                 </div>
                 <p className="text-sm font-medium text-gray-900 mb-2">
@@ -700,14 +700,14 @@ function DiscountTab({ stats }: { stats: DiscountStats }) {
         <VitalCard
           icon={<Percent size={28} />}
           label="Redemption Rate"
-          value={`${(stats.redemptionRate * 100).toFixed(1)}%`}
+          value={`${((stats.redemptionRate ?? 0) * 100).toFixed(1)}%`}
           sub={`${stats.totalRedeemed} of ${stats.totalIssued} used`}
           color="orange"
         />
         <VitalCard
           icon={<TrendingUp size={28} />}
           label="ROI"
-          value={`${(stats.roi * 100).toFixed(1)}%`}
+          value={`${((stats.roi ?? 0) * 100).toFixed(1)}%`}
           sub={`Revenue: ${formatCurrency(stats.totalOrderRevenue)}`}
           color="purple"
         />
@@ -1043,5 +1043,5 @@ function SmallCard({ label, value }: { label: string; value: string }) {
 function formatCurrency(amount: number): string {
   if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
   if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${amount.toFixed(0)}`;
+  return `Rs ${(amount ?? 0).toFixed(0)}`;
 }

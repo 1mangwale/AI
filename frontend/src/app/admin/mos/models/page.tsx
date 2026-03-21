@@ -255,7 +255,7 @@ export default function ModelOrchestraPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Success Rate</span>
-                  <span className="font-mono">{(model.successRate * 100).toFixed(1)}%</span>
+                  <span className="font-mono">{((model.successRate ?? 0) * 100).toFixed(1)}%</span>
                 </div>
                 <div className="pt-2 flex flex-wrap gap-1">
                   {model.capabilities.map(cap => (

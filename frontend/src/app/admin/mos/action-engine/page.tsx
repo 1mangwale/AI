@@ -835,7 +835,7 @@ function AdExecutionsTab({
                         {exec.clicks.toLocaleString('en-IN')}
                       </td>
                       <td className="px-4 py-3 text-right text-gray-600">
-                        {ctr.toFixed(1)}%
+                        {(ctr ?? 0).toFixed(1)}%
                       </td>
                       <td className="px-4 py-3 text-right text-gray-900 font-medium">
                         {exec.conversions.toLocaleString('en-IN')}
@@ -1348,7 +1348,7 @@ function formatCurrency(amount: number): string {
   if (amount >= 10000000) return `Rs ${(amount / 10000000).toFixed(1)}Cr`;
   if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
   if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${amount.toFixed(0)}`;
+  return `Rs ${(amount ?? 0).toFixed(0)}`;
 }
 
 function timeAgo(dateStr: string | null): string {

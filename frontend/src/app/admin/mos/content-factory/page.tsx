@@ -2172,7 +2172,7 @@ function AnalyticsTab({ onError }: { onError: (msg: string) => void }) {
                     <td className="py-3 pr-4 font-medium">{item.title ? truncateText(item.title, 40) : 'Untitled'}</td>
                     <td className="py-3 pr-4"><span className="px-2 py-0.5 bg-gray-100 rounded text-xs">{item.content_type}</span></td>
                     <td className="py-3 pr-4 capitalize">{item.platform}</td>
-                    <td className="py-3 pr-4 font-semibold text-green-600">{item.engagement_rate?.toFixed(1)}%</td>
+                    <td className="py-3 pr-4 font-semibold text-green-600">{(item.engagement_rate ?? 0).toFixed(1)}%</td>
                     <td className="py-3 pr-4">{item.impressions?.toLocaleString()}</td>
                     <td className="py-3 pr-4">{item.likes?.toLocaleString()}</td>
                     <td className="py-3 pr-4">{item.comments?.toLocaleString()}</td>
@@ -2217,7 +2217,7 @@ function formatCurrency(amount: number): string {
   if (amount >= 10000000) return `Rs ${(amount / 10000000).toFixed(1)}Cr`;
   if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
   if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${amount.toFixed(0)}`;
+  return `Rs ${(amount ?? 0).toFixed(0)}`;
 }
 
 function timeAgo(dateStr: string | null): string {
