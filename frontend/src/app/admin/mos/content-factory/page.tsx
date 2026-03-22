@@ -11,6 +11,7 @@ import {
   TrendingUp, Award, ShoppingBag, Store, Users,
 } from 'lucide-react';
 import { mangwaleAIClient } from '@/lib/api/mangwale-ai';
+import { formatCurrency } from '@/lib/utils/format';
 
 // ---- Types ----
 
@@ -2213,12 +2214,6 @@ function AnalyticsTab({ onError }: { onError: (msg: string) => void }) {
   );
 }
 
-function formatCurrency(amount: number): string {
-  if (amount >= 10000000) return `Rs ${(amount / 10000000).toFixed(1)}Cr`;
-  if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
-  if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${(amount ?? 0).toFixed(0)}`;
-}
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return 'Unknown';

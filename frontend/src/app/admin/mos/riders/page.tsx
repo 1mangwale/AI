@@ -7,6 +7,7 @@ import {
   ChevronUp, ChevronDown, Zap,
 } from 'lucide-react';
 import { mangwaleAIClient } from '@/lib/api/mangwale-ai';
+import { formatCurrency } from '@/lib/utils/format';
 
 // ---- Interfaces ----
 
@@ -139,11 +140,11 @@ export default function RiderCommandCenterPage() {
 
       if (activeTab === 'quests') {
         const [questsList, stats, leaderboard] = await Promise.all([
-          mangwaleAIClient.get<Quest[]>('/mos/riders/quests'),
-          mangwaleAIClient.get<QuestStats>(`/mos/riders/quests/stats?date=${selectedDate}`),
+          mangwaleAIClient.get<Quest[]>('/mos/riders/quests').catch(() => [] as Quest[]),
+          mangwaleAIClient.get<QuestStats>(`/mos/riders/quests/stats?date=${selectedDate}`).catch(() => null),
           mangwaleAIClient.get<QuestLeaderboardEntry[]>(
             `/mos/riders/quests/leaderboard?date=${selectedDate}&limit=10`,
-          ),
+          ).catch(() => [] as QuestLeaderboardEntry[]),
         ]);
         setQuests(questsList);
         setQuestStats(stats);
@@ -151,28 +152,28 @@ export default function RiderCommandCenterPage() {
       } else if (activeTab === 'tiers') {
         const tierParam = selectedTier ? `?tier=${selectedTier}&limit=20` : '?limit=20';
         const [distribution, leaderboard] = await Promise.all([
-          mangwaleAIClient.get<TierDistribution>('/mos/riders/tiers/distribution'),
+          mangwaleAIClient.get<TierDistribution>('/mos/riders/tiers/distribution').catch(() => null),
           mangwaleAIClient.get<TierLeaderboardEntry[]>(
             `/mos/riders/tiers/leaderboard${tierParam}`,
-          ),
+          ).catch(() => [] as TierLeaderboardEntry[]),
         ]);
         setTierDistribution(distribution);
         setTierLeaderboard(leaderboard);
       } else if (activeTab === 'zones') {
         const [density, hotspots, positioning] = await Promise.all([
-          mangwaleAIClient.get<ZoneDensity[]>('/mos/riders/zones/density?hours=2'),
-          mangwaleAIClient.get<ZoneHotspot[]>('/mos/riders/zones/hotspots?limit=10'),
-          mangwaleAIClient.get<{ zones: ZonePositioning[] }>('/mos/riders/zones/positioning'),
+          mangwaleAIClient.get<ZoneDensity[]>('/mos/riders/zones/density?hours=2').catch(() => [] as ZoneDensity[]),
+          mangwaleAIClient.get<ZoneHotspot[]>('/mos/riders/zones/hotspots?limit=10').catch(() => [] as ZoneHotspot[]),
+          mangwaleAIClient.get<{ zones: ZonePositioning[] }>('/mos/riders/zones/positioning').catch(() => ({ zones: [] as ZonePositioning[] })),
         ]);
         setZoneDensity(density);
         setZoneHotspots(hotspots);
-        setZonePositioning(positioning.zones);
+        setZonePositioning(positioning.zones || []);
       } else if (activeTab === 'prep-time') {
         const [kitchens, stats] = await Promise.all([
           mangwaleAIClient.get<SlowKitchen[]>(
             `/mos/riders/prep-time/slow-kitchens?threshold=${prepThreshold}`,
-          ),
-          mangwaleAIClient.get<PrepTimeStats>('/mos/riders/prep-time/stats'),
+          ).catch(() => [] as SlowKitchen[]),
+          mangwaleAIClient.get<PrepTimeStats>('/mos/riders/prep-time/stats').catch(() => null),
         ]);
         setSlowKitchens(kitchens);
         setPrepTimeStats(stats);
@@ -1100,8 +1101,3 @@ function StatCard({
   );
 }
 
-function formatCurrency(amount: number): string {
-  if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
-  if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${(amount ?? 0).toFixed(0)}`;
-}

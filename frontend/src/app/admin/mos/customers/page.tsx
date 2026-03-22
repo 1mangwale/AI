@@ -76,10 +76,10 @@ export default function CustomerIntelligencePage() {
       params.set('offset', String(filters.page * 50));
 
       const [healthRes, segRes, distRes, churnRes] = await Promise.all([
-        fetch(`/api/mos/customers/health?${params}`).then(r => r.json()),
-        fetch('/api/mos/customers/segments').then(r => r.json()),
-        fetch('/api/mos/customers/health-distribution').then(r => r.json()),
-        fetch('/api/mos/customers/churn-risk?threshold=0.4&limit=10').then(r => r.json()),
+        fetch(`/api/mos/customers/health?${params}`).then(r => r.json()).catch(() => ({ items: [], total: 0 })),
+        fetch('/api/mos/customers/segments').then(r => r.json()).catch(() => []),
+        fetch('/api/mos/customers/health-distribution').then(r => r.json()).catch(() => []),
+        fetch('/api/mos/customers/churn-risk?threshold=0.4&limit=10').then(r => r.json()).catch(() => []),
       ]);
 
       setCustomers(healthRes.items || []);

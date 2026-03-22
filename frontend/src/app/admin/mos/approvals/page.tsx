@@ -75,8 +75,8 @@ export default function ApprovalQueuePage() {
       if (filter.priority) params.set('priority', filter.priority);
 
       const [queueRes, statsRes] = await Promise.all([
-        fetch(`/api/approvals?${params}`).then(r => r.json()),
-        fetch('/api/approvals/stats').then(r => r.json()),
+        fetch(`/api/approvals?${params}`).then(r => r.json()).catch(() => ({ items: [] })),
+        fetch('/api/approvals/stats').then(r => r.json()).catch(() => null),
       ]);
       setItems(queueRes.items || []);
       setStats(statsRes);

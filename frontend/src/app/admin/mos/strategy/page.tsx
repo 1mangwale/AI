@@ -200,7 +200,7 @@ export default function StrategyLedgerPage() {
     try {
       const data = await mangwaleAIClient.get<DecisionStats>(
         '/mos/strategy/decisions/stats',
-      );
+      ).catch(() => null);
       setStats(data);
     } catch (err: any) {
       console.error('Failed to load strategy stats:', err);
@@ -216,7 +216,7 @@ export default function StrategyLedgerPage() {
         const typeParam = decisionFilter ? `?type=${decisionFilter}&limit=50` : '?limit=50';
         const data = await mangwaleAIClient.get<Decision[]>(
           `/mos/strategy/decisions${typeParam}`,
-        );
+        ).catch(() => [] as Decision[]);
         setDecisions(data);
       } else if (activeTab === 'memory') {
         const params = new URLSearchParams();
@@ -225,10 +225,10 @@ export default function StrategyLedgerPage() {
         const query = params.toString() ? `?${params.toString()}` : '';
 
         const [items, cats] = await Promise.all([
-          mangwaleAIClient.get<MemoryItem[]>(`/mos/strategy/memory${query}`),
+          mangwaleAIClient.get<MemoryItem[]>(`/mos/strategy/memory${query}`).catch(() => [] as MemoryItem[]),
           mangwaleAIClient.get<{ categories: MemoryCategory[] }>(
             '/mos/strategy/memory/categories',
-          ),
+          ).catch(() => ({ categories: [] as MemoryCategory[] })),
         ]);
         setMemoryItems(items);
         setMemoryCategories(cats.categories || []);

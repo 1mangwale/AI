@@ -172,17 +172,17 @@ export default function CampaignBuilderPage() {
       if (activeTab === 'weather') {
         const data = await mangwaleAIClient.get<CampaignTrigger[]>(
           '/mos/campaigns/triggers?type=weather',
-        );
+        ).catch(() => [] as CampaignTrigger[]);
         setTriggers(data);
       } else if (activeTab === 'festivals') {
         const data = await mangwaleAIClient.get<FestivalInfo[]>(
           `/mos/campaigns/festivals?days=${festivalDays}`,
-        );
+        ).catch(() => [] as FestivalInfo[]);
         setFestivals(data);
       } else if (activeTab === 'events') {
         const data = await mangwaleAIClient.get<ScheduledEvent[]>(
           `/mos/campaigns/events?days=${eventDays}`,
-        );
+        ).catch(() => [] as ScheduledEvent[]);
         setEvents(data);
       }
     } catch (err: any) {

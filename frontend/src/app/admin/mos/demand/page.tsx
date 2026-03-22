@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronUp, Plus, X, Save, Edit2,
 } from 'lucide-react';
 import { mangwaleAIClient } from '@/lib/api/mangwale-ai';
+import { formatCurrency } from '@/lib/utils/format';
 
 // ---- Interfaces ----
 
@@ -96,17 +97,17 @@ export default function DemandPricingPage() {
         const [fc, fva] = await Promise.all([
           mangwaleAIClient.get<ForecastPoint[]>(
             `/mos/demand/forecast?date=${selectedDate}${zoneParam}`,
-          ),
+          ).catch(() => [] as ForecastPoint[]),
           mangwaleAIClient.get<ForecastVsActual[]>(
             `/mos/demand/forecast-vs-actual?date=${selectedDate}${zoneParam}`,
-          ),
+          ).catch(() => [] as ForecastVsActual[]),
         ]);
         setForecast(fc);
         setForecastVsActual(fva);
       } else if (activeTab === 'pricing') {
         const [rules, activeSurges] = await Promise.all([
-          mangwaleAIClient.get<PricingRule[]>('/mos/demand/pricing-rules'),
-          mangwaleAIClient.get<ActiveSurge[]>('/mos/demand/surges'),
+          mangwaleAIClient.get<PricingRule[]>('/mos/demand/pricing-rules').catch(() => [] as PricingRule[]),
+          mangwaleAIClient.get<ActiveSurge[]>('/mos/demand/surges').catch(() => [] as ActiveSurge[]),
         ]);
         setPricingRules(rules);
         setSurges(activeSurges);
@@ -118,7 +119,7 @@ export default function DemandPricingPage() {
         const startDate = start.toISOString().split('T')[0];
         const stats = await mangwaleAIClient.get<DiscountStats>(
           `/mos/demand/discounts?startDate=${startDate}&endDate=${endDate}`,
-        );
+        ).catch(() => null);
         setDiscountStats(stats);
       }
     } catch (err: any) {
@@ -1040,8 +1041,3 @@ function SmallCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatCurrency(amount: number): string {
-  if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
-  if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${(amount ?? 0).toFixed(0)}`;
-}

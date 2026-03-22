@@ -8,6 +8,7 @@ import {
   Target, ShoppingCart, RotateCcw, ChevronRight,
 } from 'lucide-react';
 import { mangwaleAIClient } from '@/lib/api/mangwale-ai';
+import { formatCurrency } from '@/lib/utils/format';
 
 // ---- Types ----
 
@@ -117,15 +118,15 @@ export default function ActionEnginePage() {
 
       if (activeTab === 'assets') {
         const [stats, assetList] = await Promise.all([
-          mangwaleAIClient.get<AssetStats>('/mos/action-engine/assets/stats'),
-          mangwaleAIClient.get<Asset[]>('/mos/action-engine/assets'),
+          mangwaleAIClient.get<AssetStats>('/mos/action-engine/assets/stats').catch(() => null),
+          mangwaleAIClient.get<Asset[]>('/mos/action-engine/assets').catch(() => [] as Asset[]),
         ]);
         setAssetStats(stats);
         setAssets(assetList);
       } else if (activeTab === 'executions') {
         const [stats, execList] = await Promise.all([
-          mangwaleAIClient.get<ExecutionStats>('/mos/action-engine/executions/stats'),
-          mangwaleAIClient.get<AdExecution[]>('/mos/action-engine/executions'),
+          mangwaleAIClient.get<ExecutionStats>('/mos/action-engine/executions/stats').catch(() => null),
+          mangwaleAIClient.get<AdExecution[]>('/mos/action-engine/executions').catch(() => [] as AdExecution[]),
         ]);
         setExecStats(stats);
         setExecutions(execList);
@@ -1344,12 +1345,6 @@ function StatCard({
 
 // ---- Helpers ----
 
-function formatCurrency(amount: number): string {
-  if (amount >= 10000000) return `Rs ${(amount / 10000000).toFixed(1)}Cr`;
-  if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
-  if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${(amount ?? 0).toFixed(0)}`;
-}
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return 'Unknown';

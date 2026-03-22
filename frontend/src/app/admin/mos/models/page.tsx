@@ -78,8 +78,8 @@ export default function ModelOrchestraPage() {
       setLoading(true);
       setError(null);
       const [modelsRes, statsRes] = await Promise.all([
-        fetch('/api/mos/models/orchestra').then(r => r.json()),
-        fetch('/api/mos/models/orchestra/stats').then(r => r.json()),
+        fetch('/api/mos/models/orchestra').then(r => r.json()).catch(() => []),
+        fetch('/api/mos/models/orchestra/stats').then(r => r.json()).catch(() => ({ modelUsage: [], costByTenant: [], routingDecisions: [] })),
       ]);
       setModels(modelsRes);
       setStats(statsRes);
@@ -174,7 +174,7 @@ export default function ModelOrchestraPage() {
               <DollarSign size={16} /> Total Cost (30d)
             </div>
             <p className="text-2xl font-bold">
-              ${stats.costByTenant.reduce((sum, t) => sum + t.totalCost, 0).toFixed(4)}
+              ${stats.costByTenant.reduce((sum, t) => sum + (t.totalCost ?? 0), 0).toFixed(4)}
             </p>
           </div>
         </div>

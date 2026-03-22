@@ -8,6 +8,7 @@ import {
   ShoppingCart, Percent, X, Loader2, Globe, Share2,
 } from 'lucide-react';
 import { mangwaleAIClient } from '@/lib/api/mangwale-ai';
+import { formatCurrency } from '@/lib/utils/format';
 
 // ---- Types ----
 
@@ -147,7 +148,7 @@ export default function MarketingCommandPage() {
     try {
       const data = await mangwaleAIClient.get<MarketingOverview>(
         '/mos/marketing/overview',
-      );
+      ).catch(() => null);
       setOverview(data);
     } catch (err: any) {
       console.error('Failed to load marketing overview:', err);
@@ -164,22 +165,22 @@ export default function MarketingCommandPage() {
         const [trendData, sugData] = await Promise.all([
           mangwaleAIClient.get<SocialTrend[]>(
             `/mos/marketing/trends${platformParam}`,
-          ),
+          ).catch(() => [] as SocialTrend[]),
           mangwaleAIClient.get<TrendSuggestion[]>(
             '/mos/marketing/trends/suggestions',
-          ),
+          ).catch(() => [] as TrendSuggestion[]),
         ]);
         setTrends(trendData);
         setSuggestions(sugData);
       } else if (activeTab === 'campaigns') {
         const data = await mangwaleAIClient.get<Campaign[]>(
           '/mos/marketing/campaigns',
-        );
+        ).catch(() => [] as Campaign[]);
         setCampaigns(data);
       } else if (activeTab === 'attribution') {
         const data = await mangwaleAIClient.get<AttributionData>(
           `/mos/marketing/attribution?startDate=${attrStartDate}&endDate=${attrEndDate}`,
-        );
+        ).catch(() => ({ sources: [] as AttributionSource[] }));
         setAttribution(data.sources || []);
       }
     } catch (err: any) {
@@ -984,12 +985,6 @@ function OverviewCard({
 
 // ---- Helpers ----
 
-function formatCurrency(amount: number): string {
-  if (amount >= 10000000) return `Rs ${(amount / 10000000).toFixed(1)}Cr`;
-  if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
-  if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${(amount ?? 0).toFixed(0)}`;
-}
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return 'Unknown';

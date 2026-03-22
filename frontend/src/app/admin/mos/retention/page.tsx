@@ -7,6 +7,7 @@ import {
   TrendingUp, Loader2, ArrowRight, IndianRupee,
 } from 'lucide-react';
 import { mangwaleAIClient } from '@/lib/api/mangwale-ai';
+import { formatCurrency } from '@/lib/utils/format';
 
 // ---- Types ----
 
@@ -119,12 +120,12 @@ export default function RetentionIntelligencePage() {
 
       const [overviewRes, cohortsRes, curveRes, reorderRes, refundRes, timingRes] =
         await Promise.all([
-          mangwaleAIClient.get<RetentionOverview>('/mos/retention/overview'),
-          mangwaleAIClient.get<CohortData[]>('/mos/retention/cohorts?months=6'),
-          mangwaleAIClient.get<RetentionCurvePoint[]>('/mos/retention/retention-curve'),
-          mangwaleAIClient.get<ReorderStats>('/mos/retention/reorder-stats'),
-          mangwaleAIClient.get<RefundStats>('/mos/retention/refund-stats'),
-          mangwaleAIClient.get<TimingStats>('/mos/retention/timing-stats'),
+          mangwaleAIClient.get<RetentionOverview>('/mos/retention/overview').catch(() => null),
+          mangwaleAIClient.get<CohortData[]>('/mos/retention/cohorts?months=6').catch(() => [] as CohortData[]),
+          mangwaleAIClient.get<RetentionCurvePoint[]>('/mos/retention/retention-curve').catch(() => [] as RetentionCurvePoint[]),
+          mangwaleAIClient.get<ReorderStats>('/mos/retention/reorder-stats').catch(() => null),
+          mangwaleAIClient.get<RefundStats>('/mos/retention/refund-stats').catch(() => null),
+          mangwaleAIClient.get<TimingStats>('/mos/retention/timing-stats').catch(() => null),
         ]);
 
       setOverview(overviewRes);
@@ -542,8 +543,3 @@ function ReorderTopItems({ stats }: { stats: ReorderStats }) {
 
 // ---- Helpers ----
 
-function formatCurrency(amount: number): string {
-  if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
-  if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${(amount ?? 0).toFixed(0)}`;
-}

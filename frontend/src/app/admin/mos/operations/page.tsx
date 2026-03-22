@@ -6,6 +6,7 @@ import {
   BarChart3, Calendar, Filter, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { mangwaleAIClient } from '@/lib/api/mangwale-ai';
+import { formatCurrency } from '@/lib/utils/format';
 
 interface OrderStats {
   totalOrders: number;
@@ -87,27 +88,27 @@ export default function OperationsIntelPage() {
         const [stats, hourly] = await Promise.all([
           mangwaleAIClient.get<OrderStats>(
             `/mos/operations/order-stats?date=${selectedDate}${zoneParam}`,
-          ),
+          ).catch(() => null),
           mangwaleAIClient.get<HourlyVolume[]>(
             `/mos/operations/hourly-volume?date=${selectedDate}${zoneParam}`,
-          ),
+          ).catch(() => [] as HourlyVolume[]),
         ]);
         setOrderStats(stats);
         setHourlyVolume(hourly);
       } else if (activeTab === 'slow-orders') {
         const data = await mangwaleAIClient.get<SlowOrder[]>(
           `/mos/operations/slow-orders?date=${selectedDate}&threshold=${threshold}`,
-        );
+        ).catch(() => [] as SlowOrder[]);
         setSlowOrders(data);
       } else if (activeTab === 'stores') {
         const data = await mangwaleAIClient.get<StorePerformance[]>(
           `/mos/operations/store-performance?date=${selectedDate}&limit=30`,
-        );
+        ).catch(() => [] as StorePerformance[]);
         setStorePerformance(data);
       } else if (activeTab === 'monthly') {
         const data = await mangwaleAIClient.get<MonthlyData[]>(
           `/mos/operations/monthly?months=6`,
-        );
+        ).catch(() => [] as MonthlyData[]);
         setMonthlyData(data);
       }
     } catch (err: any) {
@@ -578,8 +579,3 @@ function MetricCard({
   );
 }
 
-function formatCurrency(amount: number): string {
-  if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
-  if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${(amount ?? 0).toFixed(0)}`;
-}

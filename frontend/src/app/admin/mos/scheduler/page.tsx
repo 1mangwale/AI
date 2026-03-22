@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3200';
+import { mangwaleAIClient } from '@/lib/api/mangwale-ai';
 
 interface SchedulerJob {
   jobName: string;
@@ -108,8 +107,8 @@ export default function SchedulerPage() {
 
   const fetchJobs = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/mos/scheduler/jobs`);
-      if (res.ok) setJobs(await res.json());
+      const data = await mangwaleAIClient.get<SchedulerJob[]>('/mos/scheduler/jobs');
+      setJobs(data);
     } catch (err) {
       console.error('Failed to fetch jobs:', err);
     }
@@ -117,8 +116,8 @@ export default function SchedulerPage() {
 
   const fetchActions = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/mos/scheduler/actions`);
-      if (res.ok) setActions(await res.json());
+      const data = await mangwaleAIClient.get<AutoAction[]>('/mos/scheduler/actions');
+      setActions(data);
     } catch (err) {
       console.error('Failed to fetch actions:', err);
     }
@@ -130,14 +129,18 @@ export default function SchedulerPage() {
   }, [fetchJobs, fetchActions]);
 
   const toggleJob = async (name: string) => {
-    const res = await fetch(`${API}/api/mos/scheduler/jobs/${name}/toggle`, { method: 'PATCH' });
-    if (res.ok) fetchJobs();
+    try {
+      await mangwaleAIClient.patch(`/mos/scheduler/jobs/${name}/toggle`, {});
+      fetchJobs();
+    } catch (err) {
+      console.error('Failed to toggle job:', err);
+    }
   };
 
   const runJob = async (name: string) => {
     setRunningJob(name);
     try {
-      await fetch(`${API}/api/mos/scheduler/jobs/${name}/run`, { method: 'POST' });
+      await mangwaleAIClient.post(`/mos/scheduler/jobs/${name}/run`, {});
       await fetchJobs();
     } finally {
       setRunningJob(null);
@@ -145,29 +148,31 @@ export default function SchedulerPage() {
   };
 
   const toggleAction = async (name: string) => {
-    const res = await fetch(`${API}/api/mos/scheduler/actions/${name}/toggle`, { method: 'PATCH' });
-    if (res.ok) fetchActions();
+    try {
+      await mangwaleAIClient.patch(`/mos/scheduler/actions/${name}/toggle`, {});
+      fetchActions();
+    } catch (err) {
+      console.error('Failed to toggle action:', err);
+    }
   };
 
   const loadHistory = async (type: 'jobs' | 'actions', name: string) => {
     setHistoryTarget(name);
     const endpoint = type === 'jobs' ? 'jobs' : 'actions';
-    const res = await fetch(`${API}/api/mos/scheduler/${endpoint}/${name}/history?limit=10`);
-    if (res.ok) setHistory(await res.json());
+    try {
+      const data = await mangwaleAIClient.get<HistoryEntry[]>(`/mos/scheduler/${endpoint}/${name}/history?limit=10`);
+      setHistory(data);
+    } catch (err) {
+      console.error('Failed to load history:', err);
+    }
   };
 
   const saveConfig = async (name: string) => {
     try {
       const parsed = JSON.parse(configDraft);
-      const res = await fetch(`${API}/api/mos/scheduler/actions/${name}/config`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(parsed),
-      });
-      if (res.ok) {
-        setEditingConfig(null);
-        fetchActions();
-      }
+      await mangwaleAIClient.patch(`/mos/scheduler/actions/${name}/config`, parsed);
+      setEditingConfig(null);
+      fetchActions();
     } catch {
       alert('Invalid JSON');
     }

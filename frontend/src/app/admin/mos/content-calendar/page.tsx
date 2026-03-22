@@ -263,10 +263,10 @@ export default function ContentCalendarPage() {
       const [entries, gapData] = await Promise.all([
         mangwaleAIClient.get<CalendarEntry[]>(
           `/mos/content-factory/calendar?startDate=${startDate}&endDate=${endDate}`
-        ),
+        ).catch(() => [] as CalendarEntry[]),
         mangwaleAIClient.get<GapEntry[]>(
           `/mos/content-factory/calendar/gaps?startDate=${startDate}&endDate=${endDate}`
-        ),
+        ).catch(() => [] as GapEntry[]),
       ]);
 
       setCalendarData(Array.isArray(entries) ? entries : []);

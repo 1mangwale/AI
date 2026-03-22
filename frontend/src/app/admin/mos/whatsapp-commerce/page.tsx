@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { mangwaleAIClient } from '@/lib/api/mangwale-ai';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3200';
+import { formatCurrency } from '@/lib/utils/format';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -43,9 +44,6 @@ interface OrderStats {
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-function formatCurrency(amount: number): string {
-  return `Rs ${(amount ?? 0).toFixed(0)}`;
-}
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return '-';
@@ -95,11 +93,9 @@ export default function WhatsAppCommercePage() {
       const params = new URLSearchParams();
       if (catalogSearch) params.set('search', catalogSearch);
       if (catalogCategory) params.set('category', catalogCategory);
-      const res = await fetch(`${API}/api/mos/whatsapp-commerce/catalog?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setCatalog(Array.isArray(data) ? data : data.items || []);
-      }
+      const query = params.toString() ? `?${params}` : '';
+      const data = await mangwaleAIClient.get<any>(`/mos/whatsapp-commerce/catalog${query}`);
+      setCatalog(Array.isArray(data) ? data : data.items || []);
     } catch (err) {
       console.error('Failed to fetch catalog:', err);
     }
@@ -109,11 +105,9 @@ export default function WhatsAppCommercePage() {
     try {
       const params = new URLSearchParams();
       if (orderStatus) params.set('status', orderStatus);
-      const res = await fetch(`${API}/api/mos/whatsapp-commerce/orders?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setOrders(Array.isArray(data) ? data : data.orders || []);
-      }
+      const query = params.toString() ? `?${params}` : '';
+      const data = await mangwaleAIClient.get<any>(`/mos/whatsapp-commerce/orders${query}`);
+      setOrders(Array.isArray(data) ? data : data.orders || []);
     } catch (err) {
       console.error('Failed to fetch orders:', err);
     }
@@ -121,8 +115,8 @@ export default function WhatsAppCommercePage() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/mos/whatsapp-commerce/orders/stats`);
-      if (res.ok) setStats(await res.json());
+      const data = await mangwaleAIClient.get<OrderStats>('/mos/whatsapp-commerce/orders/stats');
+      setStats(data);
     } catch (err) {
       console.error('Failed to fetch stats:', err);
     }
@@ -140,7 +134,7 @@ export default function WhatsAppCommercePage() {
   const syncCatalog = async () => {
     setSyncing(true);
     try {
-      await fetch(`${API}/api/mos/whatsapp-commerce/catalog/sync`, { method: 'POST' });
+      await mangwaleAIClient.post('/mos/whatsapp-commerce/catalog/sync', {});
       await fetchCatalog();
     } finally {
       setSyncing(false);
@@ -150,11 +144,7 @@ export default function WhatsAppCommercePage() {
   const sendCatalog = async (phone: string) => {
     if (!phone) return;
     try {
-      await fetch(`${API}/api/mos/whatsapp-commerce/catalog/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
-      });
+      await mangwaleAIClient.post('/mos/whatsapp-commerce/catalog/send', { phone });
       setSendingTo('');
       alert('Catalog sent!');
     } catch {

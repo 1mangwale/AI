@@ -7,6 +7,7 @@ import {
   ArrowRight, Calendar,
 } from 'lucide-react';
 import { mangwaleAIClient } from '@/lib/api/mangwale-ai';
+import { formatCurrency } from '@/lib/utils/format';
 
 interface DashboardVitals {
   gmv: number;
@@ -60,7 +61,7 @@ export default function MosDashboardPage() {
       setError(null);
       const result = await mangwaleAIClient.get<DashboardData>(
         `/mos/dashboard?date=${selectedDate}`,
-      );
+      ).catch(() => null);
       setData(result);
     } catch (err: any) {
       console.error('Failed to load dashboard:', err);
@@ -352,8 +353,3 @@ function SmallCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatCurrency(amount: number): string {
-  if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
-  if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
-  return `Rs ${(amount ?? 0).toFixed(0)}`;
-}
