@@ -3,8 +3,8 @@ export class ChatCompletionResultDto {
   model: string;
   provider: 'vllm' | 'ollama' | 'openai' | 'groq' | 'openrouter' | 'huggingface' | 'together' | 'deepseek' | 'gemini' | 'anthropic' | 'grok' | 'fallback';
   content: string;
-  finishReason: 'stop' | 'length' | 'function_call' | 'error';
-  
+  finishReason: 'stop' | 'length' | 'function_call' | 'tool_calls' | 'error';
+
   // Usage statistics
   usage: {
     promptTokens: number;
@@ -14,15 +14,25 @@ export class ChatCompletionResultDto {
 
   // Performance
   processingTimeMs: number;
-  
-  // Function calling (if applicable)
+
+  // Tool calls (2026 standard — preferred)
+  toolCalls?: Array<{
+    id: string;
+    type: 'function';
+    function: {
+      name: string;
+      arguments: string; // JSON string
+    };
+  }>;
+
+  // Legacy function calling (backward compat — will be removed)
   functionCall?: {
     name: string;
-    arguments: string | Record<string, any>; // Can be JSON string or parsed object
+    arguments: string | Record<string, any>;
   };
 
   // Logprobs (if requested)
-  logprobs?: any; // vLLM logprobs structure
+  logprobs?: any;
 
   // Cost tracking
   estimatedCost?: number; // In USD

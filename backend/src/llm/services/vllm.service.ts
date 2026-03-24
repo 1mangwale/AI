@@ -21,6 +21,16 @@ export interface VllmStreamChunk {
     delta: {
       role?: string;
       content?: string;
+      tool_calls?: Array<{
+        index: number;
+        id?: string;
+        type?: 'function';
+        function?: {
+          name?: string;
+          arguments?: string;
+        };
+      }>;
+      /** @deprecated Use tool_calls instead */
       function_call?: {
         name?: string;
         arguments?: string;
@@ -144,7 +154,7 @@ export class VllmService {
 
     // Log request start
     this.logger.log(`🚀 [${requestId}] vLLM Request Started`);
-    this.logger.debug(`   Model: ${dto.model || 'Qwen/Qwen3.5-4B'}`);
+    this.logger.debug(`   Model: ${dto.model || 'default'}`);
     this.logger.debug(`   Messages: ${dto.messages.length}`);
     this.logger.debug(`   Temperature: ${dto.temperature ?? 0.7}`);
 
@@ -154,7 +164,7 @@ export class VllmService {
       try {
         // Build request body
         const requestBody: any = {
-          model: dto.model || 'Qwen/Qwen3.5-4B',
+          model: dto.model || this.config.get('VLLM_MODEL', 'cyankiwi/Qwen3.5-4B-AWQ-4bit'),
           messages: dto.messages,
           temperature: dto.temperature ?? 0.7,
           max_tokens: dto.maxTokens || 2000,
@@ -162,15 +172,30 @@ export class VllmService {
           stream: false,
         };
 
-        // Function calling support
-        if (dto.functions && dto.functions.length > 0) {
-          requestBody.functions = dto.functions;
-          requestBody.function_call = 'auto';
+        // Tool calling support (2026 standard — tools API)
+        if (dto.tools && dto.tools.length > 0) {
+          requestBody.tools = dto.tools;
+          requestBody.tool_choice = dto.toolChoice || 'auto';
+        }
+        // Legacy function calling fallback (auto-convert to tools format)
+        else if (dto.functions && dto.functions.length > 0) {
+          requestBody.tools = dto.functions.map(fn => ({
+            type: 'function' as const,
+            function: fn,
+          }));
+          requestBody.tool_choice = 'auto';
         }
 
         // Disable thinking mode for Qwen3.5 models (generates verbose CoT otherwise)
         if ((requestBody.model || '').includes('Qwen3.5')) {
           requestBody.chat_template_kwargs = { enable_thinking: false };
+        }
+
+        // Structured output (vLLM guided decoding)
+        if (dto.guidedJson) {
+          requestBody.guided_json = dto.guidedJson;
+        } else if (dto.responseFormat) {
+          requestBody.response_format = dto.responseFormat;
         }
 
         // Advanced sampling parameters
@@ -223,7 +248,7 @@ export class VllmService {
         // Build result
         const result: ChatCompletionResultDto = {
           id: data.id || `vllm-${Date.now()}`,
-          model: data.model || dto.model || 'Qwen/Qwen3.5-4B',
+          model: data.model || dto.model || this.config.get('VLLM_MODEL', 'cyankiwi/Qwen3.5-4B-AWQ-4bit'),
           provider: 'vllm',
           content: choice.message?.content || '',
           finishReason: choice.finish_reason || 'stop',
@@ -236,12 +261,38 @@ export class VllmService {
           estimatedCost: 0,
         };
 
-        // Include function call if present
-        if (choice.message?.function_call) {
+        // Include tool calls if present (2026 standard)
+        if (choice.message?.tool_calls && choice.message.tool_calls.length > 0) {
+          result.toolCalls = choice.message.tool_calls.map((tc: any) => ({
+            id: tc.id || `call_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            type: 'function' as const,
+            function: {
+              name: tc.function.name,
+              arguments: tc.function.arguments,
+            },
+          }));
+          // Backward compat: also populate legacy functionCall from first tool call
+          result.functionCall = {
+            name: result.toolCalls[0].function.name,
+            arguments: result.toolCalls[0].function.arguments,
+          };
+          result.finishReason = 'tool_calls';
+        }
+        // Legacy function_call fallback
+        else if (choice.message?.function_call) {
           result.functionCall = {
             name: choice.message.function_call.name,
             arguments: choice.message.function_call.arguments,
           };
+          // Also populate toolCalls for forward compat
+          result.toolCalls = [{
+            id: `call_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            type: 'function' as const,
+            function: {
+              name: choice.message.function_call.name,
+              arguments: choice.message.function_call.arguments,
+            },
+          }];
         }
 
         // Include logprobs if requested
@@ -380,7 +431,7 @@ export class VllmService {
   async chatStream(dto: ChatCompletionDto): Promise<any> {
     try {
       const requestBody: any = {
-        model: dto.model || 'Qwen/Qwen3.5-4B',
+        model: dto.model || this.config.get('VLLM_MODEL', 'cyankiwi/Qwen3.5-4B-AWQ-4bit'),
         messages: dto.messages,
         temperature: dto.temperature ?? 0.7,
         max_tokens: dto.maxTokens || 2000,

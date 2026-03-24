@@ -135,6 +135,44 @@ export class CloudLlmService {
     return OPENROUTER_MODEL_MAPPING[lowerModel] || OPENROUTER_MODEL_MAPPING['default'];
   }
 
+  /**
+   * Build tools params for OpenAI-compatible providers
+   */
+  private buildToolsParams(dto: ChatCompletionDto): Record<string, any> {
+    const params: Record<string, any> = {};
+    if (dto.tools && dto.tools.length > 0) {
+      params.tools = dto.tools;
+      params.tool_choice = dto.toolChoice || 'auto';
+    } else if (dto.functions && dto.functions.length > 0) {
+      // Auto-convert legacy functions to tools format
+      params.tools = dto.functions.map(fn => ({ type: 'function', function: fn }));
+      params.tool_choice = 'auto';
+    }
+    return params;
+  }
+
+  /**
+   * Extract tool calls from OpenAI-compatible response choice
+   */
+  private extractToolCalls(choice: any): { toolCalls?: ChatCompletionResultDto['toolCalls']; functionCall?: ChatCompletionResultDto['functionCall']; finishReason: string } {
+    const result: any = { finishReason: choice.finish_reason || 'stop' };
+
+    if (choice.message?.tool_calls && choice.message.tool_calls.length > 0) {
+      result.toolCalls = choice.message.tool_calls.map((tc: any) => ({
+        id: tc.id,
+        type: 'function' as const,
+        function: { name: tc.function.name, arguments: tc.function.arguments },
+      }));
+      result.functionCall = {
+        name: result.toolCalls[0].function.name,
+        arguments: result.toolCalls[0].function.arguments,
+      };
+      result.finishReason = 'tool_calls';
+    }
+
+    return result;
+  }
+
   async chatOpenAI(dto: ChatCompletionDto): Promise<ChatCompletionResultDto> {
     if (!this.openaiClient) {
       throw new Error('OpenAI API key not configured');
@@ -149,16 +187,18 @@ export class CloudLlmService {
         temperature: dto.temperature,
         max_tokens: dto.maxTokens,
         top_p: dto.topP,
+        ...this.buildToolsParams(dto),
       });
 
       const choice = completion.choices[0];
+      const toolInfo = this.extractToolCalls(choice);
 
       return {
         id: completion.id,
         model: completion.model,
         provider: 'openai',
         content: choice.message?.content || '',
-        finishReason: choice.finish_reason as any,
+        finishReason: toolInfo.finishReason as any,
         usage: {
           promptTokens: completion.usage?.prompt_tokens || 0,
           completionTokens: completion.usage?.completion_tokens || 0,
@@ -169,6 +209,7 @@ export class CloudLlmService {
           completion.usage?.total_tokens || 0,
           completion.model,
         ),
+        ...toolInfo.toolCalls ? { toolCalls: toolInfo.toolCalls, functionCall: toolInfo.functionCall } : {},
       };
     } catch (error) {
       this.logger.error(`OpenAI chat failed: ${error.message}`, error.stack);
@@ -192,16 +233,18 @@ export class CloudLlmService {
         messages: dto.messages as any,
         temperature: dto.temperature,
         max_tokens: dto.maxTokens,
+        ...this.buildToolsParams(dto),
       });
 
       const choice = completion.choices[0];
+      const toolInfo = this.extractToolCalls(choice);
 
       return {
         id: completion.id,
         model: completion.model,
         provider: 'groq',
         content: choice.message?.content || '',
-        finishReason: choice.finish_reason as any,
+        finishReason: toolInfo.finishReason as any,
         usage: {
           promptTokens: completion.usage?.prompt_tokens || 0,
           completionTokens: completion.usage?.completion_tokens || 0,
@@ -213,6 +256,7 @@ export class CloudLlmService {
           completion.usage?.completion_tokens || 0,
           completion.model,
         ),
+        ...toolInfo.toolCalls ? { toolCalls: toolInfo.toolCalls, functionCall: toolInfo.functionCall } : {},
       };
     } catch (error) {
       this.logger.error(`Groq chat failed: ${error.message}`, error.stack);
@@ -236,16 +280,18 @@ export class CloudLlmService {
         messages: dto.messages as any,
         temperature: dto.temperature,
         max_tokens: dto.maxTokens,
+        ...this.buildToolsParams(dto),
       });
 
       const choice = completion.choices[0];
+      const toolInfo = this.extractToolCalls(choice);
 
       return {
         id: completion.id,
         model: completion.model,
         provider: 'openrouter',
         content: choice.message?.content || '',
-        finishReason: choice.finish_reason as any,
+        finishReason: toolInfo.finishReason as any,
         usage: {
           promptTokens: completion.usage?.prompt_tokens || 0,
           completionTokens: completion.usage?.completion_tokens || 0,
@@ -257,6 +303,7 @@ export class CloudLlmService {
           completion.usage?.completion_tokens || 0,
           completion.model,
         ),
+        ...toolInfo.toolCalls ? { toolCalls: toolInfo.toolCalls, functionCall: toolInfo.functionCall } : {},
       };
     } catch (error) {
       this.logger.error(`OpenRouter chat failed: ${error.message}`, error.stack);
@@ -285,16 +332,18 @@ export class CloudLlmService {
         messages: dto.messages as any,
         temperature: dto.temperature,
         max_tokens: dto.maxTokens,
+        ...this.buildToolsParams(dto),
       });
 
       const choice = completion.choices[0];
+      const toolInfo = this.extractToolCalls(choice);
 
       return {
         id: completion.id,
         model: completion.model,
         provider: 'gemini',
         content: choice.message?.content || '',
-        finishReason: choice.finish_reason as any,
+        finishReason: toolInfo.finishReason as any,
         usage: {
           promptTokens: completion.usage?.prompt_tokens || 0,
           completionTokens: completion.usage?.completion_tokens || 0,
@@ -306,6 +355,7 @@ export class CloudLlmService {
           completion.usage?.completion_tokens || 0,
           completion.model,
         ),
+        ...toolInfo.toolCalls ? { toolCalls: toolInfo.toolCalls, functionCall: toolInfo.functionCall } : {},
       };
     } catch (error) {
       this.logger.error(`Gemini chat failed: ${error.message}`, error.stack);
@@ -381,16 +431,18 @@ export class CloudLlmService {
         messages: dto.messages as any,
         temperature: dto.temperature,
         max_tokens: dto.maxTokens,
+        ...this.buildToolsParams(dto),
       });
 
       const choice = completion.choices[0];
+      const toolInfo = this.extractToolCalls(choice);
 
       return {
         id: completion.id,
         model: completion.model,
         provider: 'deepseek',
         content: choice.message?.content || '',
-        finishReason: choice.finish_reason as any,
+        finishReason: toolInfo.finishReason as any,
         usage: {
           promptTokens: completion.usage?.prompt_tokens || 0,
           completionTokens: completion.usage?.completion_tokens || 0,
@@ -402,6 +454,7 @@ export class CloudLlmService {
           completion.usage?.completion_tokens || 0,
           completion.model,
         ),
+        ...toolInfo.toolCalls ? { toolCalls: toolInfo.toolCalls, functionCall: toolInfo.functionCall } : {},
       };
     } catch (error) {
       this.logger.error(`DeepSeek chat failed: ${error.message}`, error.stack);
@@ -425,16 +478,18 @@ export class CloudLlmService {
         messages: dto.messages as any,
         temperature: dto.temperature,
         max_tokens: dto.maxTokens,
+        ...this.buildToolsParams(dto),
       });
 
       const choice = completion.choices[0];
+      const toolInfo = this.extractToolCalls(choice);
 
       return {
         id: completion.id,
         model: completion.model,
         provider: 'grok',
         content: choice.message?.content || '',
-        finishReason: choice.finish_reason as any,
+        finishReason: toolInfo.finishReason as any,
         usage: {
           promptTokens: completion.usage?.prompt_tokens || 0,
           completionTokens: completion.usage?.completion_tokens || 0,
@@ -446,6 +501,7 @@ export class CloudLlmService {
           completion.usage?.completion_tokens || 0,
           completion.model,
         ),
+        ...toolInfo.toolCalls ? { toolCalls: toolInfo.toolCalls, functionCall: toolInfo.functionCall } : {},
       };
     } catch (error) {
       this.logger.error(`Grok chat failed: ${error.message}`, error.stack);

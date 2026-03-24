@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { VllmService } from './vllm.service';
 import { OllamaService } from './ollama.service';
 import { CloudLlmService } from './cloud-llm.service';
 import { LlmUsageTrackingService } from './llm-usage-tracking.service';
 import { ModelRegistryService } from './model-registry.service';
+import { SmartModelRouterService, RoutingContext } from './smart-model-router.service';
 import { ChatCompletionDto } from '../dto/chat-completion.dto';
 import { ChatCompletionResultDto } from '../dto/chat-completion-result.dto';
 
@@ -19,6 +20,7 @@ export class LlmService {
     private readonly cloudLlmService: CloudLlmService,
     private readonly usageTracking: LlmUsageTrackingService,
     private readonly modelRegistry: ModelRegistryService,
+    @Optional() private readonly smartRouter?: SmartModelRouterService,
   ) {}
 
   async chat(dto: ChatCompletionDto): Promise<ChatCompletionResultDto> {
@@ -36,7 +38,7 @@ export class LlmService {
       // Provider selection strategy
       // NOTE: Ollama is NOT available - using vLLM with Qwen2.5-7B as primary local LLM
       if (provider === 'vllm' || provider === 'auto') {
-        this.logger.log('Attempting vLLM (local Qwen2.5-7B)');
+        this.logger.log(`Attempting vLLM (local ${this.config.get('VLLM_MODEL', 'Qwen')})`);
         const attemptStart = Date.now();
         try {
           result = await this.vllmService.chat(dto);

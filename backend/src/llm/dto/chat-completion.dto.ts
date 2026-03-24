@@ -30,7 +30,13 @@ export class ChatCompletionDto {
   stream?: boolean = false;
 
   @IsOptional()
-  functions?: FunctionDefinition[]; // For function calling
+  functions?: FunctionDefinition[]; // Legacy format — use tools[] instead
+
+  @IsOptional()
+  tools?: ToolDefinition[]; // 2026 standard: tools API format
+
+  @IsOptional()
+  toolChoice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } }; // Tool selection strategy
 
   @IsOptional()
   @IsString()
@@ -78,13 +84,21 @@ export class ChatCompletionDto {
 }
 
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'function';
-  content: string;
-  name?: string; // For function calls
+  role: 'system' | 'user' | 'assistant' | 'function' | 'tool';
+  content: string | null;
+  name?: string; // For function messages (legacy)
+  tool_call_id?: string; // For tool result messages
 }
 
+/** Legacy format — prefer ToolDefinition */
 export interface FunctionDefinition {
   name: string;
   description: string;
   parameters: Record<string, any>;
+}
+
+/** 2026 standard tools API format */
+export interface ToolDefinition {
+  type: 'function';
+  function: FunctionDefinition;
 }

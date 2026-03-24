@@ -41,6 +41,12 @@ export interface FunctionDefinition {
   };
 }
 
+/** 2026 standard tools API format */
+export interface ToolDefinition {
+  type: 'function';
+  function: FunctionDefinition;
+}
+
 export interface FunctionParameter {
   type: 'string' | 'number' | 'boolean' | 'array' | 'object';
   description?: string;
@@ -50,7 +56,19 @@ export interface FunctionParameter {
 }
 
 /**
- * Function call from LLM
+ * Tool call from LLM (2026 standard)
+ */
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
+}
+
+/**
+ * Function call from LLM (legacy — use ToolCall instead)
  */
 export interface FunctionCall {
   name: string;
@@ -61,9 +79,12 @@ export interface FunctionCall {
  * LLM Message format
  */
 export interface LLMMessage {
-  role: 'system' | 'user' | 'assistant' | 'function';
+  role: 'system' | 'user' | 'assistant' | 'function' | 'tool';
   content: string | null;
-  name?: string; // For function messages
+  name?: string; // For function messages (legacy)
+  tool_call_id?: string; // For tool result messages
+  tool_calls?: ToolCall[]; // For assistant messages with tool calls
+  /** @deprecated Use tool_calls instead */
   function_call?: FunctionCall;
 }
 

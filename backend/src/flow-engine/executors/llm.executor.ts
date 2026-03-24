@@ -26,25 +26,8 @@ export class LlmExecutor implements ActionExecutor {
     private readonly sentimentAnalysis: SentimentAnalysisService,
     private readonly advancedLearning: AdvancedLearningService,
   ) {
-    // Register Handlebars helpers
-    Handlebars.registerHelper('json', function(context) {
-      return JSON.stringify(context);
-    });
-    
-    // "or" helper: {{or value1 value2}} - returns first truthy value
-    Handlebars.registerHelper('or', function(...args) {
-      // Last argument is Handlebars options object
-      const values = args.slice(0, -1);
-      for (const val of values) {
-        if (val) return val;
-      }
-      return values[values.length - 1] || '';
-    });
-    
-    // "default" helper: {{default value "fallback"}} - returns value or fallback
-    Handlebars.registerHelper('default', function(value, defaultValue) {
-      return value || defaultValue;
-    });
+    // Handlebars helpers (json, or, default, eq, ne) are registered globally
+    // in flow-context.service.ts — do NOT re-register here
   }
 
   private interpolate(text: string, data: any): string {
@@ -229,13 +212,23 @@ Suggested foods for ${ctx.time?.mealTime}: ${ctx.suggestions?.timeBased?.join(',
         content: `INSTRUCTION: ${prompt}\n\nGenerate the appropriate response now. Only output the response text, no explanation.`,
       });
 
-      // Call LLM service (auto mode enables fallback to cloud when vLLM unavailable)
-      const result = await this.llmService.chat({
+      // Build LLM request with optional structured output
+      const llmRequest: any = {
         messages,
         temperature,
-        maxTokens, // Fixed: using camelCase
-        provider: config.provider || 'auto', // Auto mode: try vLLM first, fallback to cloud
-      });
+        maxTokens,
+        provider: config.provider || 'auto',
+      };
+
+      // Structured output: use vLLM guided decoding for reliable JSON
+      if (config.parseJson && config.jsonSchema) {
+        llmRequest.guidedJson = config.jsonSchema;
+      } else if (config.parseJson) {
+        llmRequest.responseFormat = { type: 'json_object' };
+      }
+
+      // Call LLM service (auto mode enables fallback to cloud when vLLM unavailable)
+      const result = await this.llmService.chat(llmRequest);
 
       let response = result.content;
 

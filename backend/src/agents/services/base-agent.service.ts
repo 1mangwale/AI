@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AgentContext, FunctionCall, FunctionDefinition, LLMMessage, AgentResult, AgentConfig } from '../types/agent.types';
+import { AgentContext, FunctionCall, FunctionDefinition, ToolDefinition, ToolCall, LLMMessage, AgentResult, AgentConfig } from '../types/agent.types';
 import { FunctionExecutorService } from './function-executor.service';
 import { LlmService } from '../../llm/services/llm.service';
 
@@ -63,65 +63,79 @@ export abstract class BaseAgent {
         },
       ];
 
-      // Call LLM with function definitions
+      // Build tools from function definitions (2026 standard)
       const config = this.getConfig();
+      const tools: ToolDefinition[] = this.getFunctions().map(fn => ({
+        type: 'function' as const,
+        function: fn,
+      }));
+
+      // Call LLM with tools
       let response = await this.llmService.chat({
-        model: 'Qwen/Qwen2.5-7B-Instruct-AWQ', // Local vLLM model
         messages,
-        functions: this.getFunctions(),
+        tools,
+        toolChoice: 'auto',
         temperature: config.temperature,
         maxTokens: config.maxTokens,
       });
 
-      // Handle function calls (loop for multi-step)
+      // Handle tool calls (loop for multi-step agentic execution)
       let iterations = 0;
       const maxIterations = 5;
 
-      while (response.functionCall && iterations < maxIterations) {
+      while ((response.toolCalls?.length || response.functionCall) && iterations < maxIterations) {
         iterations++;
 
-        // Execute function
-        const functionName = response.functionCall.name;
-        let functionArgs: any;
-        try {
-          functionArgs = typeof response.functionCall.arguments === 'string'
-            ? JSON.parse(response.functionCall.arguments)
-            : response.functionCall.arguments;
-        } catch {
-          this.logger.warn(`Failed to parse function args for ${functionName}, using empty object`);
-          functionArgs = {};
-        }
+        // Get tool calls from response (prefer toolCalls, fallback to functionCall)
+        const toolCalls: Array<{ id: string; name: string; arguments: string }> = response.toolCalls
+          ? response.toolCalls.map(tc => ({ id: tc.id, name: tc.function.name, arguments: tc.function.arguments }))
+          : response.functionCall
+            ? [{ id: `call_${Date.now()}`, name: response.functionCall.name, arguments: typeof response.functionCall.arguments === 'string' ? response.functionCall.arguments : JSON.stringify(response.functionCall.arguments) }]
+            : [];
 
-        this.logger.log(
-          `Agent ${config.id} calling function: ${functionName}`,
-          functionArgs,
-        );
-
-        functionsCalled.push(functionName);
-
-        const functionResult = await this.functionExecutor.execute(
-          functionName,
-          functionArgs,
-          context,
-        );
-
-        // Add function call and result to messages
+        // Add assistant message with tool_calls to history
         messages.push({
           role: 'assistant',
-          content: `Function call: ${functionName}`,
+          content: response.content || null,
+          tool_calls: toolCalls.map(tc => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: { name: tc.name, arguments: tc.arguments },
+          })),
         });
 
-        messages.push({
-          role: 'function',
-          name: functionName,
-          content: JSON.stringify(functionResult),
-        });
+        // Execute each tool call and add results
+        for (const toolCall of toolCalls) {
+          let functionArgs: any;
+          try {
+            functionArgs = JSON.parse(toolCall.arguments);
+          } catch {
+            this.logger.warn(`Failed to parse tool args for ${toolCall.name}, using empty object`);
+            functionArgs = {};
+          }
+
+          this.logger.log(`Agent ${config.id} calling tool: ${toolCall.name}`, functionArgs);
+          functionsCalled.push(toolCall.name);
+
+          const functionResult = await this.functionExecutor.execute(
+            toolCall.name,
+            functionArgs,
+            context,
+          );
+
+          // Add tool result message (2026 standard)
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify(functionResult),
+          });
+        }
 
         // Get next response from LLM
         response = await this.llmService.chat({
-          model: 'Qwen/Qwen2.5-7B-Instruct-AWQ', // Local vLLM model
           messages,
-          functions: this.getFunctions(),
+          tools,
+          toolChoice: 'auto',
           temperature: config.temperature,
           maxTokens: config.maxTokens,
         });
