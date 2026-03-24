@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { PrismaService } from '../database/prisma.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { maskPhone } from '../common/utils/phone.util';
 
 export interface ConversationMessage {
   role: 'user' | 'assistant';
@@ -28,6 +29,10 @@ export class SessionService {
   // Cache is cleared after each request (via interceptor or manual cleanup)
   private readonly memoryCache = new Map<string, { session: Session | null; timestamp: number }>();
   private readonly CACHE_TTL_MS = 5000; // 5 seconds - enough for a single request lifecycle
+
+  // 🔒 Auth token refresh mutex: prevents parallel executors from triggering
+  // duplicate token refreshes. Concurrent callers await the same Promise.
+  private readonly pendingTokenRefresh = new Map<string, Promise<string | null>>();
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
@@ -87,7 +92,7 @@ export class SessionService {
       }
       
       // Cache miss - fetch from Redis
-      this.logger.debug(`📥 Cache MISS for session: ${phoneNumber} - fetching from Redis`);
+      this.logger.debug(`📥 Cache MISS for session: ${maskPhone(phoneNumber)} - fetching from Redis`);
       const data = await this.redis.get(key);
       const session = data ? JSON.parse(data) : null;
       
@@ -96,7 +101,7 @@ export class SessionService {
       
       return session;
     } catch (error) {
-      this.logger.error(`Error getting session for ${phoneNumber}:`, error);
+      this.logger.error(`Error getting session for ${maskPhone(phoneNumber)}:`, error);
       return null;
     }
   }
@@ -111,7 +116,7 @@ export class SessionService {
     };
 
     await this.saveSession(phoneNumber, session);
-    this.logger.log(`📝 Session created for ${phoneNumber}`);
+    this.logger.log(`📝 Session created for ${maskPhone(phoneNumber)}`);
     return session;
   }
 
@@ -144,7 +149,7 @@ export class SessionService {
         this.logger.debug(`✅ Session key ${key} verified in Redis`);
       }
     } catch (error) {
-      this.logger.error(`Error saving session for ${phoneNumber}:`, error);
+      this.logger.error(`Error saving session for ${maskPhone(phoneNumber)}:`, error);
       throw error;
     }
   }
@@ -199,11 +204,11 @@ export class SessionService {
     if (typeof keyOrData === 'string') {
       // Single key-value pair
       data[keyOrData] = value;
-      this.logger.log(`📝 Setting data for ${phoneNumber}: ${keyOrData} = ${typeof value === 'string' ? value.substring(0, 50) : value}`);
+      this.logger.log(`📝 Setting data for ${maskPhone(phoneNumber)}: ${keyOrData} = ${typeof value === 'string' ? value.substring(0, 50) : value}`);
     } else {
       // Multiple data as object
       Object.assign(data, keyOrData);
-      this.logger.log(`📝 Setting multiple data for ${phoneNumber}: ${Object.keys(keyOrData).join(', ')}`);
+      this.logger.log(`📝 Setting multiple data for ${maskPhone(phoneNumber)}: ${Object.keys(keyOrData).join(', ')}`);
     }
 
     await this.saveSession(phoneNumber, { data });
@@ -303,10 +308,10 @@ export class SessionService {
       });
 
       const persistedKeys = Object.keys(updates).filter(k => k !== 'updated_at');
-      this.logger.log(`Persisted user preferences for user ${userId} (${phoneNumber}): ${persistedKeys.join(', ')}`);
+      this.logger.log(`Persisted user preferences for user ${userId} (${maskPhone(phoneNumber)}): ${persistedKeys.join(', ')}`);
     } catch (error) {
       // Non-critical: log but don't throw so session cleanup still proceeds
-      this.logger.warn(`Failed to persist user preferences for ${phoneNumber}: ${error.message}`);
+      this.logger.warn(`Failed to persist user preferences for ${maskPhone(phoneNumber)}: ${error.message}`);
     }
   }
 
@@ -315,7 +320,7 @@ export class SessionService {
     await this.persistUserPreferences(phoneNumber);
     const key = this.getSessionKey(phoneNumber);
     await this.redis.del(key);
-    this.logger.log(`Session cleared for ${phoneNumber}`);
+    this.logger.log(`Session cleared for ${maskPhone(phoneNumber)}`);
   }
 
   async deleteSession(phoneNumber: string): Promise<void> {
@@ -330,7 +335,7 @@ export class SessionService {
     const messagesKey = `bot_messages:${phoneNumber}`;
     await this.redis.del(messagesKey);
 
-    this.logger.log(`Session and messages deleted for ${phoneNumber}`);
+    this.logger.log(`Session and messages deleted for ${maskPhone(phoneNumber)}`);
   }
 
   async getAllSessions(): Promise<Session[]> {
@@ -421,7 +426,7 @@ export class SessionService {
         // Acknowledge all
         await this.redis.del(key);
       }
-      this.logger.debug(`✅ Acknowledged ${count || 'all'} bot messages for ${phoneNumber}`);
+      this.logger.debug(`✅ Acknowledged ${count || 'all'} bot messages for ${maskPhone(phoneNumber)}`);
     } catch (error) {
       this.logger.error('Error acknowledging bot messages:', error);
     }
@@ -434,7 +439,7 @@ export class SessionService {
     try {
       const key = `bot_messages:${phoneNumber}`;
       await this.redis.del(key);
-      this.logger.log(`🗑️ Cleared bot messages for ${phoneNumber}`);
+      this.logger.log(`🗑️ Cleared bot messages for ${maskPhone(phoneNumber)}`);
     } catch (error) {
       this.logger.error('Error clearing bot messages:', error);
     }
@@ -513,7 +518,7 @@ export class SessionService {
 
       this.logger.debug(`💬 Added ${role} message to history for ${phoneNumber} (history length: ${updatedHistory.length})`);
     } catch (error) {
-      this.logger.error(`Error adding conversation history for ${phoneNumber}:`, error);
+      this.logger.error(`Error adding conversation history for ${maskPhone(phoneNumber)}:`, error);
     }
   }
 
@@ -530,7 +535,7 @@ export class SessionService {
       const history = session.conversationHistory || [];
       return history.slice(-limit);
     } catch (error) {
-      this.logger.error(`Error getting conversation history for ${phoneNumber}:`, error);
+      this.logger.error(`Error getting conversation history for ${maskPhone(phoneNumber)}:`, error);
       return [];
     }
   }
@@ -543,10 +548,57 @@ export class SessionService {
       await this.saveSession(phoneNumber, {
         conversationHistory: [],
       });
-      this.logger.log(`🗑️ Cleared conversation history for ${phoneNumber}`);
+      this.logger.log(`🗑️ Cleared conversation history for ${maskPhone(phoneNumber)}`);
     } catch (error) {
-      this.logger.error(`Error clearing conversation history for ${phoneNumber}:`, error);
+      this.logger.error(`Error clearing conversation history for ${maskPhone(phoneNumber)}:`, error);
     }
+  }
+
+  /**
+   * Refresh auth token with mutex/coalescing.
+   *
+   * If a refresh is already in-progress for this session, concurrent callers
+   * receive the same Promise (no duplicate PHP calls). The refreshed token is
+   * written back to session data so subsequent executor reads pick it up.
+   *
+   * @param sessionId - session identifier (phone number or session key)
+   * @param refreshFn - async function that performs the actual token refresh
+   *                     (e.g., phpAuthService.autoLogin). Must return the new
+   *                     token string, or null on failure.
+   * @returns the new auth token, or null if refresh failed
+   */
+  async refreshAuthToken(
+    sessionId: string,
+    refreshFn: () => Promise<string | null>,
+  ): Promise<string | null> {
+    // If a refresh is already in-flight for this session, piggyback on it
+    const pending = this.pendingTokenRefresh.get(sessionId);
+    if (pending) {
+      this.logger.debug(`🔒 Auth refresh already in-flight for ${sessionId}, waiting...`);
+      return pending;
+    }
+
+    // Create the refresh promise and store it so concurrent callers can share it
+    const refreshPromise = (async () => {
+      try {
+        const newToken = await refreshFn();
+        if (newToken) {
+          // Write refreshed token back to session so other executors see it
+          await this.setData(sessionId, { auth_token: newToken });
+          this.logger.log(`🔑 Auth token refreshed and saved for ${sessionId}`);
+        }
+        return newToken;
+      } catch (error) {
+        this.logger.error(`Auth token refresh failed for ${sessionId}: ${error.message}`);
+        return null;
+      } finally {
+        // Always clear the pending entry so future calls can retry
+        this.pendingTokenRefresh.delete(sessionId);
+      }
+    })();
+
+    this.pendingTokenRefresh.set(sessionId, refreshPromise);
+    return refreshPromise;
   }
 }
 

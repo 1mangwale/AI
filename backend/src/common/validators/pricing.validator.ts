@@ -95,7 +95,21 @@ export class PricingValidatorService {
     distance: number,
     tolerancePercent: number = 5,
   ): { valid: boolean; expected: ParcelOrderPricing; difference: number; message?: string } {
+    // Hard ceiling: reject any parcel order above ₹5,000 (sanity check)
+    const MAX_PARCEL_AMOUNT = 5000;
+    if (submittedAmount > MAX_PARCEL_AMOUNT) {
+      this.logger.error(`❌ Parcel order amount ₹${submittedAmount} exceeds ceiling ₹${MAX_PARCEL_AMOUNT}`);
+      return {
+        valid: false,
+        expected: null as any,
+        difference: 0,
+        message: `Order amount ₹${submittedAmount} exceeds maximum allowed ₹${MAX_PARCEL_AMOUNT}`,
+      };
+    }
+
     try {
+      // NOTE: These rates are a sanity check only. PHP uses category-specific rates
+      // from business_settings that may differ. Tolerance is set at ±5% to allow divergence.
       const expected = this.calculateParcelOrderAmount(distance);
       const difference = Math.abs(submittedAmount - expected.totalAmount);
       const tolerance = Math.round((expected.totalAmount * tolerancePercent) / 100);

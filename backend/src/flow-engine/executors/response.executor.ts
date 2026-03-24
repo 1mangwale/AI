@@ -218,7 +218,13 @@ export class ResponseExecutor implements ActionExecutor {
 
       // Handle saveToContext
       if (saveToContext) {
+        // Protect internal flow keys from accidental overwrite
+        const protectedPrefixes = ['_system', '_conversation_history', '_flow_'];
         for (const [key, value] of Object.entries(saveToContext)) {
+          if (protectedPrefixes.some(p => key.startsWith(p))) {
+            this.logger.warn(`⚠️ saveToContext attempted to overwrite protected key "${key}" — skipped`);
+            continue;
+          }
           // Use interpolateMetadata to recursively resolve ALL template strings (including nested objects)
           const finalValue = this.interpolateMetadata(value, context.data);
           

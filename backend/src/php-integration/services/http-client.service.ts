@@ -20,7 +20,7 @@ export class PhpHttpClientService {
   }
 
   async get<T = any>(endpoint: string, headers?: any): Promise<T> {
-    try {
+    return this.withRetry(async () => {
       const config: AxiosRequestConfig = {
         timeout: this.timeout,
         headers: {
@@ -38,9 +38,7 @@ export class PhpHttpClientService {
       );
 
       return response.data;
-    } catch (error) {
-      this.handleError('GET', endpoint, error);
-    }
+    }, 'GET', endpoint);
   }
 
   async post<T = any>(endpoint: string, data: any, headers?: any): Promise<T> {
@@ -114,6 +112,29 @@ export class PhpHttpClientService {
     } catch (error) {
       this.handleError('DELETE', endpoint, error);
     }
+  }
+
+  /**
+   * Retry wrapper for 5xx errors (server-side failures).
+   * Only retries GET and idempotent read operations by default.
+   */
+  private async withRetry<T>(fn: () => Promise<T>, method: string, endpoint: string, maxRetries = 1): Promise<T> {
+    let lastError: any;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        const status = error.response?.status;
+        // Only retry on 5xx (server error) or network timeout, not 4xx (client error)
+        if (attempt < maxRetries && (status >= 500 || !status)) {
+          const delay = 500 * (attempt + 1); // 500ms, 1000ms
+          this.logger.warn(`⚠️ ${method} ${endpoint} failed (${status || 'timeout'}), retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, delay));
+        }
+      }
+    }
+    this.handleError(method, endpoint, lastError);
   }
 
   private handleError(method: string, endpoint: string, error: any): never {

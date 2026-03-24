@@ -402,6 +402,18 @@ export class OrderExecutor implements ActionExecutor {
       };
     }
 
+    // Idempotency guard: prevent duplicate order creation from retries/double-taps
+    const idempotencyKey = `parcel_${context._system?.sessionId}_${Date.now().toString(36)}`;
+    if (context.data._last_order_idempotency_key === idempotencyKey) {
+      this.logger.warn(`⚠️ Duplicate order creation attempt blocked (idempotency key: ${idempotencyKey})`);
+      return { success: false, message: 'Order already submitted. Please wait for confirmation.' };
+    }
+    if (context.data._parcel_order_in_progress) {
+      this.logger.warn('⚠️ Order creation already in progress — blocking duplicate');
+      return { success: false, message: 'Your order is being processed. Please wait.' };
+    }
+    context.data._parcel_order_in_progress = true;
+
     const orderResult = await this.phpOrderService.createOrder(authToken, {
       pickupAddress: {
         address: pickupAddress.address || pickupAddress.formatted,
@@ -477,6 +489,12 @@ export class OrderExecutor implements ActionExecutor {
 
       // Track order for learning/personalization
       this.trackOrderForLearning(context, 'parcel', orderResult).catch(() => {});
+    }
+
+    // Clear idempotency guard
+    context.data._parcel_order_in_progress = false;
+    if (orderResult.success) {
+      context.data._last_order_idempotency_key = idempotencyKey;
     }
 
     return orderResult;

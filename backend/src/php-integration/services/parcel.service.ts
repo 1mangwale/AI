@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PhpHttpClientService } from './http-client.service';
 import { PhpOrderService } from './php-order.service';
 import { OSRMService } from '../../routing/services/osrm.service';
+import { maskPhone } from '../../common/utils/phone.util';
 import * as mysql from 'mysql2/promise';
 
 /** Rider-API rate card structure (cached in PHP business_settings) */
@@ -206,7 +207,7 @@ export class PhpParcelService {
 
   async createGuestOrder(phoneNumber: string, orderData: any): Promise<any> {
     try {
-      this.logger.log(`Creating guest order for ${phoneNumber}`);
+      this.logger.log(`Creating guest order for ${maskPhone(phoneNumber)}`);
 
       const payload = {
         order_type: 'parcel',
@@ -379,6 +380,7 @@ export class PhpParcelService {
 
   /**
    * Haversine formula for straight-line distance (fallback when OSRM unavailable)
+   * Applies 1.3x multiplier to approximate road distance from straight-line distance
    */
   private haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371; // Earth's radius in km
@@ -393,10 +395,11 @@ export class PhpParcelService {
         Math.sin(dLon / 2);
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c;
+    const straightLine = R * c;
+    const roadApprox = straightLine * 1.3; // 1.3x road-distance approximation
 
-    this.logger.debug(`📏 Haversine distance: ${Math.round(distance * 100) / 100} km`);
-    return Math.round(distance * 100) / 100; // Round to 2 decimals
+    this.logger.warn(`Haversine fallback: straight-line ${Math.round(straightLine * 100) / 100} km * 1.3 = ${Math.round(roadApprox * 100) / 100} km`);
+    return Math.round(roadApprox * 100) / 100; // Round to 2 decimals
   }
 
   private toRad(degrees: number): number {
@@ -410,7 +413,7 @@ export class PhpParcelService {
    */
   async sendOtpLogin(phoneNumber: string): Promise<any> {
     try {
-      this.logger.log(`🔑 Sending OTP login request to ${phoneNumber}`);
+      this.logger.log(`🔑 Sending OTP login request to ${maskPhone(phoneNumber)}`);
 
       const response = await this.httpClient.post(
         '/api/v1/auth/login',
@@ -420,7 +423,7 @@ export class PhpParcelService {
         },
       );
 
-      this.logger.log(`✅ OTP sent to ${phoneNumber}`);
+      this.logger.log(`✅ OTP sent to ${maskPhone(phoneNumber)}`);
       return { success: true, ...response };
     } catch (error) {
       this.logger.error('❌ Error sending OTP:', error.message);
@@ -439,7 +442,7 @@ export class PhpParcelService {
    */
   async verifyOtpLogin(phoneNumber: string, otp: string): Promise<any> {
     try {
-      this.logger.log(`🔑 Verifying OTP ${otp} for ${phoneNumber}`);
+      this.logger.log(`🔑 Verifying OTP for ${maskPhone(phoneNumber)}`);
 
       const response = await this.httpClient.post(
         '/api/v1/auth/login',
@@ -452,7 +455,7 @@ export class PhpParcelService {
       );
 
       this.logger.debug(`📦 PHP Response: ${JSON.stringify(response)}`);
-      this.logger.log(`✅ OTP verified for ${phoneNumber}, token received: ${response.token ? 'YES' : 'NO'}, is_personal_info: ${response.is_personal_info}`);
+      this.logger.log(`✅ OTP verified for ${maskPhone(phoneNumber)}, token received: ${response.token ? 'YES' : 'NO'}, is_personal_info: ${response.is_personal_info}`);
       return { success: true, data: response };
     } catch (error) {
       this.logger.error('❌ Error verifying OTP:', error.message);
@@ -468,7 +471,7 @@ export class PhpParcelService {
    */
   async checkUserExists(phoneNumber: string): Promise<any> {
     try {
-      this.logger.log(`🔍 Checking if user exists by initiating OTP: ${phoneNumber}`);
+      this.logger.log(`🔍 Checking if user exists by initiating OTP: ${maskPhone(phoneNumber)}`);
 
       // Call OTP login endpoint - PHP will send OTP if user exists
       const response = await this.httpClient.post(
@@ -482,14 +485,14 @@ export class PhpParcelService {
       // Response: { token: "temp_token", is_phone_verified: 0/1, is_email_verified: 1, is_personal_info: 1, is_exist_user: null, login_type: 'otp', email: null }
       // The OTP is sent to the phone via SMS by PHP backend
       
-      this.logger.log(`✅ OTP sent to ${phoneNumber} - User existence check complete`);
+      this.logger.log(`✅ OTP sent to ${maskPhone(phoneNumber)} - User existence check complete`);
       return { 
         exists: true,  // If PHP sends OTP, user exists (or will be created on verification)
         otpSent: true,
         response 
       };
     } catch (error) {
-      this.logger.error(`❌ User existence check failed: ${phoneNumber} (PHP API Error: ${error.message})`);
+      this.logger.error(`❌ User existence check failed: ${maskPhone(phoneNumber)} (PHP API Error: ${error.message})`);
       return { exists: false, otpSent: false, error: error.message };
     }
   }
@@ -502,7 +505,7 @@ export class PhpParcelService {
    */
   async sendOtpForRegistration(phoneNumber: string): Promise<any> {
     try {
-      this.logger.log(`📝 Sending OTP for registration/login to ${phoneNumber}`);
+      this.logger.log(`📝 Sending OTP for registration/login to ${maskPhone(phoneNumber)}`);
 
       // Same endpoint as login - PHP handles both cases
       const response = await this.httpClient.post(
@@ -513,7 +516,7 @@ export class PhpParcelService {
         },
       );
 
-      this.logger.log(`✅ OTP sent to ${phoneNumber}`);
+      this.logger.log(`✅ OTP sent to ${maskPhone(phoneNumber)}`);
       return { success: true, otpSent: true, ...response };
     } catch (error) {
       this.logger.error('❌ Error sending OTP:', error.message);
@@ -528,7 +531,7 @@ export class PhpParcelService {
    */
   async updateUserInfo(phoneNumber: string, fullName: string, email: string = 'noemail@mangwale.com'): Promise<any> {
     try {
-      this.logger.log(`👤 Updating user info for ${phoneNumber}: ${fullName}`);
+      this.logger.log(`👤 Updating user info for ${maskPhone(phoneNumber)}: ${fullName}`);
 
       const response = await this.httpClient.post(
         '/api/v1/auth/update-info',
@@ -541,7 +544,7 @@ export class PhpParcelService {
       );
 
       // Response: { token: "new_jwt_token", is_phone_verified: 1, is_email_verified: 1, is_personal_info: 1, login_type: 'otp', email: "email" }
-      this.logger.log(`✅ User info updated for ${phoneNumber}, token received: ${response.token ? 'YES' : 'NO'}`);
+      this.logger.log(`✅ User info updated for ${maskPhone(phoneNumber)}, token received: ${response.token ? 'YES' : 'NO'}`);
       return { success: true, ...response };
     } catch (error) {
       this.logger.error('❌ Error updating user info:', error.message);
@@ -649,7 +652,7 @@ export class PhpParcelService {
   async createAuthenticatedOrder(jwtToken: string, phoneNumber: string, orderData: any): Promise<any> {
     // Mock for testing
     if (process.env.TEST_MODE === 'true') {
-      this.logger.log(`🧪 TEST MODE: Mocking createAuthenticatedOrder for ${phoneNumber}`);
+      this.logger.log(`🧪 TEST MODE: Mocking createAuthenticatedOrder for ${maskPhone(phoneNumber)}`);
       return {
         order_id: 100000 + Math.floor(Math.random() * 900000),
         message: 'Order placed successfully (Mock)',
@@ -658,7 +661,7 @@ export class PhpParcelService {
     }
 
     try {
-      this.logger.log(`Creating authenticated order for ${phoneNumber}`);
+      this.logger.log(`Creating authenticated order for ${maskPhone(phoneNumber)}`);
 
       const payload = {
         order_type: 'parcel',

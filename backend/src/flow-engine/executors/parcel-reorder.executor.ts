@@ -102,6 +102,9 @@ export class ParcelReorderExecutor implements ActionExecutor {
     context.data.reorder_order_id = lastOrder.orderId;
     context.data.reorder_amount = lastOrder.orderAmount;
 
+    // Flag that zones need re-validation (zones may have changed since last order)
+    context.data._reorder_needs_zone_revalidation = true;
+
     // Format summary for display
     const pickupShort = this.shortenAddress(lastOrder.pickupAddress.address);
     const deliveryShort = this.shortenAddress(lastOrder.deliveryAddress.address);
