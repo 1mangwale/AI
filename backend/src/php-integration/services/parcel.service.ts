@@ -1,19 +1,145 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PhpHttpClientService } from './http-client.service';
+import { PhpOrderService } from './php-order.service';
 import { OSRMService } from '../../routing/services/osrm.service';
+import * as mysql from 'mysql2/promise';
+
+/** Rider-API rate card structure (cached in PHP business_settings) */
+interface RateCard {
+  pickup: { min_amount: number; min_distance_km: number; approach_per_km: number; max_amount: number };
+  drop: { min_amount: number; min_distance_km: number; per_km: number; max_amount: number };
+  stop_cost: number;
+}
+
+/** Category → vehicle type mapping */
+interface CategoryVehicleMap {
+  [categoryId: number]: string; // e.g. 5 → 'BIKE', 9 → '3_WHEELER'
+}
 
 @Injectable()
 export class PhpParcelService {
   private readonly logger = new Logger(PhpParcelService.name);
   private readonly defaultModuleId: number;
+  private mysqlPool: mysql.Pool | null = null;
+
+  // Cache rate cards and category→vehicle mapping (refresh every 10 min)
+  private rateCardCache: Map<string, RateCard> = new Map();
+  private categoryVehicleMap: CategoryVehicleMap = {};
+  private cacheTimestamp = 0;
+  private readonly CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+  private mysqlFallbackActive = false;
 
   constructor(
     private httpClient: PhpHttpClientService,
     private configService: ConfigService,
-    private osrmService: OSRMService, // Inject OSRM service for distance calculation
+    private osrmService: OSRMService,
+    private phpOrderService: PhpOrderService,
   ) {
     this.defaultModuleId = this.configService.get('php.defaultModuleId');
+    this.initMysqlPool();
+  }
+
+  private initMysqlPool(): void {
+    try {
+      const host = process.env.MYSQL_HOST || '127.0.0.1';
+      const port = parseInt(process.env.MYSQL_PORT || '13307');
+      const user = process.env.MYSQL_USERNAME || 'readonly';
+      const password = process.env.MYSQL_PASSWORD;
+      const database = process.env.MYSQL_DATABASE || 'mangwale_db';
+
+      if (!password) {
+        this.logger.warn('⚠️ MYSQL_PASSWORD not set — rate card pricing will use hardcoded fallback');
+        this.mysqlFallbackActive = true;
+        return;
+      }
+
+      this.mysqlPool = mysql.createPool({
+        host,
+        port,
+        user,
+        password,
+        database,
+        waitForConnections: true,
+        connectionLimit: 3,
+        queueLimit: 0,
+      });
+      this.logger.log(`✅ MySQL pool initialized for rate card pricing (${host}:${port})`);
+    } catch (error) {
+      this.logger.warn(`⚠️ MySQL pool init failed: ${error.message}`);
+      this.mysqlFallbackActive = true;
+    }
+  }
+
+  /**
+   * Refresh rate cards and category→vehicle mapping from PHP MySQL DB.
+   * Reads `business_settings.cached_rider_rate_card_*` and `parcel_categories.vehicle_type`.
+   */
+  private async refreshRateCardCache(): Promise<void> {
+    if (!this.mysqlPool) return;
+    if (Date.now() - this.cacheTimestamp < this.CACHE_TTL_MS && this.rateCardCache.size > 0) return;
+
+    try {
+      // Fetch rate cards
+      const [rateRows]: any = await this.mysqlPool.execute(
+        `SELECT \`key\`, value FROM business_settings WHERE \`key\` LIKE 'cached_rider_rate_card_%'`
+      );
+      for (const row of rateRows) {
+        const vehicleType = row.key.replace('cached_rider_rate_card_', '');
+        try {
+          this.rateCardCache.set(vehicleType, JSON.parse(row.value));
+        } catch (e) {
+          this.logger.warn(`⚠️ Failed to parse rate card for ${vehicleType}: ${e.message}`);
+        }
+      }
+
+      // Fetch category → vehicle_type mapping
+      const [catRows]: any = await this.mysqlPool.execute(
+        `SELECT id, vehicle_type FROM parcel_categories WHERE vehicle_type IS NOT NULL`
+      );
+      for (const row of catRows) {
+        this.categoryVehicleMap[row.id] = row.vehicle_type;
+      }
+
+      this.cacheTimestamp = Date.now();
+      this.logger.log(`✅ Rate card cache refreshed: ${this.rateCardCache.size} cards, ${catRows.length} categories`);
+    } catch (error) {
+      this.logger.warn(`⚠️ Failed to refresh rate card cache: ${error.message}`);
+    }
+  }
+
+  /**
+   * Compute delivery charge using rider-api rate card formula.
+   * Matches PHP DeliveryChargeService::computeRateCardPrice() exactly.
+   */
+  private computeRateCardPrice(rateCard: RateCard, distanceKm: number): number {
+    const drop = rateCard.drop;
+    const pickup = rateCard.pickup;
+
+    // Drop earnings (based on delivery distance)
+    let dropEarning: number;
+    if (distanceKm <= drop.min_distance_km) {
+      dropEarning = drop.min_amount;
+    } else {
+      dropEarning = Math.min(
+        drop.min_amount + (distanceKm - drop.min_distance_km) * drop.per_km,
+        drop.max_amount,
+      );
+    }
+
+    // Pickup earnings (assume avg 1km pickup approach)
+    const pickupApproachKm = 1;
+    let pickupEarning: number;
+    if (pickupApproachKm <= pickup.min_distance_km) {
+      pickupEarning = pickup.min_amount;
+    } else {
+      pickupEarning = Math.min(
+        pickup.min_amount + (pickupApproachKm - pickup.min_distance_km) * pickup.approach_per_km,
+        pickup.max_amount,
+      );
+    }
+
+    return Math.round((dropEarning + pickupEarning) * 100) / 100;
   }
 
   async getZoneByLocation(latitude: number, longitude: number): Promise<any> {
@@ -85,15 +211,16 @@ export class PhpParcelService {
       const payload = {
         order_type: 'parcel',
         payment_method: 'digital_payment',
-        
+
         // Guest identification (NO JWT!)
         guest_id: `wa_${phoneNumber}`,
         contact_person_name: orderData.sender_name,
         contact_person_number: phoneNumber,
         contact_person_email: orderData.sender_email,
-        
+
         // Parcel specific
         parcel_category_id: orderData.category_id,
+        vehicle_type: orderData.vehicle_type || null,
         receiver_details: JSON.stringify({
           contact_person_name: orderData.receiver_name,
           contact_person_number: orderData.receiver_phone,
@@ -102,28 +229,28 @@ export class PhpParcelService {
           floor: orderData.receiver_floor || '',
           road: orderData.receiver_road || '',
           house: orderData.receiver_house || '',
-          latitude: orderData.receiver_latitude.toString(),  // STRING!
-          longitude: orderData.receiver_longitude.toString(),  // STRING!
-          zone_id: orderData.receiver_zone_id,  // NUMBER
+          latitude: orderData.receiver_latitude.toString(),
+          longitude: orderData.receiver_longitude.toString(),
+          zone_id: orderData.receiver_zone_id,
           address_type: 'Delivery',
         }),
         charge_payer: 'sender',
-        
+
         // Sender location (pickup)
         distance: orderData.distance,
         address: orderData.sender_address,
-        longitude: orderData.sender_longitude.toString(),  // STRING!
-        latitude: orderData.sender_latitude.toString(),  // STRING!
+        longitude: orderData.sender_longitude.toString(),
+        latitude: orderData.sender_latitude.toString(),
         floor: orderData.sender_floor || '',
         road: orderData.sender_road || '',
         house: orderData.sender_house || '',
         address_type: 'Pickup',
-        
-        // Amounts - CRITICAL: PHP does NOT compute order_amount for parcel orders,
-        // it uses whatever we send. Must include delivery_charge + platform_fee (additional_charge)
+
+        // Amounts — PHP recalculates delivery_charge server-side from rate cards
         order_amount: (orderData.total_charge || orderData.delivery_charge || 0),
+        additional_charge: orderData.platform_fee || 5,
         dm_tips: orderData.dm_tips || 0,
-        
+
         // Optional
         order_note: orderData.order_note || '',
         delivery_instruction: orderData.delivery_instruction || '',
@@ -162,8 +289,9 @@ export class PhpParcelService {
   }
 
   /**
-   * Calculate shipping charge via PHP backend
-   * Replaces local calculation logic to ensure zone-based pricing accuracy
+   * Calculate shipping charge using rider-api rate cards from PHP DB.
+   * Matches PHP DeliveryChargeService::calculateParcelDeliveryCharge() exactly.
+   * Flow: MySQL rate_card lookup → computeRateCardPrice() → add platform fee + GST
    */
   async calculateShippingCharge(
     distance: number,
@@ -175,101 +303,49 @@ export class PhpParcelService {
     tax: number;
     platform_fee: number;
     distance: number;
+    vehicle_type?: string;
   }> {
-    // Mock for testing or when PHP endpoint not available
-    const isMockMode = process.env.TEST_MODE === 'true' || process.env.MOCK_PARCEL_PRICING === 'true';
-    
-    // Platform fee (from config, matching PHP backend)
     const PLATFORM_FEE = this.configService.get<number>('pricing.platformFee') || 5;
-    
-    // Calculate fallback pricing based on category pricing from PHP
-    const calculateLocalPricing = async (dist: number): Promise<{
-      total_charge: number;
-      delivery_charge: number;
-      tax: number;
-      platform_fee: number;
-      distance: number;
-    }> => {
-      try {
-        // Fetch actual category pricing from PHP
-        const zoneIdForPricing = zoneIds[0];
-        if (!zoneIdForPricing) {
-          this.logger.warn(`⚠️ getParcelCategories called without zone_id — using module default`);
-        }
-        const categories = await this.getParcelCategories(3, zoneIdForPricing);
-        const category = categories.find(c => c.id === parcelCategoryId);
-        
-        if (category) {
-          // Use actual category pricing
-          const perKmCharge = parseFloat(category.parcel_per_km_shipping_charge) || 11.11;
-          const minimumCharge = parseFloat(category.parcel_minimum_shipping_charge) || 44;
-          
-          // Calculate: max(minimum, distance * per_km)
-          const calculatedCharge = dist * perKmCharge;
-          const delivery_charge = Math.max(minimumCharge, Math.round(calculatedCharge * 100) / 100);
-          const tax = 0; // No additional tax as PHP doesn't add it
-          const total_charge = delivery_charge + PLATFORM_FEE;
-          
-          this.logger.log(`💰 Category pricing: ${category.name} - ₹${perKmCharge}/km, min ₹${minimumCharge}`);
-          this.logger.log(`💰 Calculated: delivery=₹${delivery_charge}, platform=₹${PLATFORM_FEE}, total=₹${total_charge}`);
-          
-          return {
-            total_charge,
-            delivery_charge,
-            tax,
-            platform_fee: PLATFORM_FEE,
-            distance: dist
-          };
-        }
-      } catch (catError) {
-        this.logger.warn(`⚠️ Failed to fetch category pricing: ${catError.message}`);
-      }
-      
-      // Absolute fallback with default pricing (matching Bike Delivery category)
-      const defaultMinimum = 44;
-      const defaultPerKm = 11.11;
-      const calculatedCharge = dist * defaultPerKm;
-      const delivery_charge = Math.max(defaultMinimum, Math.round(calculatedCharge * 100) / 100);
-      const total_charge = delivery_charge + PLATFORM_FEE;
-      
-      this.logger.log(`💰 Using default pricing: delivery=₹${delivery_charge}, platform=₹${PLATFORM_FEE}, total=₹${total_charge}`);
-      
-      return {
-        total_charge,
-        delivery_charge,
-        tax: 0,
-        platform_fee: PLATFORM_FEE,
-        distance: dist
-      };
-    };
+    const GST_RATE = 0.05; // 5% GST on delivery + platform fee (tax_id=1 in PHP)
+
+    this.logger.log(`💰 Calculating shipping: distance=${distance}km, category=${parcelCategoryId}`);
 
     try {
-      this.logger.log(`💰 Calculating shipping charge via PHP backend: distance=${distance}, category=${parcelCategoryId}`);
+      // Refresh rate card cache from MySQL
+      await this.refreshRateCardCache();
 
-      // We pass zoneId in header as per other requests to ensure zone-specific pricing
-      const response = await this.httpClient.post(
-        '/api/v1/parcel/shipping-charge',
-        {
-          distance: distance,
-          parcel_category_id: parcelCategoryId,
-        },
-        {
-          'zoneId': JSON.stringify(zoneIds)
-        }
-      );
+      // Look up vehicle type for this category
+      const vehicleType = this.categoryVehicleMap[parcelCategoryId] || 'BIKE';
+      const rateCard = this.rateCardCache.get(vehicleType);
 
-      return {
-        total_charge: parseFloat(response.total_charge || response.total_amount || 0),
-        delivery_charge: parseFloat(response.delivery_charge || 0),
-        tax: parseFloat(response.tax || response.tax_amount || 0),
-        platform_fee: parseFloat(response.platform_fee || PLATFORM_FEE),
-        distance: parseFloat(response.distance || distance)
-      };
+      if (rateCard) {
+        const delivery_charge = this.computeRateCardPrice(rateCard, distance);
+        const tax = Math.round((delivery_charge + PLATFORM_FEE) * GST_RATE * 100) / 100;
+        const total_charge = Math.round((delivery_charge + PLATFORM_FEE + tax) * 100) / 100;
+
+        this.logger.log(`💰 Rate card pricing (${vehicleType}): delivery=₹${delivery_charge}, platform=₹${PLATFORM_FEE}, tax=₹${tax}, total=₹${total_charge}`);
+
+        return { total_charge, delivery_charge, tax, platform_fee: PLATFORM_FEE, distance, vehicle_type: vehicleType };
+      }
+
+      this.logger.warn(`⚠️ No rate card found for ${vehicleType}, using BIKE hardcoded fallback`);
     } catch (error) {
-      this.logger.warn(`⚠️ PHP shipping-charge API failed, using category-based pricing: ${error.message}`);
-      // Fallback to category-based calculation
-      return await calculateLocalPricing(distance);
+      this.logger.warn(`⚠️ Rate card lookup failed: ${error.message}`);
     }
+
+    // Hardcoded BIKE rate card fallback (matches PHP DeliveryChargeService::getRateCard fallback)
+    const fallbackRateCard: RateCard = {
+      pickup: { min_amount: 8, min_distance_km: 1.5, approach_per_km: 6, max_amount: 40 },
+      drop: { min_amount: 25, min_distance_km: 3, per_km: 7, max_amount: 130 },
+      stop_cost: 10,
+    };
+    const delivery_charge = this.computeRateCardPrice(fallbackRateCard, distance);
+    const tax = Math.round((delivery_charge + PLATFORM_FEE) * GST_RATE * 100) / 100;
+    const total_charge = Math.round((delivery_charge + PLATFORM_FEE + tax) * 100) / 100;
+
+    this.logger.log(`💰 Fallback pricing (BIKE): delivery=₹${delivery_charge}, platform=₹${PLATFORM_FEE}, tax=₹${tax}, total=₹${total_charge}`);
+
+    return { total_charge, delivery_charge, tax, platform_fee: PLATFORM_FEE, distance, vehicle_type: 'BIKE' };
   }
 
   /**
@@ -587,9 +663,10 @@ export class PhpParcelService {
       const payload = {
         order_type: 'parcel',
         payment_method: orderData.payment_method || 'digital_payment', // cash_on_delivery or digital_payment
-        
+
         // Parcel specific
         parcel_category_id: orderData.category_id,
+        vehicle_type: orderData.vehicle_type || null, // BIKE, 3_WHEELER, 4_WHEELER — PHP derives from category if null
         receiver_details: JSON.stringify({
           contact_person_name: orderData.receiver_name,
           contact_person_number: orderData.receiver_phone,
@@ -602,10 +679,10 @@ export class PhpParcelService {
           longitude: orderData.delivery_longitude.toString(),
           zone_id: orderData.delivery_zone_id,
           address_type: 'Delivery',
-          landmark: orderData.delivery_landmark || '', // Add landmark
+          landmark: orderData.delivery_landmark || '',
         }),
         charge_payer: 'sender',
-        
+
         // Pickup location
         distance: orderData.distance,
         address: orderData.pickup_landmark ? `${orderData.pickup_address} (${orderData.pickup_landmark})` : orderData.pickup_address,
@@ -615,12 +692,13 @@ export class PhpParcelService {
         road: orderData.pickup_road || '',
         house: orderData.pickup_house || '',
         address_type: 'Pickup',
-        
-        // Amounts - CRITICAL: PHP does NOT compute order_amount for parcel orders,
-        // it uses whatever we send. Must include delivery_charge + platform_fee (additional_charge)
+
+        // Amounts — PHP is server-authoritative for delivery_charge (recalculates from rate cards),
+        // but uses our additional_charge (platform fee) and order_amount as reference
         order_amount: (orderData.total_charge || orderData.delivery_charge || 0),
+        additional_charge: orderData.platform_fee || 5, // Platform fee — PHP uses this for parcel orders
         dm_tips: orderData.dm_tips || 0,
-        
+
         // Optional
         order_note: orderData.order_note || '',
         delivery_instruction: orderData.delivery_instruction || '',
@@ -785,6 +863,99 @@ export class PhpParcelService {
         success: false,
         message: error.message,
       };
+    }
+  }
+
+  /**
+   * Get the user's most recent parcel order (module_id=3) for one-tap reorder.
+   * Returns pickup/delivery addresses with lat/lng, recipient, vehicle, payment method.
+   */
+  async getLastParcelOrder(authToken: string): Promise<{
+    orderId: number;
+    pickupAddress: any;
+    deliveryAddress: any;
+    recipientName: string;
+    recipientPhone: string;
+    vehicleId: number;
+    paymentMethod: string;
+    distance: number;
+    orderAmount: number;
+    createdAt?: Date;
+  } | null> {
+    try {
+      this.logger.log('🔄 Fetching last parcel order for reorder');
+
+      // Call PHP API directly to get raw parcel order data (getOrders loses delivery_address field)
+      const response = await this.phpOrderService.getOrdersRaw(authToken, 1, 1, '3');
+      const orderList = response?.orders || response?.data || [];
+
+      if (!orderList.length) {
+        this.logger.log('No previous parcel orders found');
+        return null;
+      }
+
+      const rawOrder = orderList[0];
+      // PHP parcel orders: delivery_address = PICKUP (sender), receiver_details = DELIVERY (receiver)
+      const pickup = rawOrder.delivery_address || {};
+      let receiver: Record<string, any> = {};
+      if (rawOrder.receiver_details) {
+        if (typeof rawOrder.receiver_details === 'string') {
+          try {
+            receiver = JSON.parse(rawOrder.receiver_details);
+          } catch (parseErr) {
+            this.logger.warn(`⚠️ Failed to parse receiver_details JSON: ${parseErr.message}`);
+            return null;
+          }
+        } else {
+          receiver = rawOrder.receiver_details;
+        }
+      }
+
+      const pickupLat = pickup.latitude;
+      const pickupLng = pickup.longitude;
+      const deliveryLat = receiver.latitude;
+      const deliveryLng = receiver.longitude;
+
+      if (!pickupLat || !pickupLng || !deliveryLat || !deliveryLng) {
+        this.logger.warn(`⚠️ Last parcel order missing coordinates — pickup: (${pickupLat}, ${pickupLng}), delivery: (${deliveryLat}, ${deliveryLng})`);
+        return null;
+      }
+
+      const result = {
+        orderId: rawOrder.id,
+        pickupAddress: {
+          address: pickup.address || '',
+          latitude: parseFloat(pickupLat),
+          longitude: parseFloat(pickupLng),
+          floor: pickup.floor || '',
+          road: pickup.road || '',
+          house: pickup.house || '',
+          landmark: pickup.landmark || '',
+        },
+        deliveryAddress: {
+          address: receiver.address || '',
+          latitude: parseFloat(deliveryLat),
+          longitude: parseFloat(deliveryLng),
+          floor: receiver.floor || '',
+          road: receiver.road || '',
+          house: receiver.house || '',
+          landmark: receiver.landmark || '',
+          zone_id: receiver.zone_id,
+        },
+        recipientName: receiver.contact_person_name || receiver.name || '',
+        recipientPhone: receiver.contact_person_number || receiver.phone || '',
+        vehicleId: rawOrder.parcel_category_id || rawOrder.vehicle_category_id || rawOrder.vehicle_id || 0,
+        paymentMethod: rawOrder.payment_method || 'cash_on_delivery',
+        distance: rawOrder.distance ? parseFloat(String(rawOrder.distance)) : 0,
+        orderAmount: parseFloat(rawOrder.order_amount) || 0,
+        createdAt: rawOrder.created_at ? new Date(rawOrder.created_at) : undefined,
+      };
+
+      this.logger.log(`✅ Last parcel order: #${result.orderId} — ${result.pickupAddress.address} → ${result.deliveryAddress.address}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`❌ Failed to fetch last parcel order: ${error.message}`);
+      return null;
     }
   }
 

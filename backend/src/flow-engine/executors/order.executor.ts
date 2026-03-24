@@ -282,6 +282,22 @@ export class OrderExecutor implements ActionExecutor {
         message: 'Please select a vehicle type for delivery.',
       };
     }
+    // Validate addresses exist before accessing their properties
+    if (!pickupAddress || typeof pickupAddress !== 'object') {
+      this.logger.error('❌ Pickup address is missing or invalid');
+      return {
+        success: false,
+        message: 'Pickup address is required. Please share your pickup location.',
+      };
+    }
+    if (!deliveryAddress || typeof deliveryAddress !== 'object') {
+      this.logger.error('❌ Delivery address is missing or invalid');
+      return {
+        success: false,
+        message: 'Delivery address is required. Please share the delivery location.',
+      };
+    }
+
     const paymentMethod = this.resolvePaymentMethod(config, context, 'cash_on_delivery');
 
     // Map recipient details if available
@@ -306,6 +322,13 @@ export class OrderExecutor implements ActionExecutor {
       return {
         success: false,
         message: 'Invalid delivery distance. Please select pickup and delivery addresses.',
+      };
+    }
+    if (distance < 0.5) {
+      this.logger.warn(`⚠️ Distance too short for parcel delivery: ${distance}km (minimum 0.5km)`);
+      return {
+        success: false,
+        message: 'Pickup and delivery locations are too close (under 500m). Please check the addresses.',
       };
     }
 
@@ -406,6 +429,8 @@ export class OrderExecutor implements ActionExecutor {
       orderNote: config.order_note || context.data.order_note || this.buildParcelNote(parcelDetails),
       distance,
       parcelCategoryId,
+      vehicleType: pricing?.vehicle_type || null, // From rate card pricing
+      platformFee: pricing?.platform_fee || 5,
       senderZoneId,
       deliveryZoneId,
     });
@@ -414,8 +439,10 @@ export class OrderExecutor implements ActionExecutor {
     if (orderResult.success && paymentMethod === 'digital_payment') {
       const razorpayAmount = pricing?.total_charge || pricing?.total;
       if (!razorpayAmount || razorpayAmount <= 0) {
-        this.logger.error(`Pricing unavailable for digital payment on parcel #${orderResult.orderId} — skipping Razorpay`);
-        orderResult.paymentNote = 'Pricing unavailable for online payment. Please pay via cash on delivery or retry.';
+        this.logger.error(`❌ Pricing unavailable for digital payment on parcel #${orderResult.orderId} — falling back to COD`);
+        orderResult.paymentNote = 'Online payment unavailable for this order. Switched to Cash on Delivery.';
+        orderResult.paymentMethod = 'cash_on_delivery';
+        orderResult.paymentFallback = true;
       } else {
       const customerId = orderResult.rawResponse?.user_id || sessionUserId;
       this.logger.log(`💳 Creating Razorpay payment link for parcel #${orderResult.orderId}, amount: ₹${razorpayAmount}, customerId: ${customerId}`);

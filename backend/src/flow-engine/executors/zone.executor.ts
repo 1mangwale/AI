@@ -20,10 +20,10 @@ export class ZoneExecutor implements ActionExecutor {
     @Optional() @Inject(ZoneService) private readonly zoneService?: ZoneService,
     @Optional() private readonly configService?: ConfigService,
   ) {
+    // Only Nashik is the active service area — do NOT include Pune/Mumbai
+    // as they would falsely pass zone validation when PHP API is down.
     this.fallbackZones = this.configService?.get('geo.fallbackZones') || [
       { name: 'Nashik City', zoneId: 4, minLat: 19.9, maxLat: 20.1, minLng: 73.6, maxLng: 73.9 },
-      { name: 'Pune City', zoneId: 5, minLat: 18.4, maxLat: 18.7, minLng: 73.7, maxLng: 74.0 },
-      { name: 'Mumbai', zoneId: 6, minLat: 18.87, maxLat: 19.3, minLng: 72.7, maxLng: 73.1 },
     ];
   }
 
@@ -156,7 +156,7 @@ export class ZoneExecutor implements ActionExecutor {
   private boundingBoxFallback(latitude: number, longitude: number): ActionExecutionResult {
     this.logger.warn('Using bounding box fallback for zone detection (ZoneService unavailable)');
 
-    const serviceBounds = this.fallbackZones;
+    const serviceBounds = Array.isArray(this.fallbackZones) ? this.fallbackZones : [];
 
     let matchedZone = null;
     for (const zone of serviceBounds) {
