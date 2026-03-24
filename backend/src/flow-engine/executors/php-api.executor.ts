@@ -556,8 +556,11 @@ export class PhpApiExecutor implements ActionExecutor {
           message: 'Missing required verification parameters',
         };
 
-      case 'get_payment_methods':
-        return this.paymentService.getPaymentMethods();
+      case 'get_payment_methods': {
+        const pmModuleId = config.module_id ? Number(config.module_id) : (context.data.module_id || 3);
+        const pmZoneId = config.zone_id ? Number(config.zone_id) : (context.data.pickup_zone?.zoneId || context.data.delivery_zone?.zoneId);
+        return this.paymentService.getPaymentMethods(pmModuleId, pmZoneId);
+      }
 
       case 'get_surge_price': {
         const zoneId = config.zone_id ? Number(config.zone_id) : 0;

@@ -236,7 +236,11 @@ export class StateMachineEngine {
       } else if (state.type === 'decision' && state.conditions) {
         triggeredEvent = await this.evaluateConditions(state.conditions, context);
       } else if (state.type === 'end') {
-        // End state - no actions needed
+        // End state — run actions (e.g., success message) before completing
+        if (state.actions && state.actions.length > 0) {
+          const results = await this.executeActions(state.actions, context, currentStateName);
+          this.logger.debug(`End state actions executed: ${results.length} actions`);
+        }
         triggeredEvent = 'completed';
       }
 

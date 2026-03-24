@@ -62,7 +62,9 @@ export default () => ({
     defaultState: process.env.DEFAULT_STATE || 'Maharashtra',
     defaultLatitude: parseFloat(process.env.DEFAULT_LATITUDE) || 19.9975,
     defaultLongitude: parseFloat(process.env.DEFAULT_LONGITUDE) || 73.7898,
-    fallbackZones: JSON.parse(process.env.FALLBACK_ZONES || '[{"name":"Nashik City","zoneId":4,"minLat":19.9,"maxLat":20.1,"minLng":73.6,"maxLng":73.9},{"name":"Pune City","zoneId":5,"minLat":18.4,"maxLat":18.7,"minLng":73.7,"maxLng":74.0},{"name":"Mumbai","zoneId":6,"minLat":18.87,"maxLat":19.3,"minLng":72.7,"maxLng":73.1}]'),
+    // Only Nashik is the active service area — do NOT include Pune/Mumbai
+    // as they would falsely pass zone validation when PHP API is down.
+    fallbackZones: JSON.parse(process.env.FALLBACK_ZONES || '[{"name":"Nashik City","zoneId":4,"minLat":19.9,"maxLat":20.1,"minLng":73.6,"maxLng":73.9}]'),
   },
   // Pricing config — VENDOR-SIDE only.
   // Consumer-facing prices (delivery fees, tax) come from PHP zone config + order placement.

@@ -90,9 +90,9 @@ export class AddressExecutor implements ActionExecutor {
       // =====================================================
       if (context.data._suggested_pickup_address && field === 'pickup_address') {
         const confirmMsg = (userMessage || '').toLowerCase().trim();
-        const isConfirm = /^(confirm_suggested_pickup|yes|haan|ha|ji|ok|sure|confirm|theek|ठीक|हां|हाँ)$/i.test(confirmMsg)
+        const isConfirm = /^(confirm[_ ]suggested[_ ]pickup|yes|haan|ha|ji|ok|sure|confirm|theek|ठीक|हां|हाँ)$/i.test(confirmMsg)
           || confirmMsg === '✅ yes, pick up here';
-        const isShowAll = /^(show_all_addresses|show all|sab dikhao|all|other|nahi|no|change)$/i.test(confirmMsg)
+        const isShowAll = /^(show[_ ]all[_ ]addresses|show all|sab dikhao|all|other|nahi|no|change)$/i.test(confirmMsg)
           || confirmMsg === '📋 show all addresses';
 
         if (isConfirm) {
@@ -132,9 +132,9 @@ export class AddressExecutor implements ActionExecutor {
       // =====================================================
       if (context.data._suggested_delivery_address && field === 'delivery_address') {
         const confirmMsg = (userMessage || '').toLowerCase().trim();
-        const isConfirm = /^(confirm_suggested_delivery|yes|haan|ha|ji|ok|sure|confirm|theek|ठीक|हां|हाँ)$/i.test(confirmMsg)
+        const isConfirm = /^(confirm[_ ]suggested[_ ]delivery|yes|haan|ha|ji|ok|sure|confirm|theek|ठीक|हां|हाँ)$/i.test(confirmMsg)
           || confirmMsg === '✅ yes, deliver here';
-        const isShowAll = /^(show_all_addresses|show all|sab dikhao|all|other|nahi|no|change)$/i.test(confirmMsg)
+        const isShowAll = /^(show[_ ]all[_ ]addresses|show all|sab dikhao|all|other|nahi|no|change)$/i.test(confirmMsg)
           || confirmMsg === '📋 show all addresses';
 
         if (isConfirm) {
@@ -434,6 +434,9 @@ export class AddressExecutor implements ActionExecutor {
         
         // Also check for numeric or address type selections which should be processed normally
         const isSelection = /^[1-9]\d?$/.test(userMessage) || /^(home|office|ghar|work|other)/i.test(userMessage);
+
+        // __LOCATION__ means user shared location via LocationPicker — always process it
+        const isLocationShare = userMessage === '__LOCATION__' || userMessage?.startsWith('LOCATION:');
         
         // Check for cancel request
         const isCancelRequest = /^(cancel|nahi|no|stop|exit|quit|back|wapas|ruk|rukho)$/i.test(userMessage?.trim());
@@ -447,7 +450,7 @@ export class AddressExecutor implements ActionExecutor {
           };
         }
         
-        if (isGenericMessage && !isSelection) {
+        if (isGenericMessage && !isSelection && !isLocationShare) {
           this.logger.log(`🔄 Re-offering saved addresses (early check) - message too generic: "${userMessage}"`);
           
           const locationLabel = field.includes('pickup') || field.includes('sender') ? 'PICKUP' : 'DELIVERY';
@@ -806,7 +809,8 @@ export class AddressExecutor implements ActionExecutor {
         const genericKeywords = ['parcel', 'yes', 'ok', 'no', 'haan', 'ji', 'nahi', 'book', 'send', 'delivery', 'pickup', 'bhej'];
         const isGenericMessage = userMessage.length < 10 || genericKeywords.some(kw => userMessage.toLowerCase() === kw);
         
-        if (isGenericMessage) {
+        const isLocationMsg = userMessage === '__LOCATION__' || userMessage?.startsWith('LOCATION:');
+        if (isGenericMessage && !isLocationMsg) {
           this.logger.log(`🔄 Re-offering saved addresses - user message too generic: "${userMessage}"`);
           const locationLabel = field.includes('pickup') || field.includes('sender') ? 'PICKUP' : 'DELIVERY';
           const locationEmoji = locationLabel === 'PICKUP' ? '📦' : '📍';

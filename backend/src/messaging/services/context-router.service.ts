@@ -27,6 +27,7 @@ import {
   GREETING_CRITICAL_STATES,
   FLOW_SWITCH_BLOCKED_STATES,
   LOCATION_WAIT_STATES,
+  SUPPORT_FLOW_WAIT_STATES,
 } from '../../config/flow.constants';
 import { CorrectionTrackerService, CorrectionType } from '../../learning/services/correction-tracker.service';
 import { NluPreferenceExtractorService } from '../../personalization/nlu-preference-extractor.service';
@@ -792,6 +793,17 @@ export class ContextRouterService implements OnModuleInit {
       return this.handleCommandSync(event, session, intent);
     }
 
+    // STEP 4a GUARD: If support flow is active and in a wait state, do NOT let
+    // override intents (refund, cancel, etc.) break out — the user is describing
+    // their issue inside the support flow, not requesting a new action.
+    const currentFlowStateForGuard = session.data?.flowContext?.currentState;
+    const activeFlowId = session.data?.activeFlow?.flowId || session.data?.flowContext?.flowId;
+    if (activeFlow && activeFlowId === 'support_v1' &&
+        currentFlowStateForGuard && (SUPPORT_FLOW_WAIT_STATES as readonly string[]).includes(currentFlowStateForGuard)) {
+      this.logger.log(`🛟 Support flow active in state "${currentFlowStateForGuard}" — routing to flow instead of override intent "${intent.intent}"`);
+      return this.continueFlowSync(event, session, intent);
+    }
+
     // STEP 4a: Direct response intents (wallet, etc.) - handle BEFORE flow continuation
     // These are informational queries that don't need a flow — respond directly
     if (intent.intent === 'check_wallet') {
@@ -872,8 +884,8 @@ export class ContextRouterService implements OnModuleInit {
       };
     }
 
-    // STEP 4a-3: Order again / reorder — start food order flow with quick_reorder intent
-    if (intent.intent === 'order_again' || intent.intent === 'reorder' || intent.intent === 'quick_reorder') {
+    // STEP 4a-3: Order again / reorder — detect last order type and route accordingly
+    if (intent.intent === 'order_again' || intent.intent === 'reorder' || intent.intent === 'quick_reorder' || intent.intent === 'repeat_order') {
       // Clear active flow if any
       if (activeFlow) {
         await this.sessionService.updateSession(event.identifier, {
@@ -882,9 +894,29 @@ export class ContextRouterService implements OnModuleInit {
         });
       }
 
-      // Start food_order flow directly with quick_reorder intent
-      // The flow's check_trigger state routes quick_reorder -> load_reorder_cart
-      // which handles auth check, fetches visit-again items, and populates cart
+      // Check last order type to route to correct flow (parcel vs food)
+      const authToken = session.data?.auth_token;
+      if (authToken && this.phpOrderService) {
+        try {
+          const recentOrders = await this.phpOrderService.getOrders(authToken, 1);
+          if (recentOrders.length > 0) {
+            const lastOrder = recentOrders[0];
+            const moduleId = lastOrder.moduleId;
+            if (moduleId === 3) {
+              // Last order was parcel — route to parcel flow with reorder trigger
+              this.logger.log(`📦 Parcel reorder: last order #${lastOrder.id} was module_id=3, routing to parcel_delivery_v1`);
+              // Clear routeDecision so startNewFlowSync looks up parcel_booking → parcel_delivery_v1 from DB
+              const parcelReorderIntent = { ...intent, intent: 'parcel_booking', confidence: 1.0, routeDecision: undefined };
+              const flowResponse = await this.startNewFlowSync(event, session, parcelReorderIntent, { _trigger: 'reorder' });
+              if (flowResponse) return flowResponse;
+            }
+          }
+        } catch (err) {
+          this.logger.warn(`Parcel reorder check failed: ${err.message}`);
+        }
+      }
+
+      // Default: food reorder flow (original behavior)
       const reorderIntent = { ...intent, intent: 'quick_reorder', confidence: 1.0 };
       const flowResponse = await this.startNewFlowSync(event, session, reorderIntent);
       if (flowResponse) return flowResponse;
@@ -894,6 +926,7 @@ export class ContextRouterService implements OnModuleInit {
         message: '🔄 No recent orders found. Start a new order?',
         buttons: [
           { label: '🍔 Order Food', value: 'order food', action: 'order_food' },
+          { label: '📦 Send Parcel', value: 'send parcel', action: 'send_parcel' },
           ...this.getMainMenuButtons(),
         ],
         routedTo: 'direct',
@@ -1008,7 +1041,18 @@ export class ContextRouterService implements OnModuleInit {
 
     // STEP 4a-6: Cancel order
     if (intent.intent === 'cancel_order') {
+      // If user is in a critical flow state (payment, address, etc.), route to flow's
+      // built-in cancel handling instead of breaking out — the flow knows about the
+      // in-progress order and can cancel it properly.
       if (activeFlow) {
+        const currentFlowState = session.data?.flowContext?.currentState;
+        const { FLOW_SWITCH_BLOCKED_STATES } = require('../../config/flow.constants');
+        if (currentFlowState && FLOW_SWITCH_BLOCKED_STATES.includes(currentFlowState)) {
+          this.logger.log(`⚠️ cancel_order in blocked state "${currentFlowState}" — routing to flow's cancel handler instead of breaking out`);
+          // Override the message to "cancel" so the flow's cancel detection picks it up
+          event.message = 'cancel';
+          return this.continueFlowSync(event, session, { intent: 'cancel', confidence: 1.0 });
+        }
         await this.sessionService.updateSession(event.identifier, {
           activeFlow: null,
           flowContext: null,
@@ -2044,6 +2088,7 @@ export class ContextRouterService implements OnModuleInit {
     event: MessageEvent,
     session: any,
     intent: IntentClassification & { routeDecision?: RouteDecision },
+    extraContext?: Record<string, any>,
   ): Promise<RouterResponse | null> {
     // 🎯 Use pre-computed route decision from IntentRouterService
     const routeDecision = intent.routeDecision;
@@ -2087,6 +2132,8 @@ export class ContextRouterService implements OnModuleInit {
             _route_decision: routeDecision, // Pass routing metadata to flow
             // Pass auth data from session to flow context
             ...authContext,
+            // Extra context (e.g., _trigger for reorder)
+            ...(extraContext || {}),
           },
         });
 

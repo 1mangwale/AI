@@ -269,8 +269,13 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (email) sessionData.email = email;
     if (token) sessionData.auth_token = token;
     if (name) sessionData.user_name = name;
-    
-    await this.sessionService.setData(sessionId, sessionData);
+
+    // Merge with existing session data to preserve pre-populated fields (e.g., saved_recipients)
+    const mergedData = {
+      ...(existingSession?.data || {}),
+      ...sessionData,
+    };
+    await this.sessionService.saveSession(sessionId, { data: mergedData });
     
     await client.join(sessionId);
     
@@ -559,45 +564,52 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
           }
         }
         
-        // 🔄 CRITICAL: Check if there's an active flow waiting for login before showing greeting
-        // This handles: user starts parcel/order → gets login prompt → logs in → __init__ fires
-        // We should RESUME the flow, not show a generic greeting
+        // 🔄 CRITICAL: Check if there's an active flow before showing greeting
+        // This handles two cases:
+        //   1. User starts parcel/order → login prompt → logs in → __init__ fires → RESUME flow
+        //   2. User clicks button (e.g. "Send Parcel") → flow starts → frontend reconnects → __init__ fires → SKIP greeting
         try {
           const flowContext = await this.flowEngineService.getContext(sessionId);
-          const loginWaitStates = [
-            'wait_for_login',
-            'trigger_frontend_auth_order',
-            'handle_frontend_auth_response',
-          ];
-          
-          if (flowContext && loginWaitStates.includes(flowContext.currentState)) {
-            this.logger.log(`🔄 Active flow "${flowContext.flowId}" waiting at "${flowContext.currentState}" — resuming after login`);
-            
-            // Send a brief "logged in" confirmation
-            const loginConfirmation = `Hello${payload.metadata.userName ? ' ' + payload.metadata.userName : ''}! 👋 Welcome back to Mangwale!\n\nContinuing where you left off...`;
-            client.emit('message', {
-              content: loginConfirmation,
-              role: 'assistant',
-              timestamp: Date.now(),
-            });
-            
-            // Resume the flow — the auth data is already stored in session from session:join
-            const resumeResult = await this.flowEngineService.processMessage(
-              sessionId,
-              '__AUTH_COMPLETE__',
-              'user_message'
-            );
-            
-            if (resumeResult?.response) {
-              this.emitBotResponse(client, sessionId, resumeResult);
+
+          if (flowContext?.flowId && flowContext?.currentState) {
+            const loginWaitStates = [
+              'wait_for_login',
+              'trigger_frontend_auth_order',
+              'handle_frontend_auth_response',
+            ];
+
+            if (loginWaitStates.includes(flowContext.currentState)) {
+              // Case 1: Flow is waiting for login — resume it
+              this.logger.log(`🔄 Active flow "${flowContext.flowId}" waiting at "${flowContext.currentState}" — resuming after login`);
+
+              const loginConfirmation = `Hello${payload.metadata.userName ? ' ' + payload.metadata.userName : ''}! 👋 Welcome back to Mangwale!\n\nContinuing where you left off...`;
+              client.emit('message', {
+                content: loginConfirmation,
+                role: 'assistant',
+                timestamp: Date.now(),
+              });
+
+              const resumeResult = await this.flowEngineService.processMessage(
+                sessionId,
+                '__AUTH_COMPLETE__',
+                'user_message'
+              );
+
+              if (resumeResult?.response) {
+                this.emitBotResponse(client, sessionId, resumeResult);
+              }
+              return;
+            } else {
+              // Case 2: Another flow is already running — don't overwrite it with greeting
+              this.logger.log(`⏭️ Active flow "${flowContext.flowId}" at state "${flowContext.currentState}" — skipping __init__ greeting`);
+              return;
             }
-            return;
           }
         } catch (flowResumeErr) {
           this.logger.warn(`⚠️ Flow resume check failed: ${flowResumeErr.message}`);
           // Fall through to normal greeting
         }
-        
+
         // For __init__ with isInit, emit a greeting message with main menu buttons
         // and return — don't send raw '__init__' text to the NLU/flow engine
         const greeting = `Hello${payload.metadata.userName ? ' ' + payload.metadata.userName : ''}! 👋 Welcome back to Mangwale!\n\nWhat would you like to do today?`;
@@ -654,7 +666,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         }
         // Preserve structured button values (item_ID, category_ID, etc.) — don't strip underscores
         // Also preserves flow-internal buttons: browse_menu, popular, surprise
-        else if (message && /^(item_\d+|category_\d+|store_\d+|skip_location|search_different|view_cart|show_cart|browse_menu|popular|surprise|clear_cart|add_more)$/i.test(message)) {
+        else if (message && /^(item_\d+|category_\d+|store_\d+|skip_location|search_different|view_cart|show_cart|browse_menu|popular|surprise|clear_cart|add_more|confirm_suggested_pickup|confirm_suggested_delivery|show_all_addresses)$/i.test(message)) {
           processedMessage = message;
           this.logger.log(`✨ Using structured button value: "${processedMessage}"`);
         } else {

@@ -38,21 +38,156 @@ export const parcelDeliveryFlow: FlowDefinition = {
   },
   
   states: {
-    // Start: Check if user is authenticated
+    // Start: Check if user is authenticated or reordering
     check_trigger: {
       type: 'decision',
-      description: 'Entry point - check initial context',
+      description: 'Entry point - check if reorder or new booking',
       conditions: [
+        {
+          expression: 'context._trigger === "reorder"',
+          event: 'reorder',
+        },
         {
           expression: 'context._trigger === "parcel_booking_simple"',
           event: 'valid_trigger',
         },
       ],
       transitions: {
+        reorder: 'reorder_check_auth',
         valid_trigger: 'init',
         default: 'init',
       },
     },
+
+    // ═══════════════════════════════════════════════════
+    // REORDER PATH — One-tap repeat last parcel order
+    // ═══════════════════════════════════════════════════
+
+    reorder_check_auth: {
+      type: 'action',
+      description: 'Refresh auth for reorder (user must be logged in)',
+      actions: [
+        {
+          id: 'reorder_refresh_auth',
+          executor: 'session',
+          config: { action: 'refresh_auth' },
+          output: '_auth_status',
+        },
+      ],
+      transitions: {
+        authenticated: 'reorder_check_php',
+        not_authenticated: 'require_login_first',
+        default: 'require_login_first',
+      },
+    },
+
+    reorder_check_php: {
+      type: 'action',
+      description: 'Ensure user has PHP account for reorder',
+      actions: [
+        {
+          id: 'reorder_php_check',
+          executor: 'session',
+          config: { action: 'check_php_account' },
+          output: '_php_check',
+        },
+      ],
+      transitions: {
+        has_php_account: 'fetch_last_parcel',
+        needs_phone: 'collect_phone_for_oauth',
+        default: 'init', // Fallback to normal flow
+      },
+    },
+
+    fetch_last_parcel: {
+      type: 'action',
+      description: 'Fetch user\'s last parcel order for reorder',
+      actions: [
+        {
+          id: 'get_last_order',
+          executor: 'parcel_reorder',
+          config: { action: 'fetch_last_parcel' },
+          output: '_reorder_data',
+        },
+      ],
+      transitions: {
+        found: 'show_reorder_summary',
+        no_history: 'reorder_no_history',
+        error: 'reorder_no_history',
+      },
+    },
+
+    show_reorder_summary: {
+      type: 'wait',
+      description: 'Show one-tap reorder summary',
+      onEntry: [
+        {
+          id: 'reorder_summary_msg',
+          executor: 'response',
+          config: {
+            message: '🔄 **Repeat Your Last Parcel**\n\n📤 Pickup: {{pickup_address.address}}\n📥 Delivery: {{delivery_address.address}}\n👤 Recipient: {{recipient_details.name}} ({{recipient_details.phone}})\n\n_Pricing will be recalculated at current rates._\n\nConfirm to send again?',
+            buttons: [
+              { label: '✅ Confirm & Send', value: 'confirm_reorder', action: 'confirm_reorder' },
+              { label: '✏️ Edit Details', value: 'edit_reorder', action: 'edit_reorder' },
+              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+            ],
+          },
+          output: '_last_response',
+        },
+      ],
+      actions: [],
+      transitions: {
+        user_message: 'handle_reorder_choice',
+        default: 'handle_reorder_choice',
+      },
+    },
+
+    handle_reorder_choice: {
+      type: 'decision',
+      description: 'Route reorder confirm/edit/cancel',
+      conditions: [
+        {
+          expression: 'context._user_message?.toLowerCase().match(/^(confirm_reorder|confirm|yes|haan|ha|send|book)/)',
+          event: 'confirm',
+        },
+        {
+          expression: 'context._user_message?.toLowerCase().match(/^(edit_reorder|edit|change|badlo)/)',
+          event: 'edit',
+        },
+        {
+          expression: 'context._user_message?.toLowerCase().match(/^(cancel|no|nahi|stop)/)',
+          event: 'cancel',
+        },
+      ],
+      transitions: {
+        confirm: 'calculate_distance', // Recalculate distance + pricing with current rates
+        edit: 'collect_pickup', // Normal flow with fields pre-filled in context
+        cancel: 'cancelled',
+        default: 'calculate_distance', // Default to confirm
+      },
+    },
+
+    reorder_no_history: {
+      type: 'action',
+      description: 'No previous parcel orders — start normal flow',
+      actions: [
+        {
+          id: 'no_history_msg',
+          executor: 'response',
+          config: {
+            message: '📦 No previous parcel orders found. Let\'s create a new one!',
+          },
+          output: '_last_response',
+        },
+      ],
+      transitions: {
+        default: 'check_auth_before_flow',
+      },
+    },
+
+    // ═══════════════════════════════════════════════════
+    // END REORDER PATH
+    // ═══════════════════════════════════════════════════
 
     // Initialize — skip directly to auth check (no welcome message needed, user already said "send parcel")
     init: {
@@ -478,8 +613,8 @@ export const parcelDeliveryFlow: FlowDefinition = {
       transitions: {
         zone_valid: 'prepare_delivery',
         zone_invalid: 'pickup_out_of_zone',
-        error: 'prepare_delivery', // If zone check fails, assume valid and proceed
-        default: 'prepare_delivery',
+        error: 'pickup_out_of_zone', // If zone check fails, reject — do NOT assume valid
+        default: 'pickup_out_of_zone',
       },
     },
 
@@ -680,8 +815,8 @@ export const parcelDeliveryFlow: FlowDefinition = {
       transitions: {
         zone_valid: 'check_auth_for_recipient',
         zone_invalid: 'delivery_out_of_zone',
-        error: 'check_auth_for_recipient', // If zone check fails, assume valid and proceed
-        default: 'check_auth_for_recipient',
+        error: 'delivery_out_of_zone', // If zone check fails, reject — do NOT assume valid
+        default: 'delivery_out_of_zone',
       },
     },
 
@@ -700,9 +835,128 @@ export const parcelDeliveryFlow: FlowDefinition = {
         },
       ],
       transitions: {
-        authenticated: 'collect_recipient_auth',
+        authenticated: 'check_saved_recipients',
         not_authenticated: 'collect_recipient_guest',
         default: 'collect_recipient_guest',
+      },
+    },
+
+    // Check for saved recipients from previous orders
+    check_saved_recipients: {
+      type: 'action',
+      description: 'Load saved recipients for quick selection',
+      actions: [
+        {
+          id: 'get_recipients',
+          executor: 'parcel_reorder',
+          config: { action: 'get_saved_recipients' },
+          output: '_recipients_result',
+        },
+      ],
+      transitions: {
+        recipients_found: 'collect_recipient_with_saved',
+        no_recipients: 'collect_recipient_auth',
+        default: 'collect_recipient_auth',
+      },
+    },
+
+    // Show saved recipients as quick-select options
+    collect_recipient_with_saved: {
+      type: 'wait',
+      description: 'Collect recipient with saved options',
+      onEntry: [
+        {
+          id: 'ask_recipient_saved',
+          executor: 'response',
+          config: {
+            message: '✅ **Delivery:** {{delivery_address.address}}\n\n👤 Who is the recipient?\n\nChoose from your recent recipients or enter new details:',
+            buttonsPath: '_saved_recipient_buttons',
+            buttonConfig: { labelPath: 'label', valuePath: 'value' },
+            buttons: [
+              { label: 'Use My Details', value: 'use_my_details' },
+              { label: '👤 New Recipient', value: 'new_recipient' },
+            ],
+          },
+          output: '_last_response',
+        },
+      ],
+      actions: [],
+      transitions: {
+        user_message: 'check_saved_recipient_input',
+        default: 'check_saved_recipient_input',
+      },
+    },
+
+    check_saved_recipient_input: {
+      type: 'decision',
+      description: 'Check if user selected a saved recipient or wants new',
+      conditions: [
+        {
+          expression: 'context._user_message?.startsWith("saved_recipient:")',
+          event: 'saved_selected',
+        },
+        {
+          expression: 'context._user_message?.toLowerCase() === "use_my_details"',
+          event: 'use_my_details',
+        },
+        {
+          expression: 'context._user_message?.toLowerCase() === "new_recipient"',
+          event: 'new_recipient',
+        },
+      ],
+      transitions: {
+        saved_selected: 'apply_saved_recipient',
+        use_my_details: 'apply_self_as_recipient',
+        new_recipient: 'collect_recipient_auth',
+        default: 'check_recipient_input', // Fall through to existing name+phone parsing
+      },
+    },
+
+    apply_saved_recipient: {
+      type: 'action',
+      description: 'Apply saved recipient from button selection',
+      actions: [
+        {
+          id: 'parse_saved',
+          executor: 'response',
+          config: {
+            // Parse "saved_recipient:Name:Phone" from _user_message
+            saveToContext: {
+              recipient_details: {
+                expression: '(() => { const parts = (context._user_message || "").split(":"); return { name: parts[1] || "", phone: parts.slice(2).join(":") || "" }; })()',
+              },
+            },
+            message: '✅ Recipient: {{recipient_details.name}} ({{recipient_details.phone}})',
+          },
+          output: '_last_response',
+        },
+      ],
+      transitions: {
+        default: 'fetch_categories',
+      },
+    },
+
+    // Use authenticated user's own details as recipient
+    apply_self_as_recipient: {
+      type: 'action',
+      description: 'Use the authenticated user profile as the recipient',
+      actions: [
+        {
+          id: 'set_self',
+          executor: 'response',
+          config: {
+            saveToContext: {
+              recipient_details: {
+                expression: '({ name: context.user_name || "Self", phone: context.user_phone || context.phone || "" })',
+              },
+            },
+            message: '✅ Recipient: {{user_name}} ({{user_phone}})',
+          },
+          output: '_last_response',
+        },
+      ],
+      transitions: {
+        default: 'fetch_categories',
       },
     },
 
@@ -1171,7 +1425,7 @@ Return ONLY the numeric ID, nothing else.`,
           id: 'summary',
           executor: 'response',
           config: {
-            message: '📦 **Order Summary**\n\n📍 Pickup: {{pickup_address.address}}\n📍 Delivery: {{delivery_address.address}}\n👤 Recipient: {{recipient_details.name}} ({{recipient_details.phone}})\n📏 Distance: {{distance}} km\n\n💰 **Total: ₹{{pricing.total_charge}}**\n(Delivery: ₹{{pricing.delivery_charge}} + Fee: ₹{{pricing.platform_fee}})\n\nConfirm your order? (You\'ll select payment method next)',
+            message: '📦 **Order Summary**\n\n📍 Pickup: {{pickup_address.address}}\n📍 Delivery: {{delivery_address.address}}\n👤 Recipient: {{recipient_details.name}} ({{recipient_details.phone}})\n📏 Distance: {{distance}} km\n\n💰 **Delivery: ₹{{pricing.delivery_charge}}**\n📋 Platform Fee: ₹{{pricing.platform_fee}}\n📋 GST (5%): ₹{{pricing.tax}}\n💰 **Total: ₹{{pricing.total_charge}}**\n\nConfirm your order? (You\'ll select payment method next)',
             buttons: [
               { label: 'Confirm', value: 'yes', action: 'yes' },
               { label: 'Cancel', value: 'cancel', action: 'cancel' },
@@ -1812,15 +2066,26 @@ Return ONLY the numeric ID, nothing else.`,
       description: 'Route based on WhatsApp Flow payment selection for parcel',
       conditions: [
         {
+          // Cancel: user typed cancel at await_flow_payment_parcel wait state
+          expression: 'context._user_message && context._user_message.toLowerCase().match(/^(cancel|no|nahi|stop|exit)$/)',
+          event: 'cancelled',
+        },
+        {
+          expression: 'context._flow_payment_method && context._flow_payment_method.includes("wallet")',
+          event: 'wallet_selected',
+        },
+        {
           expression: 'context._flow_payment_method && (context._flow_payment_method.includes("cod") || context._flow_payment_method.includes("cash"))',
           event: 'cod_selected',
         },
         {
-          expression: 'context._flow_payment_method && (context._flow_payment_method.includes("digital") || context._flow_payment_method.includes("online") || context._flow_payment_method.includes("upi") || context._flow_payment_method.includes("wallet"))',
+          expression: 'context._flow_payment_method && (context._flow_payment_method.includes("digital") || context._flow_payment_method.includes("online") || context._flow_payment_method.includes("upi"))',
           event: 'digital_selected',
         },
       ],
       transitions: {
+        cancelled: 'cancelled',
+        wallet_selected: 'check_wallet_balance',
         cod_selected: 'place_order_cod',
         digital_selected: 'place_order_digital',
         default: 'select_payment_method', // Fallback if no valid method
@@ -1877,6 +2142,16 @@ Return ONLY the numeric ID, nothing else.`,
       description: 'Check if user clicked a payment button directly',
       conditions: [
         {
+          // Cancel: user typed cancel/no/stop
+          expression: 'context._user_message && context._user_message.toLowerCase().match(/^(cancel|no|nahi|stop|exit)$/)',
+          event: 'cancelled',
+        },
+        {
+          // Wallet: button value is "wallet" or user typed wallet
+          expression: 'context._user_message && (context._user_message.toLowerCase() === "wallet" || context._user_message.toLowerCase().includes("wallet"))',
+          event: 'wallet_selected',
+        },
+        {
           // Direct match: button value contains cash/cod
           expression: 'context._user_message && (context._user_message.toLowerCase().includes("cash") || context._user_message.toLowerCase().includes("cod") || context._user_message.toLowerCase() === "cash_on_delivery")',
           event: 'cod_selected',
@@ -1888,6 +2163,8 @@ Return ONLY the numeric ID, nothing else.`,
         },
       ],
       transitions: {
+        cancelled: 'cancelled',
+        wallet_selected: 'check_wallet_balance',
         cod_selected: 'place_order_cod',
         digital_selected: 'place_order_digital',
         default: 'handle_payment_selection_llm', // Only use LLM for ambiguous input
@@ -1903,8 +2180,8 @@ Return ONLY the numeric ID, nothing else.`,
           id: 'extract_payment_method',
           executor: 'llm',
           config: {
-            systemPrompt: 'Extract the payment method ID from user input. Return ONLY one of these exact values: digital_payment OR cash_on_delivery. No quotes, no extra text.',
-            prompt: 'User said: "{{_user_message}}"\nAvailable methods: {{json payment_methods_response.methods}}\n\nReturn ONLY the payment method ID. For online/razorpay/upi/card, return digital_payment. For cash/cod, return cash_on_delivery.',
+            systemPrompt: 'Extract the payment method ID from user input. Return ONLY one of these exact values: digital_payment OR cash_on_delivery OR wallet. No quotes, no extra text.',
+            prompt: 'User said: "{{_user_message}}"\nAvailable methods: {{json payment_methods_response.methods}}\n\nReturn ONLY the payment method ID. For online/razorpay/upi/card, return digital_payment. For cash/cod, return cash_on_delivery. For wallet, return wallet.',
             temperature: 0.1,
             maxTokens: 30,
             skipHistory: true,
@@ -1924,20 +2201,150 @@ Return ONLY the numeric ID, nothing else.`,
       description: 'Check if valid payment method selected by LLM',
       conditions: [
         {
+          // Wallet: LLM returned "wallet"
+          expression: `context.selected_payment_id && (function(v){v=v.replace(/["'\\s]/g,"").toLowerCase();return v==="wallet"||v.includes("wallet")})(String(context.selected_payment_id))`,
+          event: 'wallet_selected',
+        },
+        {
           // COD: cash_on_delivery, cod, cash (strip quotes and whitespace from LLM output)
           expression: `context.selected_payment_id && (function(v){v=v.replace(/["'\\s]/g,"").toLowerCase();return v.includes("cash")||v.includes("cod")})(String(context.selected_payment_id))`,
           event: 'cod_selected',
         },
         {
-          // Digital: digital_payment, razor_pay, razorpay, online, upi  
+          // Digital: digital_payment, razor_pay, razorpay, online, upi
           expression: `context.selected_payment_id && (function(v){v=v.replace(/["'\\s]/g,"").toLowerCase();return v.includes("digital")||v.includes("razor")||v.includes("online")||v.includes("upi")})(String(context.selected_payment_id))`,
           event: 'digital_selected',
         },
       ],
       transitions: {
+        wallet_selected: 'check_wallet_balance',
         cod_selected: 'place_order_cod',
         digital_selected: 'place_order_digital',
         default: 'wait_payment_selection',
+      },
+    },
+
+    // Wallet payment: check balance first
+    check_wallet_balance: {
+      type: 'action',
+      description: 'Fetch wallet balance and check if sufficient for order',
+      actions: [
+        {
+          id: 'get_wallet',
+          executor: 'php_api',
+          config: {
+            action: 'get_wallet_balance',
+            token: '{{auth_token}}',
+          },
+          output: 'wallet_info',
+          onError: 'continue',
+        },
+      ],
+      transitions: {
+        success: 'validate_wallet_balance',
+        error: 'wallet_check_failed',
+      },
+    },
+
+    validate_wallet_balance: {
+      type: 'decision',
+      description: 'Check if wallet has enough balance for total charge',
+      conditions: [
+        {
+          expression: 'context.wallet_info?.success && context.wallet_info?.balance >= context.pricing?.total_charge',
+          event: 'sufficient',
+        },
+        {
+          expression: 'context.wallet_info?.success && context.wallet_info?.balance < context.pricing?.total_charge',
+          event: 'insufficient',
+        },
+      ],
+      transitions: {
+        sufficient: 'place_order_wallet',
+        insufficient: 'wallet_insufficient',
+        default: 'wallet_check_failed',
+      },
+    },
+
+    wallet_insufficient: {
+      type: 'wait',
+      description: 'Wallet balance insufficient — offer alternatives',
+      onEntry: [
+        {
+          id: 'insufficient_msg',
+          executor: 'response',
+          config: {
+            message: '👛 **Insufficient Wallet Balance**\n\nYour wallet: ₹{{wallet_info.balance}}\nOrder total: ₹{{pricing.total_charge}}\n\nPlease select another payment method:',
+            buttons: [
+              { label: 'Cash on Delivery', value: 'cash_on_delivery', action: 'cash_on_delivery' },
+              { label: 'Pay Online', value: 'digital_payment', action: 'digital_payment' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
+            ],
+          },
+          output: '_last_response',
+        },
+      ],
+      actions: [],
+      transitions: {
+        cancel: 'cancelled',
+        user_message: 'handle_payment_selection',
+        default: 'handle_payment_selection',
+      },
+    },
+
+    wallet_check_failed: {
+      type: 'wait',
+      description: 'Wallet check failed — offer alternatives',
+      onEntry: [
+        {
+          id: 'wallet_error_msg',
+          executor: 'response',
+          config: {
+            message: '⚠️ Could not check wallet balance. Please select another payment method:',
+            buttons: [
+              { label: 'Cash on Delivery', value: 'cash_on_delivery', action: 'cash_on_delivery' },
+              { label: 'Pay Online', value: 'digital_payment', action: 'digital_payment' },
+              { label: 'Cancel', value: 'cancel', action: 'cancel' },
+            ],
+          },
+          output: '_last_response',
+        },
+      ],
+      actions: [],
+      transitions: {
+        cancel: 'cancelled',
+        user_message: 'handle_payment_selection',
+        default: 'handle_payment_selection',
+      },
+    },
+
+    // Place order with wallet payment
+    place_order_wallet: {
+      type: 'action',
+      description: 'Create order with wallet payment (deducts from user wallet)',
+      actions: [
+        {
+          id: 'create_wallet_order',
+          executor: 'order',
+          config: {
+            type: 'parcel',
+            paymentMethod: 'wallet',
+            pickupAddressPath: 'pickup_address',
+            deliveryAddressPath: 'delivery_address',
+            recipientPath: 'recipient_details',
+            distancePath: 'distance',
+            pricingPath: 'pricing',
+            categoryPath: 'parcel_category_id',
+          },
+          output: 'order_result',
+          onError: 'continue',
+          retryOnError: true,
+          maxRetries: 2,
+        },
+      ],
+      transitions: {
+        success: 'completed',
+        error: 'order_failed',
       },
     },
 
@@ -1960,6 +2367,7 @@ Return ONLY the numeric ID, nothing else.`,
             categoryPath: 'parcel_category_id',
           },
           output: 'order_result',
+          onError: 'continue',
           retryOnError: true,
           maxRetries: 2,
         },
@@ -1989,6 +2397,7 @@ Return ONLY the numeric ID, nothing else.`,
             categoryPath: 'parcel_category_id',
           },
           output: 'order_result',
+          onError: 'continue',
           retryOnError: true,
           maxRetries: 2,
         },
@@ -2433,6 +2842,41 @@ Return ONLY the numeric ID, nothing else.`,
         },
       ],
       transitions: {
+        default: 'save_recipient_after_order',
+      },
+    },
+
+    // Save recipient + preferences for future reorders
+    save_recipient_after_order: {
+      type: 'action',
+      description: 'Save recipient and preferences for future quick reorder',
+      actions: [
+        {
+          id: 'save_recipient',
+          executor: 'parcel_reorder',
+          config: { action: 'save_recipient' },
+          output: '_recipient_save_result',
+        },
+        {
+          id: 'save_vehicle_pref',
+          executor: 'profile',
+          config: {
+            action: 'save_preference',
+            key: 'preferred_vehicle_type',
+            value: '{{parcel_category_id}}',
+          },
+        },
+        {
+          id: 'save_payment_pref',
+          executor: 'profile',
+          config: {
+            action: 'save_preference',
+            key: 'preferred_payment_method',
+            value: '{{payment_method}}',
+          },
+        },
+      ],
+      transitions: {
         default: 'check_profile_question',
       },
     },
@@ -2548,6 +2992,10 @@ Return ONLY the numeric ID, nothing else.`,
           executor: 'response',
           config: {
             message: '❌ **Pickup location is outside Nashik.**\n\nWe currently deliver only within Nashik city.\n\n[BTN|📍 Try Different Address|retry_pickup][BTN|❌ Cancel|cancel]',
+            saveToContext: {
+              pickup_address: null,   // Clear stale address so retry re-prompts
+              pickup_zone: null,
+            },
           },
         },
       ],
@@ -2565,6 +3013,10 @@ Return ONLY the numeric ID, nothing else.`,
           executor: 'response',
           config: {
             message: '❌ **Delivery location is outside Nashik.**\n\nWe currently deliver only within Nashik city.\n\n[BTN|📍 Try Different Address|retry_delivery][BTN|❌ Cancel|cancel]',
+            saveToContext: {
+              delivery_address: null,   // Clear stale address so retry re-prompts
+              delivery_zone: null,
+            },
           },
         },
       ],
@@ -2630,11 +3082,28 @@ Return ONLY the numeric ID, nothing else.`,
       description: 'Wait for user retry or cancel after an error',
       actions: [],
       transitions: {
-        retry_pickup: 'collect_pickup',
-        retry_delivery: 'collect_delivery',
-        retry_from_start: 'collect_pickup', // Restart from pickup for transient errors
+        user_message: 'handle_error_recovery_input',
+        default: 'handle_error_recovery_input',
+      },
+    },
+
+    handle_error_recovery_input: {
+      type: 'decision',
+      description: 'Route retry or cancel after parcel error',
+      conditions: [
+        {
+          expression: 'context._user_message?.toLowerCase().match(/^(retry_from_start|retry|try again|phir se)$/)',
+          event: 'retry_from_start',
+        },
+        {
+          expression: 'context._user_message?.toLowerCase().match(/^(cancel|nahi|no)$/)',
+          event: 'cancel',
+        },
+      ],
+      transitions: {
+        retry_from_start: 'collect_pickup',
         cancel: 'cancelled',
-        default: 'cancelled',
+        default: 'collect_pickup', // Default to retry
       },
     },
 
@@ -2664,9 +3133,28 @@ Return ONLY the numeric ID, nothing else.`,
       description: 'Wait for user to retry or cancel after order failure',
       actions: [],
       transitions: {
-        retry_order: 'check_auth_before_order',
+        user_message: 'handle_order_retry_input',
+        default: 'handle_order_retry_input',
+      },
+    },
+
+    handle_order_retry_input: {
+      type: 'decision',
+      description: 'Route retry or cancel after order failure',
+      conditions: [
+        {
+          expression: 'context._user_message?.toLowerCase().match(/^(retry_order|retry|try again|phir se)$/)',
+          event: 'retry',
+        },
+        {
+          expression: 'context._user_message?.toLowerCase().match(/^(cancel|nahi|no)$/)',
+          event: 'cancel',
+        },
+      ],
+      transitions: {
+        retry: 'check_auth_before_order',
         cancel: 'cancelled',
-        default: 'cancelled',
+        default: 'check_auth_before_order', // Default to retry — user wants to complete order
       },
     },
 

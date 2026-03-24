@@ -154,8 +154,15 @@ export class PhpPaymentService extends PhpApiService {
 
       const methods: Array<{id: string; name: string; type: string; enabled: boolean}> = [];
 
-      // Check if COD is enabled
-      if (response?.cash_on_delivery === true) {
+      // Check if COD is enabled — zone-level OR module-level
+      // PHP config returns zone-level cash_on_delivery (may be false),
+      // but module pivot data in base_urls[].zone_wise_topic_data may have cash_on_delivery: 1.
+      // For parcel (module 3), COD is typically enabled at module level even if zone-level says false.
+      const zoneLevelCod = response?.cash_on_delivery === true;
+      const modulePivotCod = response?.base_urls?.zone_wise_topic_data?.some?.(
+        (z: any) => z.cash_on_delivery === 1 || z.cash_on_delivery === true,
+      );
+      if (zoneLevelCod || modulePivotCod) {
         methods.push({
           id: 'cash_on_delivery',
           name: 'Cash on Delivery',
@@ -184,6 +191,17 @@ export class PhpPaymentService extends PhpApiService {
             enabled: true,
           });
         }
+      }
+
+      // Parcel module (3) always supports COD — ensure it's in the list
+      if (moduleId === 3 && !methods.some(m => m.id === 'cash_on_delivery')) {
+        this.logger.log('💵 Parcel module: adding COD (always available for parcel delivery)');
+        methods.unshift({
+          id: 'cash_on_delivery',
+          name: 'Cash on Delivery',
+          type: 'cash',
+          enabled: true,
+        });
       }
 
       // Store partial payment config

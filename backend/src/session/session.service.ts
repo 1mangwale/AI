@@ -194,6 +194,7 @@ export class SessionService {
     this.invalidateCache(phoneNumber);
     const session = await this.getSession(phoneNumber);
     const data = session?.data || {};
+
     
     if (typeof keyOrData === 'string') {
       // Single key-value pair
@@ -204,7 +205,7 @@ export class SessionService {
       Object.assign(data, keyOrData);
       this.logger.log(`📝 Setting multiple data for ${phoneNumber}: ${Object.keys(keyOrData).join(', ')}`);
     }
-    
+
     await this.saveSession(phoneNumber, { data });
   }
 

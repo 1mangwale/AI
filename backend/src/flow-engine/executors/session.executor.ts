@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ActionExecutor, ActionExecutionResult, FlowContext } from '../types/flow.types';
 import { SessionService } from '../../session/session.service';
+import { PhpAuthService } from '../../php-integration/services/php-auth.service';
 
 /**
  * Session Executor
- * 
+ *
  * Provides ability to read/write session data from flows
  * Useful for storing location, preferences, and other user context
  */
@@ -13,7 +14,10 @@ export class SessionExecutor implements ActionExecutor {
   readonly name = 'session';
   private readonly logger = new Logger(SessionExecutor.name);
 
-  constructor(private readonly sessionService: SessionService) {}
+  constructor(
+    private readonly sessionService: SessionService,
+    @Optional() private readonly phpAuthService?: PhpAuthService,
+  ) {}
 
   async execute(
     config: Record<string, any>,
@@ -270,8 +274,8 @@ export class SessionExecutor implements ActionExecutor {
       }
     }
     
-    // Get user ID from either source
-    const userId = sessionData.user_id || context.data?.user_id;
+    // Get user ID from either source (let: may be reconciled with PHP token later)
+    let userId = sessionData.user_id || context.data?.user_id;
     const phone = sessionData.phone || context.data?.phone_number || context.data?.phone;
     const userName = sessionData.user_name || sessionData.userName || context.data?.user_name;
     const authToken = sessionData.auth_token || context.data?.auth_token;
@@ -345,7 +349,7 @@ export class SessionExecutor implements ActionExecutor {
     const session = await this.sessionService.getSession(sessionId);
     const sessionData = session?.data || {};
     
-    const userId = sessionData.user_id || context.data?.user_id;
+    let userId = sessionData.user_id || context.data?.user_id;
     const phone = sessionData.phone || context.data?.phone_number;
     const email = sessionData.email || context.data?.email;
     const userName = sessionData.user_name || context.data?.user_name;
@@ -367,10 +371,54 @@ export class SessionExecutor implements ActionExecutor {
     
     // Has PHP user_id - full account exists
     if (userId && userId > 0) {
-      this.logger.log(`✅ User has PHP account: user_id=${userId}`);
+      // Sync auth_token from session to context if available
+      let authToken = sessionData.auth_token || context.data?.auth_token;
+
+      // If no auth_token but we have a phone, generate one via platform-login
+      // This fixes Google OAuth users who have user_id but never got a PHP token
+      if (!authToken && phone && this.phpAuthService) {
+        try {
+          this.logger.log(`🔑 No auth_token for user_id=${userId}, generating via autoLogin(${phone})`);
+          const loginResult = await this.phpAuthService.autoLogin(phone);
+          if (loginResult.success && loginResult.data?.token) {
+            authToken = loginResult.data.token;
+            // Use PHP-verified user_id (prevents frontend/session mismatch)
+            if (loginResult.data.id && loginResult.data.id !== userId) {
+              this.logger.warn(`⚠️ user_id mismatch: session=${userId}, PHP=${loginResult.data.id}. Using PHP value.`);
+              userId = loginResult.data.id;
+            }
+            // Persist to session for future use
+            await this.sessionService.setData(sessionId, { auth_token: authToken, user_id: userId });
+            this.logger.log(`✅ Generated auth_token for user_id=${userId} via platform-login`);
+          }
+        } catch (err) {
+          this.logger.warn(`⚠️ autoLogin failed for ${phone}: ${err.message}`);
+        }
+      }
+
+      // Reconcile user_id with auth token to prevent frontend/PHP mismatch
+      if (authToken && this.phpAuthService) {
+        try {
+          const profile = await this.phpAuthService.getUserProfile(authToken);
+          if (profile && profile.id && profile.id !== userId) {
+            this.logger.warn(`⚠️ user_id reconciliation: session=${userId}, PHP token=${profile.id}. Using PHP value.`);
+            userId = profile.id;
+            await this.sessionService.setData(sessionId, { user_id: userId });
+          }
+        } catch (err) {
+          this.logger.warn(`⚠️ Could not reconcile user_id from token: ${err.message}`);
+        }
+      }
+
+      if (authToken) {
+        context.data.auth_token = authToken;
+      }
+      context.data.user_id = userId;
+
+      this.logger.log(`✅ User has PHP account: user_id=${userId}, auth_token=${authToken ? 'present' : 'missing'}`);
       return {
         success: true,
-        output: { has_php_account: true, user_id: userId },
+        output: { has_php_account: true, user_id: userId, auth_token: authToken },
         event: 'has_php_account',
       };
     }

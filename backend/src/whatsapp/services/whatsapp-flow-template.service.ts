@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ORDER_STATUS_EMOJI, ORDER_STATUS_LABEL } from '../../common/constants/order-status.constants';
 import {
   WhatsAppInteractiveMessage,
   WhatsAppInteractiveHeader,
@@ -374,40 +375,14 @@ export class WhatsAppFlowTemplateService {
    * Get a status emoji for the order status.
    */
   private getStatusEmoji(status: string): string {
-    const emojiMap: Record<string, string> = {
-      pending: '🕐',
-      confirmed: '✅',
-      preparing: '👨‍🍳',
-      ready: '📦',
-      picked_up: '🏍️',
-      in_transit: '🚴',
-      out_for_delivery: '🛵',
-      delivered: '🎉',
-      cancelled: '❌',
-      refunded: '💰',
-    };
-
-    return emojiMap[status] || '📋';
+    return ORDER_STATUS_EMOJI[status] || '📋';
   }
 
   /**
    * Format a status string for display.
    */
   private formatStatus(status: string): string {
-    const statusMap: Record<string, string> = {
-      pending: 'Pending',
-      confirmed: 'Confirmed',
-      preparing: 'Being Prepared',
-      ready: 'Ready for Pickup',
-      picked_up: 'Picked Up',
-      in_transit: 'In Transit',
-      out_for_delivery: 'Out for Delivery',
-      delivered: 'Delivered',
-      cancelled: 'Cancelled',
-      refunded: 'Refunded',
-    };
-
-    return statusMap[status] || status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
+    return ORDER_STATUS_LABEL[status] || status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
   }
 
   /**

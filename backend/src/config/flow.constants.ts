@@ -54,6 +54,9 @@ export const GREETING_CRITICAL_STATES = [
   'wait_confirmation', 'wait_vehicle_selection', 'confirm_checkout',
   'wait_quantity', 'wait_size', 'wait_addon_selection',
   'show_categories', 'show_categories_retry',
+  // Parcel recipient states — "Rahul" gets NLU-classified as greeting, must not break flow
+  'collect_recipient_auth', 'collect_recipient_guest', 'check_recipient_input',
+  'extract_recipient_details', 'wait_for_recipient_or_login',
   'collect_pickup', 'collect_delivery', 'extract_pickup_address', 'extract_delivery_address',
   'collect_address_input', 'collect_address', 'await_flow_address',
   'wait_address_label', 'validate_address',
@@ -70,6 +73,15 @@ export const GREETING_CRITICAL_STATES = [
   'ask_name', 'ask_email',
 ] as const;
 
+// ── Support flow wait states — override intents should NOT break out of these ─
+export const SUPPORT_FLOW_WAIT_STATES = [
+  'show_faq', 'order_issue_handler', 'payment_issue_handler',
+  'delivery_issue_handler', 'other_issue_handler',
+  'collect_issue_details', 'ask_order_id', 'ask_order_number',
+  'show_resolution', 'resolution_success', 'offer_options',
+  'escalate_to_human', 'show_email_info', 'callback_confirmation',
+] as const;
+
 // ── States where flow switching should be blocked ────────────────────────────
 export const FLOW_SWITCH_BLOCKED_STATES = [
   ...GREETING_CRITICAL_STATES,
@@ -79,6 +91,8 @@ export const FLOW_SWITCH_BLOCKED_STATES = [
   'collect_pickup', 'collect_delivery',
   'wait_for_pickup', 'wait_for_delivery',
   'await_flow_pickup', 'await_flow_delivery',
+  // Support flow states — user is mid-complaint, don't break out
+  ...SUPPORT_FLOW_WAIT_STATES,
 ] as const;
 
 // ── Location-wait states ─────────────────────────────────────────────────────

@@ -23,7 +23,6 @@ declare global {
       login: (callback: (response: any) => void, options?: any) => void
       api: (path: string, callback: (response: any) => void) => void
     }
-    fbAsyncInit?: () => void
   }
 }
 
@@ -45,8 +44,24 @@ const getErrorMessage = (err: unknown, fallback: string) => {
     const apiError = err as ApiError
     return apiError.response?.data?.message ?? fallback
   }
-
   return fallback
+}
+
+// JWT decode helper - extract payload from Google ID token
+function parseJwt(token: string) {
+  try {
+    const base64Url = token.split('.')[1]
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    )
+    return JSON.parse(jsonPayload)
+  } catch {
+    return null
+  }
 }
 
 export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
@@ -64,21 +79,6 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
 
   const { setAuth } = useAuthStore()
 
-  // Initialize Facebook SDK
-  useEffect(() => {
-    if (typeof window !== 'undefined' && !fbLoaded) {
-      window.fbAsyncInit = function() {
-        window.FB?.init({
-          appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '',
-          cookie: true,
-          xfbml: true,
-          version: 'v18.0'
-        })
-        setFbLoaded(true)
-      }
-    }
-  }, [fbLoaded])
-
   // Initialize Google OAuth after script loads
   useEffect(() => {
     if (googleScriptLoaded && !googleInitialized && window.google?.accounts?.id) {
@@ -94,26 +94,58 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
     }
   }, [googleScriptLoaded, googleInitialized])
 
+  // Helper: handle social login result (shared by Google and Facebook)
+  const handleSocialLoginResult = (data: any) => {
+    const { token, user } = data
+
+    if (token && user && user.is_personal_info !== 0) {
+      // Existing user with complete profile — login success
+      console.log('✅ Social login successful:', { userId: user?.id })
+      setAuth(user, token)
+      onSuccess({ phone: user?.phone || '', token, userId: user?.id, userName: user?.f_name })
+    } else if (data.is_personal_info === 0 || user?.is_personal_info === 0 || data.needs_phone) {
+      // New user — needs phone + OTP to complete registration
+      console.log('👤 New user from social login - needs phone registration')
+      if (user?.f_name) setFirstName(user.f_name)
+      if (user?.l_name) setLastName(user.l_name)
+      if (user?.email) setEmail(user.email)
+      setStep('phone')
+      setError('Please enter your phone number to complete registration.')
+    } else if (token && user) {
+      // User with token but is_personal_info check passed
+      setAuth(user, token)
+      onSuccess({ phone: user?.phone || '', token, userId: user?.id, userName: user?.f_name })
+    } else {
+      setError('Login failed. Please try with phone number instead.')
+    }
+  }
+
   const handleGoogleLoginCallback = async (response: any) => {
     setLoading(true)
     setError('')
 
     try {
-      console.log('🔐 Google login response:', response)
-      
-      // Call PHP backend social login endpoint
+      // Decode JWT to get user's unique Google ID (sub claim)
+      const payload = parseJwt(response.credential)
+      if (!payload) {
+        setError('Failed to parse Google response. Please try again.')
+        setLoading(false)
+        return
+      }
+
       const result = await api.auth.socialLogin({
         token: response.credential,
-        unique_id: response.clientId,
-        email: '', // Will be extracted from token by backend
+        unique_id: payload.sub,
+        email: payload.email || '',
         medium: 'google'
       })
 
-      const { token, user } = result.data
-      console.log('✅ Google login successful:', { userId: user?.id, email: user?.email })
+      // Pre-fill name from Google if available
+      if (payload.given_name && !firstName) setFirstName(payload.given_name)
+      if (payload.family_name && !lastName) setLastName(payload.family_name)
+      if (payload.email && !email) setEmail(payload.email)
 
-      setAuth(user, token)
-      onSuccess({ phone: user?.phone || '', token, userId: user?.id, userName: user?.f_name })
+      handleSocialLoginResult(result.data)
     } catch (err: unknown) {
       console.error('❌ Google login failed:', err)
       setError(getErrorMessage(err, 'Google login failed. Please try again.'))
@@ -143,7 +175,7 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
 
   const handleFacebookLogin = async () => {
     if (!window.FB) {
-      setError('Facebook SDK not loaded. Please refresh and try again.')
+      setError('Facebook login is loading. Please try again in a moment.')
       return
     }
 
@@ -154,11 +186,9 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
       window.FB.login((response) => {
         if (response.authResponse) {
           const { accessToken, userID } = response.authResponse
-          
-          // Get user info from Facebook
+
           window.FB?.api('/me?fields=id,name,email', async (userInfo) => {
             try {
-              // Call PHP backend social login endpoint
               const result = await api.auth.socialLogin({
                 token: accessToken,
                 unique_id: userID,
@@ -166,11 +196,7 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
                 medium: 'facebook'
               })
 
-              const { token, user } = result.data
-              console.log('✅ Facebook login successful:', { userId: user?.id, email: user?.email })
-
-              setAuth(user, token)
-              onSuccess({ phone: user?.phone || '', token, userId: user?.id, userName: user?.f_name })
+              handleSocialLoginResult(result.data)
             } catch (err: unknown) {
               console.error('❌ Facebook login failed:', err)
               setError(getErrorMessage(err, 'Facebook login failed. Please try again.'))
@@ -190,10 +216,6 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
     }
   }
 
-  const handleAppleLogin = async () => {
-    setError('Apple login coming soon! Please use Google, Facebook, or Phone login.')
-  }
-
   const handleSendOtp = async () => {
     if (phone.length !== 10) {
       setError('Please enter a valid 10-digit phone number')
@@ -204,7 +226,6 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
     setError('')
 
     try {
-      // Backend will normalize phone number
       await api.auth.sendOtp(phone)
       setStep('otp')
     } catch (err: unknown) {
@@ -224,24 +245,13 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
     setError('')
 
     try {
-      // Backend will normalize phone number
       const response = await api.auth.verifyOtp(phone, otp)
       const { token, user } = response.data
-      
-      console.log('📱 OTP verified, user data:', { 
-        id: user?.id, 
-        f_name: user?.f_name, 
-        l_name: user?.l_name, 
-        is_personal_info: user?.is_personal_info,
-        phone: user?.phone 
-      })
 
-      // Check if user needs to complete registration
-      if (user.is_personal_info === 0) {
+      if (user?.is_personal_info === 0) {
         console.log('👤 New user - needs registration')
         setStep('register')
       } else {
-        // Login successful - save to store
         console.log('✅ Existing user - logging in')
         setAuth(user, token)
         onSuccess({ phone, token, userId: user?.id, userName: user?.f_name })
@@ -260,7 +270,6 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
       return
     }
 
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
       setError('Please enter a valid email address')
@@ -271,9 +280,6 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
     setError('')
 
     try {
-      console.log('📝 Registering user:', { phone, firstName, lastName, email })
-      
-      // Call update-info endpoint - backend will normalize phone
       const response = await api.auth.updateUserInfo({
         phone: phone,
         f_name: firstName.trim(),
@@ -282,25 +288,11 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
       })
 
       const { token, user } = response.data
-      
-      console.log('✅ Registration complete, user:', {
-        id: user?.id,
-        f_name: user?.f_name,
-        l_name: user?.l_name,
-        email: user?.email,
-        phone: user?.phone
-      })
-      
       setAuth(user, token)
       onSuccess({ phone, token, userId: user?.id, userName: user?.f_name })
     } catch (err: unknown) {
       console.error('❌ Registration failed:', err)
-      setError(
-        getErrorMessage(
-          err,
-          'Failed to complete registration. Please try again.'
-        )
-      )
+      setError(getErrorMessage(err, 'Failed to complete registration. Please try again.'))
     } finally {
       setLoading(false)
     }
@@ -314,7 +306,21 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
         strategy="lazyOnload"
         onLoad={() => setGoogleScriptLoaded(true)}
       />
-      
+      {/* Load Facebook SDK */}
+      <Script
+        src="https://connect.facebook.net/en_US/sdk.js"
+        strategy="lazyOnload"
+        onLoad={() => {
+          window.FB?.init({
+            appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '',
+            cookie: true,
+            xfbml: true,
+            version: 'v18.0'
+          })
+          setFbLoaded(true)
+        }}
+      />
+
       <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-[200]">
       <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-w-md w-full p-6 relative animate-slide-up max-h-[90vh] overflow-y-auto">
         {/* Close Button */}
@@ -351,7 +357,6 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
           <div className="space-y-4">
             {/* OAuth Providers */}
             <div className="space-y-3">
-              <div id="google-signin-button"></div>
               <button
                 onClick={handleGoogleButtonClick}
                 disabled={loading}
@@ -368,24 +373,13 @@ export function InlineLogin({ onClose, onSuccess }: InlineLoginProps) {
 
               <button
                 onClick={handleFacebookLogin}
-                disabled={loading}
+                disabled={loading || !fbLoaded}
                 className="w-full flex items-center justify-center gap-3 px-4 py-3 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg className="w-5 h-5" fill="#1877F2" viewBox="0 0 24 24">
                   <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                 </svg>
-                Continue with Facebook
-              </button>
-
-              <button
-                onClick={handleAppleLogin}
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-3 px-4 py-3 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
-                </svg>
-                Continue with Apple
+                {fbLoaded ? 'Continue with Facebook' : 'Loading Facebook...'}
               </button>
             </div>
 

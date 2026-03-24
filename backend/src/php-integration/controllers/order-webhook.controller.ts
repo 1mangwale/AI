@@ -8,6 +8,7 @@ import {
   Headers,
   UnauthorizedException,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { VendorNotificationService } from '../services/vendor-notification.service';
@@ -107,6 +108,7 @@ export interface OrderWebhookPayload {
  * - Customers (order confirmed, preparing, out for delivery, delivered)
  * - Delivery men (new delivery assigned, order ready for pickup)
  */
+@SkipThrottle()
 @Controller('webhook/order')
 export class OrderWebhookController {
   private readonly logger = new Logger(OrderWebhookController.name);

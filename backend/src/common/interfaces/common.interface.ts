@@ -57,8 +57,18 @@ export interface Order {
     name?: string;
     phone?: string;
     landmark?: string;
+    contact_person_name?: string;
+    contact_person_number?: string;
+    address?: string;
+    latitude?: string;
+    longitude?: string;
+    floor?: string;
+    road?: string;
+    house?: string;
+    zone_id?: number;
   };
   vehicleId?: number;
+  moduleId?: number;
   createdAt?: Date;
 }
 

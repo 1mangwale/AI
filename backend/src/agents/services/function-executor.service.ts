@@ -11,6 +11,7 @@ import { PhpAddressService } from '../../php-integration/services/php-address.se
 import { PhpVendorAuthService } from '../../php-integration/services/php-vendor-auth.service';
 import { PhpDeliveryAuthService } from '../../php-integration/services/php-delivery-auth.service';
 import { UserProfilingService } from '../../personalization/user-profiling.service'; // ✨ Track search history
+import { ORDER_STATUS_EMOJI } from '../../common/constants/order-status.constants';
 
 /**
  * Function Executor Service
@@ -1087,15 +1088,8 @@ export class FunctionExecutorService {
             };
           }
 
-          const statusEmojis: Record<string, string> = {
-            pending: '🟡',
-            confirmed: '🟢',
-            processing: '🔵',
-            handover: '📦',
-          };
-
           const orderList = filteredOrders.map((o: any) =>
-            `${statusEmojis[o.status] || '⚪'} Order #${o.id}\n` +
+            `${ORDER_STATUS_EMOJI[o.status] || '📋'} Order #${o.id}\n` +
             `   💰 ₹${o.totalAmount} | ${o.items?.length || 0} items\n` +
             `   👤 ${o.customerName}`
           ).join('\n\n');

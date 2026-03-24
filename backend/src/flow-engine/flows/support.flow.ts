@@ -33,7 +33,7 @@ export const supportFlow: FlowDefinition = {
     init: {
       type: 'wait',
       description: 'Welcome to support and show options',
-      actions: [
+      onEntry: [
         {
           id: 'welcome',
           executor: 'response',
@@ -50,6 +50,7 @@ export const supportFlow: FlowDefinition = {
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'route_issue',
       },
@@ -100,7 +101,7 @@ export const supportFlow: FlowDefinition = {
     show_faq: {
       type: 'wait',
       description: 'Display frequently asked questions',
-      actions: [
+      onEntry: [
         {
           id: 'faq_list',
           executor: 'response',
@@ -135,6 +136,7 @@ Need more help?`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'route_issue',
       },
@@ -144,14 +146,14 @@ Need more help?`,
     order_issue_handler: {
       type: 'wait',
       description: 'Handle order-related issues',
-      actions: [
+      onEntry: [
         {
           id: 'set_issue_type',
           executor: 'response',
           config: {
             message: '',
+            saveToContext: { issue_type: 'order' },
           },
-          output: 'issue_type_order',
         },
         {
           id: 'ask_order_issue',
@@ -169,6 +171,7 @@ Need more help?`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'collect_issue_details',
       },
@@ -178,14 +181,14 @@ Need more help?`,
     payment_issue_handler: {
       type: 'wait',
       description: 'Handle payment-related issues',
-      actions: [
+      onEntry: [
         {
           id: 'set_issue_type',
           executor: 'response',
           config: {
             message: '',
+            saveToContext: { issue_type: 'payment' },
           },
-          output: 'issue_type_payment',
         },
         {
           id: 'ask_payment_issue',
@@ -202,6 +205,7 @@ Need more help?`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'collect_issue_details',
       },
@@ -211,14 +215,14 @@ Need more help?`,
     delivery_issue_handler: {
       type: 'wait',
       description: 'Handle delivery-related issues',
-      actions: [
+      onEntry: [
         {
           id: 'set_issue_type',
           executor: 'response',
           config: {
             message: '',
+            saveToContext: { issue_type: 'delivery' },
           },
-          output: 'issue_type_delivery',
         },
         {
           id: 'ask_delivery_issue',
@@ -235,6 +239,7 @@ Need more help?`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'collect_issue_details',
       },
@@ -244,14 +249,14 @@ Need more help?`,
     other_issue_handler: {
       type: 'wait',
       description: 'Handle other issues',
-      actions: [
+      onEntry: [
         {
           id: 'set_issue_type',
           executor: 'response',
           config: {
             message: '',
+            saveToContext: { issue_type: 'other' },
           },
-          output: 'issue_type_other',
         },
         {
           id: 'ask_issue',
@@ -261,6 +266,7 @@ Need more help?`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'collect_issue_details',
       },
@@ -275,9 +281,10 @@ Need more help?`,
           id: 'store_description',
           executor: 'response',
           config: {
-            message: '',
+            message: '📝 Got it. Let me look into this for you.',
+            saveToContext: { issue_description: '{{_user_message}}' },
+            event: 'success',
           },
-          output: 'issue_description',
         },
       ],
       transitions: {
@@ -289,7 +296,7 @@ Need more help?`,
     ask_order_id: {
       type: 'wait',
       description: 'Ask for order ID if relevant',
-      actions: [
+      onEntry: [
         {
           id: 'ask_order',
           executor: 'response',
@@ -303,6 +310,7 @@ Need more help?`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'process_order_id',
       },
@@ -338,7 +346,7 @@ Need more help?`,
     ask_order_number: {
       type: 'wait',
       description: 'Ask user to enter order number',
-      actions: [
+      onEntry: [
         {
           id: 'enter_order',
           executor: 'response',
@@ -347,6 +355,7 @@ Need more help?`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'extract_order_id',
       },
@@ -386,8 +395,8 @@ Need more help?`,
           executor: 'support_ticket',
           config: {
             action: 'create',
-            phone: '{{session.phone}}',
-            userId: '{{session.userId}}',
+            phone: '{{phone_number}}',
+            userId: '{{user_id}}',
             issueType: '{{issue_type}}',
             description: '{{issue_description}}',
             orderId: '{{order_id}}',
@@ -399,6 +408,8 @@ Need more help?`,
       ],
       transitions: {
         success: 'try_auto_resolve',
+        error: 'try_auto_resolve',
+        default: 'try_auto_resolve',
       },
     },
 
@@ -465,7 +476,7 @@ JSON:`,
     show_resolution: {
       type: 'wait',
       description: 'Show the automated resolution',
-      actions: [
+      onEntry: [
         {
           id: 'show_answer',
           executor: 'response',
@@ -478,6 +489,7 @@ JSON:`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'check_satisfied',
       },
@@ -503,7 +515,7 @@ JSON:`,
     resolution_success: {
       type: 'wait',
       description: 'Issue resolved successfully',
-      actions: [
+      onEntry: [
         {
           id: 'thanks',
           executor: 'response',
@@ -517,6 +529,7 @@ JSON:`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'end_flow',
       },
@@ -526,7 +539,7 @@ JSON:`,
     offer_options: {
       type: 'wait',
       description: 'Offer next steps',
-      actions: [
+      onEntry: [
         {
           id: 'options',
           executor: 'response',
@@ -541,6 +554,7 @@ JSON:`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'handle_choice',
       },
@@ -576,7 +590,7 @@ JSON:`,
     escalate_to_human: {
       type: 'wait',
       description: 'Escalate to human support',
-      actions: [
+      onEntry: [
         {
           id: 'escalation_msg',
           executor: 'response',
@@ -600,6 +614,7 @@ Please keep your ticket ID handy for faster resolution.`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'end_flow',
       },
@@ -609,7 +624,7 @@ Please keep your ticket ID handy for faster resolution.`,
     show_email_info: {
       type: 'wait',
       description: 'Show email support information',
-      actions: [
+      onEntry: [
         {
           id: 'email_info',
           executor: 'response',
@@ -630,6 +645,7 @@ We typically respond within 24 hours.`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'end_flow',
       },
@@ -639,7 +655,7 @@ We typically respond within 24 hours.`,
     callback_confirmation: {
       type: 'wait',
       description: 'Confirm callback request',
-      actions: [
+      onEntry: [
         {
           id: 'callback_msg',
           executor: 'response',
@@ -657,6 +673,7 @@ We'll call you on your registered phone number.`,
           },
         },
       ],
+      actions: [],
       transitions: {
         user_message: 'end_flow',
       },

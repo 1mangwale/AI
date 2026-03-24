@@ -3,6 +3,7 @@ import { ActionExecutor, ActionExecutionResult, FlowContext } from '../types/flo
 import { WhatsAppCloudService } from '../../whatsapp/services/whatsapp-cloud.service';
 import { WhatsAppFlowTokenService } from '../../whatsapp/services/whatsapp-flow-token.service';
 import * as Handlebars from 'handlebars';
+import { ORDER_STATUS_EMOJI, ORDER_STATUS_LABEL } from '../../common/constants/order-status.constants';
 
 /**
  * Response Executor - Static Responses with Button Support
@@ -19,10 +20,30 @@ export class ResponseExecutor implements ActionExecutor {
   readonly name = 'response';
   private readonly logger = new Logger(ResponseExecutor.name);
 
+  private static helpersRegistered = false;
+
   constructor(
     @Optional() private readonly waCloudService?: WhatsAppCloudService,
     @Optional() private readonly waFlowTokenService?: WhatsAppFlowTokenService,
-  ) {}
+  ) {
+    if (!ResponseExecutor.helpersRegistered) {
+      ResponseExecutor.helpersRegistered = true;
+
+      // Use canonical status maps from order-status.constants.ts
+      Handlebars.registerHelper('statusEmoji', (status: string) => ORDER_STATUS_EMOJI[status] || '📋');
+      Handlebars.registerHelper('statusLabel', (status: string) => ORDER_STATUS_LABEL[status] || status);
+      Handlebars.registerHelper('formatDate', (dateStr: string) => {
+        if (!dateStr) return '';
+        try {
+          return new Date(dateStr).toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        } catch { return dateStr; }
+      });
+      Handlebars.registerHelper('math', (a: number, op: string, b: number) => {
+        if (op === '+') return (a || 0) + (b || 0);
+        return a;
+      });
+    }
+  }
 
   private interpolate(text: string, data: any): string {
     if (!text) return text;
@@ -248,8 +269,8 @@ export class ResponseExecutor implements ActionExecutor {
       if (buttons && buttons.length > 0) {
         response.buttons = buttons.map(btn => ({
           id: btn.id,
-          label: btn.label,
-          value: btn.value,
+          label: btn.label || btn.title,       // Support both label and title conventions
+          value: btn.value || btn.payload,      // Support both value and payload conventions
           type: btn.type || 'quick_reply',
           action: btn.action,       // Pass action field through (e.g., 'trigger_auth_modal')
           metadata: btn.metadata || {},

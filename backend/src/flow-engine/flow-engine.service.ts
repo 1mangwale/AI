@@ -175,6 +175,11 @@ export class FlowEngineService {
     if (session?.data?.phone_number || session?.data?.user_phone) {
       context.data.phone_number = session.data.phone_number || session.data.user_phone;
     }
+    // 📋 INJECT SAVED RECIPIENTS for parcel reorder quick-select
+    if (session?.data?.saved_recipients && Array.isArray(session.data.saved_recipients)) {
+      context.data._saved_recipients_from_session = session.data.saved_recipients;
+      this.logger.log(`📋 Injected ${session.data.saved_recipients.length} saved recipients into flow context`);
+    }
 
     // 🎭 INJECT USER COMMUNICATION PREFERENCES FOR TONE/EMOJI ENFORCEMENT
     const prefUserId = context.data.user_id;

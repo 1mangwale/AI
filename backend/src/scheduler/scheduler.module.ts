@@ -9,7 +9,6 @@ import { DemandModule } from '../demand/demand.module';
 import { BroadcastModule } from '../broadcast/broadcast.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { OrderFlowModule } from '../order-flow/order-flow.module';
-import { SmartDiscountService } from '../demand/services/smart-discount.service';
 import { LearningModule } from '../learning/learning.module';
 import { NluModule } from '../nlu/nlu.module';
 import { ContentFactoryModule } from '../content-factory/content-factory.module';
@@ -28,7 +27,7 @@ import { ContentFactoryModule } from '../content-factory/content-factory.module'
     ContentFactoryModule,
   ],
   controllers: [SchedulerController],
-  providers: [SchedulerService, AutoActionService, SmartDiscountService],
+  providers: [SchedulerService, AutoActionService],
   exports: [SchedulerService, AutoActionService],
 })
 export class SchedulerModule {}

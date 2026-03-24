@@ -260,13 +260,16 @@ export class ProgressiveProfileService {
     const status = await this.getProfileStatus(userId);
     const allQuestions = this.getProfileQuestions();
 
-    // PRIORITY 0: Safety-critical fields bypass ALL rate limits
-    // Allergies and spice_level are food safety — must always be asked when missing
-    for (const safetyField of this.SAFETY_CRITICAL_FIELDS) {
-      if (status.missingFields.includes(safetyField)) {
-        const safetyQuestion = allQuestions.find(q => q.id === safetyField);
-        if (safetyQuestion) {
-          return safetyQuestion;
+    // PRIORITY 0: Safety-critical fields bypass rate limits — but ONLY for food contexts.
+    // Allergies and spice_level are food safety — irrelevant for parcel/delivery contexts.
+    const foodContexts = ['post_order', 'post_food_order', 'post_ecom_order', 'general'];
+    if (foodContexts.includes(context)) {
+      for (const safetyField of this.SAFETY_CRITICAL_FIELDS) {
+        if (status.missingFields.includes(safetyField)) {
+          const safetyQuestion = allQuestions.find(q => q.id === safetyField);
+          if (safetyQuestion) {
+            return safetyQuestion;
+          }
         }
       }
     }

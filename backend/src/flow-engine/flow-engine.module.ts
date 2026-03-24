@@ -43,6 +43,7 @@ import { PureNerExecutor } from './executors/pure-ner.executor';
 import { AgentExecutor } from './executors/agent.executor';
 import { CollectionsExecutor } from './executors/collections.executor';
 import { QuickReorderExecutor } from './executors/quick-reorder.executor';
+import { ParcelReorderExecutor } from './executors/parcel-reorder.executor';
 import { RecommendationExecutor } from './executors/recommendation.executor';
 // Phase 4: mOS Action Engine Executors
 import { AssetGenerationExecutor } from './executors/asset-generation.executor';
@@ -168,7 +169,8 @@ import { LearningModule } from '../learning/learning.module';
     PureNerExecutor, // Pure ML entity extraction (no regex fallback)
     AgentExecutor, // LLM tool-use agent for dynamic orchestration
     CollectionsExecutor, // Smart personalised collections for home screen
-    QuickReorderExecutor, // 🔄 One-tap repeat last order
+    QuickReorderExecutor, // 🔄 One-tap repeat last food order
+    ParcelReorderExecutor, // 🔄 One-tap repeat last parcel order
     RecommendationExecutor, // 🎯 Recommendation tracking & upsells
     // GameScorerExecutor, // Disabled - Prisma schema mismatch
     // RewardPointsExecutor, // Disabled - Prisma schema mismatch
@@ -234,6 +236,7 @@ export class FlowEngineModule {
     private readonly agentExecutor: AgentExecutor,
     private readonly collectionsExecutor: CollectionsExecutor,
     private readonly quickReorderExecutor: QuickReorderExecutor,
+    private readonly parcelReorderExecutor: ParcelReorderExecutor,
     private readonly recommendationExecutor: RecommendationExecutor,
     // private readonly gameScorerExecutor: GameScorerExecutor, // Disabled
     // private readonly rewardPointsExecutor: RewardPointsExecutor, // Disabled
@@ -283,6 +286,7 @@ export class FlowEngineModule {
     this.executorRegistry.register(agentExecutor);
     this.executorRegistry.register(collectionsExecutor);
     this.executorRegistry.register(quickReorderExecutor);
+    this.executorRegistry.register(parcelReorderExecutor);
     this.executorRegistry.register(recommendationExecutor);
     // this.executorRegistry.register(gameScorerExecutor); // Disabled
     // this.executorRegistry.register(rewardPointsExecutor); // Disabled

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PhpApiService } from './php-api.service';
 import { CircuitBreakerService } from '../../common/services/circuit-breaker.service';
 import { Order, Address } from '../../common/interfaces/common.interface';
+import { getStatusEmoji, getStatusLabel } from '../../common/constants/order-status.constants';
 
 /**
  * PHP Order Service
@@ -81,15 +82,17 @@ export class PhpOrderService extends PhpApiService {
         
         // Parcel specific
         parcel_category_id: orderData.parcelCategoryId || 5,  // From user selection
+        vehicle_type: orderData.vehicleType || null, // BIKE, 3_WHEELER, 4_WHEELER — PHP derives from category if null
         charge_payer: 'sender',  // Who pays: sender or receiver
         distance: orderData.distance !== undefined && orderData.distance !== null ? orderData.distance : 5,
-        
+
         // Optional
         order_note: orderData.orderNote || '',
         delivery_instruction: orderData.deliveryInstruction || '',
-        // CRITICAL: PHP does NOT compute order_amount for parcel orders server-side.
-        // Whatever value we send here is what gets stored in the database.
+        // PHP is server-authoritative for delivery_charge (recalculates from rate cards)
+        // order_amount sent as reference — PHP recalculates it server-side
         order_amount: orderData.orderAmount || orderData.totalAmount || 0,
+        additional_charge: orderData.platformFee || 5, // Platform fee — PHP uses this for parcel orders
         dm_tips: orderData.dmTips || 0,
       };
 
@@ -439,10 +442,16 @@ export class PhpOrderService extends PhpApiService {
       // Use user-selected payment method, fall back to digital_payment
       const effectivePaymentMethod = orderData.paymentMethod || 'digital_payment';
       
+      // Map NestJS payment method names to PHP backend expectations
+      let phpPaymentMethod = effectivePaymentMethod;
+      if (effectivePaymentMethod === 'partial_payment') {
+        phpPaymentMethod = 'wallet';  // PHP handles partial via wallet + partial_payment flag
+      }
+
       const payload: any = {
         store_id: storeId,
         delivery_address_id: addressId,
-        payment_method: effectivePaymentMethod,
+        payment_method: phpPaymentMethod,
         delivery_instruction: orderData.orderNote || '',
         order_type: 'delivery',
         // Required fields for delivery orders
@@ -450,6 +459,8 @@ export class PhpOrderService extends PhpApiService {
         address: orderData.deliveryAddress?.address || 'Delivery Address',
         latitude: userLat,
         longitude: userLng,
+        // Wallet/partial payment: PHP deducts wallet server-side when payment_method is 'wallet'
+        partial_payment: effectivePaymentMethod === 'partial_payment',
       };
 
       // Attach coupon code if provided
@@ -526,6 +537,7 @@ export class PhpOrderService extends PhpApiService {
         orderNote: order.order_note,
         distance: order.distance,
         vehicleId: order.vehicle_id,
+        moduleId: order.module_id ? parseInt(order.module_id) : undefined,
         createdAt: order.created_at ? new Date(order.created_at) : undefined,
         // Parse addresses from JSON strings
         pickupAddress: order.sender_details ? (typeof order.sender_details === 'string' ? JSON.parse(order.sender_details) : order.sender_details) : {},
@@ -537,6 +549,28 @@ export class PhpOrderService extends PhpApiService {
     } catch (error) {
       this.logger.error(`Failed to fetch orders: ${error.message}`);
       return [];
+    }
+  }
+
+  /**
+   * Get orders raw (unmapped) — preserves all PHP fields including delivery_address
+   * Used by parcel reorder where delivery_address = pickup and receiver_details = delivery
+   */
+  async getOrdersRaw(token: string, limit: number = 10, offset: number = 1, moduleId?: string): Promise<any> {
+    try {
+      const headers: Record<string, string> = {};
+      if (moduleId) headers.moduleId = moduleId;
+
+      return await this.authenticatedRequest(
+        'get',
+        '/api/v1/customer/order/list',
+        token,
+        { limit, offset },
+        headers,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to fetch raw orders: ${error.message}`);
+      return { orders: [] };
     }
   }
 
@@ -573,8 +607,8 @@ export class PhpOrderService extends PhpApiService {
         paymentMethod: order.payment_method,
         paymentStatus: order.payment_status,
         createdAt: order.created_at ? new Date(order.created_at) : undefined,
-        pickupAddress: order.sender_details ? JSON.parse(order.sender_details) : {},
-        deliveryAddress: order.receiver_details ? JSON.parse(order.receiver_details) : {},
+        pickupAddress: order.sender_details ? (typeof order.sender_details === 'string' ? JSON.parse(order.sender_details) : order.sender_details) : {},
+        deliveryAddress: order.receiver_details ? (typeof order.receiver_details === 'string' ? JSON.parse(order.receiver_details) : order.receiver_details) : {},
       }));
 
       this.logger.log(`✅ Found ${orders.length} running orders`);
@@ -843,49 +877,17 @@ export class PhpOrderService extends PhpApiService {
   }
 
   /**
-   * Get order status emoji
+   * Get order status emoji — delegates to canonical constants
    */
   getOrderStatusEmoji(status: string): string {
-    switch (status) {
-      case 'pending':
-        return '⏳';
-      case 'confirmed':
-        return '✅';
-      case 'processing':
-        return '📦';
-      case 'picked_up':
-        return '🚚';
-      case 'handover':
-        return '🤝';
-      case 'delivered':
-        return '✅';
-      case 'canceled':
-        return '❌';
-      case 'refunded':
-        return '💰';
-      case 'failed':
-        return '❌';
-      default:
-        return '📋';
-    }
+    return getStatusEmoji(status);
   }
 
   /**
-   * Format order status for display
+   * Format order status for display — delegates to canonical constants
    */
   formatOrderStatus(status: string): string {
-    const statusMap: { [key: string]: string } = {
-      pending: 'Pending',
-      confirmed: 'Confirmed',
-      processing: 'Processing',
-      picked_up: 'Picked Up',
-      handover: 'Handover',
-      delivered: 'Delivered',
-      canceled: 'Canceled',
-      refunded: 'Refunded',
-      failed: 'Failed',
-    };
-    return statusMap[status] || status;
+    return getStatusLabel(status);
   }
 
   /**

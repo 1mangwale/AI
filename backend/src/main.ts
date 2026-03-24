@@ -67,8 +67,9 @@ async function bootstrap() {
 
   // Set global prefix for all routes (except health check)
   app.setGlobalPrefix('api', {
-    exclude: ['health', 'ready', 'metrics', 'mcp', 'mcp/(.*)',],
+    exclude: ['health', 'ready', 'metrics', 'mcp', 'mcp/(.*)'],
   });
+
 
   // Enable CORS with strict origin whitelist
   // Parse additional CORS origins from env (comma-separated)

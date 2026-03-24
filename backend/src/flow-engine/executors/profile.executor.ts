@@ -123,9 +123,17 @@ export class ProfileExecutor implements ActionExecutor {
     
     // Preserve any existing response (e.g. "Order Confirmed!") and append the profile question
     const existingResponse = context.data._last_response;
-    if (existingResponse && typeof existingResponse === 'string' && existingResponse.trim().length > 0) {
+    if (existingResponse && typeof existingResponse === 'object' && existingResponse !== null && existingResponse.message) {
+      // Response executor stores _last_response as { message, buttons, ... }
+      // Prepend the existing message and keep its buttons alongside profile buttons
+      context.data._last_response = {
+        message: `${existingResponse.message}\n\n---\n\n${formatted.message}`,
+        buttons: [...(existingResponse.buttons || []), ...(formatted.buttons || [])],
+      };
+      this.logger.log(`📝 Appending profile question to existing object response`);
+    } else if (existingResponse && typeof existingResponse === 'string' && existingResponse.trim().length > 0) {
       context.data._last_response = `${existingResponse}\n\n---\n\n${formatted.message}`;
-      this.logger.log(`📝 Appending profile question to existing response`);
+      this.logger.log(`📝 Appending profile question to existing string response`);
     } else {
       context.data._last_response = formatted.message;
     }

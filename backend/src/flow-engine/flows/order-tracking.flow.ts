@@ -216,26 +216,10 @@ export const orderTrackingFlow: FlowDefinition = {
       description: 'Show list of running orders',
       onEntry: [
         {
-          id: 'format_orders',
-          executor: 'llm',
-          config: {
-            systemPrompt: 'Format order list as a concise numbered list with emojis. Show order ID, status, and amount.',
-            prompt: `Format these orders for display:
-{{#each running_orders}}
-- Order #{{this.id}}: {{this.orderStatus}} - ₹{{this.orderAmount}}
-{{/each}}
-
-Keep it under 200 chars. Use status emojis: ⏳pending ✅confirmed 📦processing 🚚picked_up 🤝handover ✅delivered`,
-            temperature: 0.3,
-            maxTokens: 150,
-          },
-          output: 'formatted_orders',
-        },
-        {
           id: 'show_orders',
           executor: 'response',
           config: {
-            message: '🚚 **Your Active Orders**\n\n{{formatted_orders}}\n\nSelect an order to track or cancel:',
+            message: `🚚 *Your Active Orders*\n\n{{#each running_orders}}{{math @index "+" 1}}. Order #{{this.id}}: {{statusEmoji this.orderStatus}} {{statusLabel this.orderStatus}} — ₹{{this.orderAmount}}\n{{/each}}\nSelect an order to track or cancel:`,
             buttons: [
               { id: 'select_first', label: 'Track Order #{{running_orders.[0].id}}', value: 'track order {{running_orders.[0].id}}' },
               { id: 'cancel', label: '❌ Cancel an Order', value: 'cancel order' },
@@ -568,26 +552,10 @@ Keep under 300 chars.`,
       description: 'Show order history list',
       onEntry: [
         {
-          id: 'format_history',
-          executor: 'llm',
-          config: {
-            systemPrompt: 'Format order history as a brief numbered list. Show order ID, status, date, and amount.',
-            prompt: `Format these past orders:
-{{#each order_history}}
-- Order #{{this.id}}: {{this.orderStatus}} - ₹{{this.orderAmount}} on {{this.createdAt}}
-{{/each}}
-
-Keep it concise with status emojis.`,
-            temperature: 0.3,
-            maxTokens: 200,
-          },
-          output: 'formatted_history',
-        },
-        {
           id: 'show_history',
           executor: 'response',
           config: {
-            message: '📋 **Your Order History**\n\n{{formatted_history}}\n\nWould you like to reorder any of these?',
+            message: `📋 *Your Order History*\n\n{{#each order_history}}{{math @index "+" 1}}. Order #{{this.id}}: {{statusEmoji this.orderStatus}} {{statusLabel this.orderStatus}} — ₹{{this.orderAmount}} on {{formatDate this.createdAt}}\n{{/each}}\nWould you like to reorder any of these?`,
             buttons: [
               { id: 'reorder', label: '🔄 Reorder Last', value: 'reorder last order' },
               { id: 'back', label: '🔙 Back', value: 'back to menu' },

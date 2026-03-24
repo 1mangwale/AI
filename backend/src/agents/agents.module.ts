@@ -120,7 +120,7 @@ import { GameHandlerService } from './services/game-handler.service'; // ✨ Opt
     NluClientService,
     AddressExtractionService,
     FunctionExecutorService, // ✨ Re-enabled with proper dependencies
-    ConversationLoggerService, // ✨ PostgreSQL conversation logging
+    // ConversationLoggerService provided by @Global() DatabaseModule — do NOT duplicate here
     AgentsService, // ✨ Agent statistics and management
     AgentHandoffService, // ✨ Agent-to-agent handoff mechanism
     EnhancedAgentToolsService, // ✨ Google Places, Reviews, Self-learning tools
@@ -150,7 +150,7 @@ import { GameHandlerService } from './services/game-handler.service'; // ✨ Opt
     AgentOrchestratorService,
     AgentRegistryService,
     IntentRouterService,
-    ConversationLoggerService, // ✨ Export for use in ChatGateway
+    // ConversationLoggerService comes from @Global() DatabaseModule — no need to re-export
     AddressExtractionService, // ✨ Export for use in FlowEngine
     AgentHandoffService, // ✨ Export for agent handoff capability
     EnhancedAgentToolsService, // ✨ Export enhanced tools
