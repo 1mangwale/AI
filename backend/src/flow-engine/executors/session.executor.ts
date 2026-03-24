@@ -376,23 +376,26 @@ export class SessionExecutor implements ActionExecutor {
 
       // If no auth_token but we have a phone, generate one via platform-login
       // This fixes Google OAuth users who have user_id but never got a PHP token
+      // Uses refreshAuthToken mutex so parallel executors share the same refresh
       if (!authToken && phone && this.phpAuthService) {
-        try {
-          this.logger.log(`🔑 No auth_token for user_id=${userId}, generating via autoLogin(${phone})`);
-          const loginResult = await this.phpAuthService.autoLogin(phone);
+        const phpAuth = this.phpAuthService;
+        this.logger.log(`🔑 No auth_token for user_id=${userId}, refreshing via autoLogin(${phone})`);
+        const newToken = await this.sessionService.refreshAuthToken(sessionId, async () => {
+          const loginResult = await phpAuth.autoLogin(phone);
           if (loginResult.success && loginResult.data?.token) {
-            authToken = loginResult.data.token;
             // Use PHP-verified user_id (prevents frontend/session mismatch)
             if (loginResult.data.id && loginResult.data.id !== userId) {
               this.logger.warn(`⚠️ user_id mismatch: session=${userId}, PHP=${loginResult.data.id}. Using PHP value.`);
               userId = loginResult.data.id;
+              await this.sessionService.setData(sessionId, { user_id: userId });
             }
-            // Persist to session for future use
-            await this.sessionService.setData(sessionId, { auth_token: authToken, user_id: userId });
-            this.logger.log(`✅ Generated auth_token for user_id=${userId} via platform-login`);
+            return loginResult.data.token;
           }
-        } catch (err) {
-          this.logger.warn(`⚠️ autoLogin failed for ${phone}: ${err.message}`);
+          return null;
+        });
+        if (newToken) {
+          authToken = newToken;
+          this.logger.log(`✅ Generated auth_token for user_id=${userId} via platform-login`);
         }
       }
 

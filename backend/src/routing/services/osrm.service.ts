@@ -461,12 +461,14 @@ export class OSRMService {
 
   /**
    * Fallback: Calculate distance using Haversine formula (as the crow flies)
+   * Applies 1.3x multiplier to approximate road distance from straight-line distance
    */
   private fallbackDistance(from: Location, to: Location): DistanceResult {
-    const distance_km = this.haversineDistance(from, to);
+    const straightLine_km = this.haversineDistance(from, to);
+    const distance_km = parseFloat((straightLine_km * 1.3).toFixed(2)); // 1.3x road-distance approximation
     const duration_min = Math.ceil((distance_km / this.averageDeliverySpeedKmh) * 60);
 
-    this.logger.debug(`⚠️  Using Haversine fallback: ${distance_km} km, ${duration_min} min`);
+    this.logger.warn(`Using Haversine fallback: straight-line ${straightLine_km.toFixed(2)} km * 1.3 = ${distance_km} km, ${duration_min} min`);
 
     return {
       distance_m: distance_km * 1000,
@@ -478,18 +480,22 @@ export class OSRMService {
 
   /**
    * Fallback for bulk calculations
+   * Applies 1.3x multiplier to approximate road distance from straight-line distance
    */
   private fallbackBulkDistances(
     source: Location,
     destinations: Array<Location & { store_id?: number }>,
   ): BulkDistanceResult {
+    this.logger.warn(`Using Haversine fallback for ${destinations.length} bulk distances (1.3x road multiplier)`);
+
     const results = destinations.map(dest => {
-      const distance_km = this.haversineDistance(source, dest);
+      const straightLine_km = this.haversineDistance(source, dest);
+      const distance_km = parseFloat((straightLine_km * 1.3).toFixed(2)); // 1.3x road-distance approximation
       const duration_min = Math.ceil((distance_km / this.averageDeliverySpeedKmh) * 60);
 
       return {
         location: dest,
-        distance_km: parseFloat(distance_km.toFixed(2)),
+        distance_km,
         duration_min,
         store_id: dest.store_id,
       };
