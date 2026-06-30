@@ -21,6 +21,7 @@ import { AgentsModule } from "../agents/agents.module";
 import { DatabaseModule } from "../database/database.module";
 import { AsrModule } from "../asr/asr.module";
 import { AdminModule } from "../admin/admin.module";
+import { ApprovalModule } from "../approval/approval.module";
 
 /**
  * WhatsAppModule - Multi-Channel Architecture
@@ -46,6 +47,7 @@ import { AdminModule } from "../admin/admin.module";
     DatabaseModule,
     AsrModule, // For voice message transcription
     AdminModule,
+    ApprovalModule,
   ],
   controllers: [
     WebhookController,
