@@ -1,23 +1,39 @@
-import { Controller, Get, Post, Body, Query, Logger, HttpCode, Param, Delete, Headers, UnauthorizedException, RawBodyRequest, Req, UseGuards } from '@nestjs/common';
-import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import { AdminAuthGuard } from '../../admin/guards/admin-auth.guard';
-import { SessionService } from '../../session/session.service';
-import { MessageService } from '../services/message.service';
-import { AgentOrchestratorService } from '../../agents/services/agent-orchestrator.service';
-import { ConversationLoggerService } from '../../database/conversation-logger.service';
-import { ConfigService } from '@nestjs/config';
-import { Platform } from '../../common/enums/platform.enum';
-import { AsrService } from '../../asr/services/asr.service';
-import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
-import { MessageGatewayService } from '../../messaging/services/message-gateway.service';
-import { WhatsAppCloudService } from '../services/whatsapp-cloud.service';
-import * as crypto from 'crypto';
-import { Request } from 'express';
-import { normalizePhoneNumber } from '../../common/utils/helpers';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  Logger,
+  HttpCode,
+  Param,
+  Delete,
+  Headers,
+  UnauthorizedException,
+  RawBodyRequest,
+  Req,
+  UseGuards,
+} from "@nestjs/common";
+import { SkipThrottle, Throttle } from "@nestjs/throttler";
+import { AdminAuthGuard } from "../../admin/guards/admin-auth.guard";
+import { SessionService } from "../../session/session.service";
+import { MessageService } from "../services/message.service";
+import { AgentOrchestratorService } from "../../agents/services/agent-orchestrator.service";
+import { ConversationLoggerService } from "../../database/conversation-logger.service";
+import { ConfigService } from "@nestjs/config";
+import { Platform } from "../../common/enums/platform.enum";
+import { AsrService } from "../../asr/services/asr.service";
+import { HttpService } from "@nestjs/axios";
+import { firstValueFrom } from "rxjs";
+import { MessageGatewayService } from "../../messaging/services/message-gateway.service";
+import { WhatsAppCloudService } from "../services/whatsapp-cloud.service";
+import { WhatsAppCallingSupportIntakeService } from "../services/whatsapp-calling-support-intake.service";
+import * as crypto from "crypto";
+import { Request } from "express";
+import { normalizePhoneNumber } from "../../common/utils/helpers";
 
 @SkipThrottle({ default: true })
-@Controller('webhook/whatsapp')
+@Controller("webhook/whatsapp")
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
   private readonly verifyToken: string;
@@ -35,37 +51,43 @@ export class WebhookController {
     private httpService: HttpService,
     private messageGateway: MessageGatewayService,
     private whatsappCloudService: WhatsAppCloudService,
+    private whatsappCallingSupportIntake: WhatsAppCallingSupportIntakeService,
   ) {
-    this.verifyToken = this.configService.get('whatsapp.verifyToken');
-    this.accessToken = this.configService.get('whatsapp.accessToken');
-    this.graphApiVersion = this.configService.get('whatsapp.apiVersion') || 'v24.0';
-    this.appSecret = this.configService.get('WHATSAPP_APP_SECRET', '');
-    this.logger.log(`✅ Webhook Controller initialized (API ${this.graphApiVersion}, Voice Support)`);
+    this.verifyToken = this.configService.get("whatsapp.verifyToken");
+    this.accessToken = this.configService.get("whatsapp.accessToken");
+    this.graphApiVersion =
+      this.configService.get("whatsapp.apiVersion") || "v24.0";
+    this.appSecret = this.configService.get("WHATSAPP_APP_SECRET", "");
+    this.logger.log(
+      `✅ Webhook Controller initialized (API ${this.graphApiVersion}, Voice Support)`,
+    );
   }
 
-  @Get('session/:phoneNumber')
+  @Get("session/:phoneNumber")
   @UseGuards(AdminAuthGuard)
-  async getSession(@Param('phoneNumber') phoneNumber: string): Promise<any> {
+  async getSession(@Param("phoneNumber") phoneNumber: string): Promise<any> {
     const session = await this.sessionService.getSession(phoneNumber);
-    return session || { message: 'No session found' };
+    return session || { message: "No session found" };
   }
 
-  @Delete('session/:phoneNumber')
+  @Delete("session/:phoneNumber")
   @UseGuards(AdminAuthGuard)
-  async deleteSession(@Param('phoneNumber') phoneNumber: string): Promise<any> {
+  async deleteSession(@Param("phoneNumber") phoneNumber: string): Promise<any> {
     await this.sessionService.deleteSession(phoneNumber);
     this.logger.log(`🗑️ Session deleted for ${phoneNumber}`);
-    return { status: 'ok', message: 'Session deleted', phoneNumber };
+    return { status: "ok", message: "Session deleted", phoneNumber };
   }
 
-  @Get('messages/:phoneNumber')
+  @Get("messages/:phoneNumber")
   @UseGuards(AdminAuthGuard)
-  async getBotMessages(@Param('phoneNumber') phoneNumber: string): Promise<any> {
+  async getBotMessages(
+    @Param("phoneNumber") phoneNumber: string,
+  ): Promise<any> {
     const messages = await this.sessionService.getBotMessages(phoneNumber);
     return { phoneNumber, messages, count: messages.length };
   }
 
-  @Get('sessions')
+  @Get("sessions")
   @UseGuards(AdminAuthGuard)
   async getAllSessions(): Promise<any> {
     const sessions = await this.sessionService.getAllSessions();
@@ -74,19 +96,19 @@ export class WebhookController {
 
   @Get()
   async verify(
-    @Query('hub.mode') mode: string,
-    @Query('hub.verify_token') token: string,
-    @Query('hub.challenge') challenge: string,
+    @Query("hub.mode") mode: string,
+    @Query("hub.verify_token") token: string,
+    @Query("hub.challenge") challenge: string,
   ): Promise<string> {
     this.logger.log(`🔐 Webhook verification: mode=${mode}`);
 
-    if (mode === 'subscribe' && token === this.verifyToken) {
-      this.logger.log('✅ Webhook verified successfully');
+    if (mode === "subscribe" && token === this.verifyToken) {
+      this.logger.log("✅ Webhook verified successfully");
       return challenge;
     }
 
-    this.logger.warn('❌ Webhook verification failed');
-    throw new Error('Forbidden');
+    this.logger.warn("❌ Webhook verification failed");
+    throw new Error("Forbidden");
   }
 
   @Post()
@@ -95,66 +117,170 @@ export class WebhookController {
   @Throttle({ default: { limit: 300, ttl: 60000 } }) // 300 requests per minute per IP
   async receive(
     @Body() payload: any,
-    @Headers('x-hub-signature-256') hubSignature: string,
+    @Headers("x-hub-signature-256") hubSignature: string,
     @Req() req: RawBodyRequest<Request>,
   ): Promise<{ status: string }> {
     // Verify WhatsApp webhook signature (HMAC-SHA256) — MANDATORY
     // These checks must be outside try-catch so NestJS returns proper 401
     if (!this.appSecret) {
-      this.logger.error('WHATSAPP_APP_SECRET not configured — rejecting all webhooks for security');
-      throw new UnauthorizedException('Webhook signature verification not configured');
+      this.logger.error(
+        "WHATSAPP_APP_SECRET not configured — rejecting all webhooks for security",
+      );
+      throw new UnauthorizedException(
+        "Webhook signature verification not configured",
+      );
     }
 
     if (!hubSignature) {
-      this.logger.warn('Missing WhatsApp webhook signature - rejecting');
-      throw new UnauthorizedException('Missing webhook signature');
+      this.logger.warn("Missing WhatsApp webhook signature - rejecting");
+      throw new UnauthorizedException("Missing webhook signature");
     }
 
     const rawBody = req.rawBody;
     if (!rawBody || rawBody.length === 0) {
-      this.logger.error('Raw body not available — ensure rawBody: true in NestFactory.create()');
-      throw new UnauthorizedException('Webhook verification failed');
+      this.logger.error(
+        "Raw body not available — ensure rawBody: true in NestFactory.create()",
+      );
+      throw new UnauthorizedException("Webhook verification failed");
     }
 
-    const expectedSignature = 'sha256=' + crypto
-      .createHmac('sha256', this.appSecret)
-      .update(rawBody)
-      .digest('hex');
+    const expectedSignature =
+      "sha256=" +
+      crypto.createHmac("sha256", this.appSecret).update(rawBody).digest("hex");
 
-    if (!crypto.timingSafeEqual(
-      Buffer.from(expectedSignature),
-      Buffer.from(hubSignature),
-    )) {
-      this.logger.warn('Invalid WhatsApp webhook signature - rejecting');
-      throw new UnauthorizedException('Invalid webhook signature');
+    if (
+      !crypto.timingSafeEqual(
+        Buffer.from(expectedSignature),
+        Buffer.from(hubSignature),
+      )
+    ) {
+      this.logger.warn("Invalid WhatsApp webhook signature - rejecting");
+      throw new UnauthorizedException("Invalid webhook signature");
     }
 
     try {
-      this.logger.debug('Webhook received');
-      this.logger.debug(`📋 Payload structure: ${JSON.stringify(payload, null, 2)}`);
+      this.logger.debug("Webhook received");
+      this.logger.debug(
+        `Payload summary: ${JSON.stringify(this.summarizeWebhookPayload(payload))}`,
+      );
 
       if (!payload.entry?.[0]?.changes?.[0]?.value) {
-        this.logger.warn('Invalid webhook payload structure');
-        return { status: 'ignored' };
+        this.logger.warn("Invalid webhook payload structure");
+        return { status: "ignored" };
       }
 
       const value = payload.entry[0].changes[0].value;
-      this.logger.debug(`📋 Value: ${JSON.stringify(value, null, 2)}`);
+      this.logger.debug(
+        `Value summary: ${JSON.stringify(this.summarizeWebhookValue(value))}`,
+      );
 
       if (value.messages) {
         this.logger.log(`📩 Found ${value.messages.length} messages`);
         for (const message of value.messages) {
           await this.handleIncomingMessage(message);
         }
-      } else {
-        this.logger.warn('No messages found in webhook payload');
       }
 
-      return { status: 'ok' };
+      if (Array.isArray(value.calls) && value.calls.length > 0) {
+        this.logger.log(
+          `Found ${value.calls.length} WhatsApp calling webhook events`,
+        );
+        for (const call of value.calls) {
+          await this.handleCallingEvent(call, value);
+        }
+      }
+
+      if (!value.messages && !value.calls) {
+        this.logger.warn("No messages found in webhook payload");
+      }
+
+      return { status: "ok" };
     } catch (error) {
-      this.logger.error('Error processing webhook:', error);
-      return { status: 'error' };
+      this.logger.error("Error processing webhook:", error);
+      return { status: "error" };
     }
+  }
+
+  private async handleCallingEvent(call: any, value: any): Promise<void> {
+    const intake = this.whatsappCallingSupportIntake.buildDryRunIntake(
+      call,
+      value,
+    );
+    this.logger.log(
+      `WhatsApp calling webhook event=${intake.event} call_id_hash=${intake.call_id_hash.slice(0, 12)} ` +
+        `customer_phone_hash=${intake.customer_phone_hash?.slice(0, 12) || "none"} dry_run=true`,
+    );
+  }
+
+  private summarizeWebhookPayload(payload: any): Record<string, any> {
+    return this.omitUndefined({
+      object: payload?.object,
+      entry_count: Array.isArray(payload?.entry)
+        ? payload.entry.length
+        : undefined,
+      changes: Array.isArray(payload?.entry)
+        ? payload.entry.flatMap((entry: any) =>
+            Array.isArray(entry?.changes)
+              ? entry.changes.map((change: any) =>
+                  this.omitUndefined({
+                    field: change?.field,
+                    value: this.summarizeWebhookValue(change?.value),
+                  }),
+                )
+              : [],
+          )
+        : undefined,
+    });
+  }
+
+  private summarizeWebhookValue(value: any): Record<string, any> {
+    const phoneNumberId = this.firstNonEmptyString(
+      value?.metadata?.phone_number_id,
+    );
+    return this.omitUndefined({
+      messaging_product: value?.messaging_product,
+      phone_number_id_hash: phoneNumberId
+        ? this.sha256(phoneNumberId).slice(0, 12)
+        : undefined,
+      message_count: Array.isArray(value?.messages)
+        ? value.messages.length
+        : undefined,
+      message_types: Array.isArray(value?.messages)
+        ? value.messages.map((message: any) => message?.type).filter(Boolean)
+        : undefined,
+      call_count: Array.isArray(value?.calls) ? value.calls.length : undefined,
+      call_events: Array.isArray(value?.calls)
+        ? value.calls
+            .map((call: any) => call?.event || call?.status || call?.type)
+            .filter(Boolean)
+        : undefined,
+      contact_count: Array.isArray(value?.contacts)
+        ? value.contacts.length
+        : undefined,
+    });
+  }
+
+  private firstNonEmptyString(...values: any[]): string | undefined {
+    for (const value of values) {
+      if (value === undefined || value === null) {
+        continue;
+      }
+      const text = String(value).trim();
+      if (text) {
+        return text;
+      }
+    }
+    return undefined;
+  }
+
+  private omitUndefined<T extends Record<string, any>>(value: T): T {
+    return Object.fromEntries(
+      Object.entries(value).filter(([, entry]) => entry !== undefined),
+    ) as T;
+  }
+
+  private sha256(value: string): string {
+    return crypto.createHash("sha256").update(value).digest("hex");
   }
 
   private async handleIncomingMessage(message: any): Promise<void> {
@@ -168,7 +294,7 @@ export class WebhookController {
 
       // Mark as read via Cloud API (shows blue ticks immediately)
       this.whatsappCloudService.markAsRead(messageId).catch(() => {});
-      
+
       // Show typing indicator while processing
       this.whatsappCloudService.sendTypingIndicator(from, true).catch(() => {});
 
@@ -178,7 +304,7 @@ export class WebhookController {
       }
 
       // Set platform for this session to WhatsApp for channel-aware replies
-      await this.sessionService.setData(from, 'platform', Platform.WHATSAPP);
+      await this.sessionService.setData(from, "platform", Platform.WHATSAPP);
 
       await this.routeMessage(from, type, message, session.currentStep);
     } catch (error) {
@@ -186,131 +312,176 @@ export class WebhookController {
     }
   }
 
-  private async routeMessage(from: string, type: string, message: any, currentStep: string): Promise<void> {
+  private async routeMessage(
+    from: string,
+    type: string,
+    message: any,
+    currentStep: string,
+  ): Promise<void> {
     try {
-      let messageText = '';
+      let messageText = "";
       let locationData: { latitude: number; longitude: number } | null = null;
-      
+
       // Handle different message types
-      if (type === 'audio') {
+      if (type === "audio") {
         // 🎤 VOICE MESSAGE - Transcribe using ASR
         this.logger.log(`🎤 Voice message from ${from} - transcribing...`);
         messageText = await this.handleVoiceMessage(message, from);
         if (!messageText) {
-          await this.messageService.sendTextMessage(from, "🎤 Sorry, I couldn't understand your voice message. Please try again or type your message.");
+          await this.messageService.sendTextMessage(
+            from,
+            "🎤 Sorry, I couldn't understand your voice message. Please try again or type your message.",
+          );
           return;
         }
         this.logger.log(`🎤 Transcribed: "${messageText}"`);
-      } else if (type === 'location') {
+      } else if (type === "location") {
         // 📍 LOCATION MESSAGE - Extract coordinates
         locationData = {
           latitude: message.location?.latitude,
           longitude: message.location?.longitude,
         };
         messageText = `LOCATION:${locationData.latitude},${locationData.longitude}`;
-        this.logger.log(`📍 Location from ${from}: ${locationData.latitude}, ${locationData.longitude}`);
-      } else if (type === 'interactive') {
+        this.logger.log(
+          `📍 Location from ${from}: ${locationData.latitude}, ${locationData.longitude}`,
+        );
+      } else if (type === "interactive") {
         // 🔘 INTERACTIVE MESSAGE - Button or List selection
         const interactive = message.interactive;
-        if (interactive?.type === 'button_reply') {
+        if (interactive?.type === "button_reply") {
           // Button click - use ID as action, title as display
-          const buttonId = interactive.button_reply?.id || '';
-          const buttonTitle = interactive.button_reply?.title || '';
+          const buttonId = interactive.button_reply?.id || "";
+          const buttonTitle = interactive.button_reply?.title || "";
           messageText = buttonTitle || buttonId;
           // Store button ID for proper routing (action & value metadata)
           (message as any)._buttonAction = buttonId;
           (message as any)._buttonValue = buttonId;
-          this.logger.log(`🔘 Button click: id="${buttonId}", title="${buttonTitle}"`);
-        } else if (interactive?.type === 'list_reply') {
+          this.logger.log(
+            `🔘 Button click: id="${buttonId}", title="${buttonTitle}"`,
+          );
+        } else if (interactive?.type === "list_reply") {
           // List selection - use ID for item matching, title as fallback
-          const listId = interactive.list_reply?.id || '';
-          const listTitle = interactive.list_reply?.title || '';
+          const listId = interactive.list_reply?.id || "";
+          const listTitle = interactive.list_reply?.title || "";
           // Store list ID for proper routing
           (message as any)._buttonAction = listId;
           (message as any)._buttonValue = listId;
           // For food items, ID uses item_ID format (e.g., "item_10201")
           // Pass the item_ID directly as the message so the flow engine handles it
           // consistently with web (where card buttons also send "item_10201")
-          if (listId.startsWith('item_')) {
+          if (listId.startsWith("item_")) {
             messageText = listId; // e.g., "item_10201" — matches web behavior
-            this.logger.log(`📋 List selection (item): id="${listId}", title="${listTitle}"`);
+            this.logger.log(
+              `📋 List selection (item): id="${listId}", title="${listTitle}"`,
+            );
           } else if (/^\d+$/.test(listId)) {
             // Legacy numeric ID — prefix with item_ for consistency
             messageText = `item_${listId}`;
             (message as any)._buttonAction = `item_${listId}`;
             (message as any)._buttonValue = `item_${listId}`;
-            this.logger.log(`📋 List selection (numeric item): id="${listId}" → "item_${listId}", title="${listTitle}"`);
+            this.logger.log(
+              `📋 List selection (numeric item): id="${listId}" → "item_${listId}", title="${listTitle}"`,
+            );
           } else {
             // For regular list options (like menu choices), use title
             messageText = listTitle || listId;
-            this.logger.log(`📋 List selection (option): id="${listId}", title="${listTitle}"`);
+            this.logger.log(
+              `📋 List selection (option): id="${listId}", title="${listTitle}"`,
+            );
           }
-        } else if (interactive?.type === 'nfm_reply') {
+        } else if (interactive?.type === "nfm_reply") {
           // 📋 WhatsApp Flow completion — user completed a Flow form
           let flowResponseData: Record<string, any> = {};
           try {
-            flowResponseData = JSON.parse(interactive.nfm_reply?.response_json || '{}');
+            flowResponseData = JSON.parse(
+              interactive.nfm_reply?.response_json || "{}",
+            );
           } catch (e) {
-            this.logger.warn('Failed to parse nfm_reply response_json');
+            this.logger.warn("Failed to parse nfm_reply response_json");
           }
-          const flowBody = interactive.nfm_reply?.body || '';
-          messageText = flowBody || 'FLOW_COMPLETED';
-          (message as any)._buttonAction = 'flow_response';
+          const flowBody = interactive.nfm_reply?.body || "";
+          messageText = flowBody || "FLOW_COMPLETED";
+          (message as any)._buttonAction = "flow_response";
           (message as any)._buttonValue = JSON.stringify(flowResponseData);
           (message as any)._flowResponseData = flowResponseData;
-          this.logger.log(`📋 WhatsApp Flow response: body="${flowBody}", data=${JSON.stringify(flowResponseData).substring(0, 200)}`);
+          this.logger.log(
+            `📋 WhatsApp Flow response: body="${flowBody}", data=${JSON.stringify(flowResponseData).substring(0, 200)}`,
+          );
         } else {
-          messageText = interactive?.button_reply?.title || interactive?.list_reply?.title || '';
+          messageText =
+            interactive?.button_reply?.title ||
+            interactive?.list_reply?.title ||
+            "";
         }
       } else {
         // Extract text from other message types
-        messageText = message.text?.body || '';
+        messageText = message.text?.body || "";
       }
-      
+
       this.logger.log(`💬 WhatsApp message from ${from}: "${messageText}"`);
 
       // Get session data for user info
       const session = await this.sessionService.getSession(from);
       const userId = session?.data?.user_id;
-      
+
       // 📍 Save location to session if it's a location message
       if (locationData) {
-        await this.sessionService.setData(from, 'location', {
+        await this.sessionService.setData(from, "location", {
           lat: locationData.latitude,
           lng: locationData.longitude,
         });
-        await this.sessionService.setData(from, 'lastLocationUpdate', Date.now());
-        this.logger.log(`📍 Saved location to session: ${locationData.latitude}, ${locationData.longitude}`);
+        await this.sessionService.setData(
+          from,
+          "lastLocationUpdate",
+          Date.now(),
+        );
+        this.logger.log(
+          `📍 Saved location to session: ${locationData.latitude}, ${locationData.longitude}`,
+        );
       }
-      
+
       // Log user message to PostgreSQL (non-blocking — don't let DB failure kill message pipeline)
-      this.conversationLogger.logUserMessage({
-        phone: from,
-        userId,
-        messageText,
-        platform: 'whatsapp',
-        sessionId: from,
-      }).catch(err => this.logger.warn(`Failed to log user message: ${err.message}`));
-      
+      this.conversationLogger
+        .logUserMessage({
+          phone: from,
+          userId,
+          messageText,
+          platform: "whatsapp",
+          sessionId: from,
+        })
+        .catch((err) =>
+          this.logger.warn(`Failed to log user message: ${err.message}`),
+        );
+
       this.logger.log(`✅ User message logged to database`);
 
       // 🎯 UNIFIED ARCHITECTURE: Route through MessageGateway (Phase 1 refactor)
       this.logger.log(`🚀 Processing WhatsApp message through MessageGateway`);
-      const isFlowResponse = (message as any)._buttonAction === 'flow_response';
-      const result = await this.messageGateway.handleWhatsAppMessage(from, messageText, {
-        messageId: message.id,
-        // Map WhatsApp 'interactive' type → 'button_click' so ContextRouter skips NLU
-        // Flow responses get special 'flow_response' type
-        type: isFlowResponse ? 'flow_response' : (type === 'interactive' ? 'button_click' : message.type),
-        isVoice: type === 'audio',
-        location: locationData, // Pass location data to message gateway
-        // Forward button/list IDs as action & value for proper ContextRouter routing
-        action: (message as any)._buttonAction,
-        value: (message as any)._buttonValue,
-        // WhatsApp Flow response data (parsed from nfm_reply.response_json)
-        ...(isFlowResponse && { flowResponseData: (message as any)._flowResponseData }),
-      });
-      
+      const isFlowResponse = (message as any)._buttonAction === "flow_response";
+      const result = await this.messageGateway.handleWhatsAppMessage(
+        from,
+        messageText,
+        {
+          messageId: message.id,
+          // Map WhatsApp 'interactive' type → 'button_click' so ContextRouter skips NLU
+          // Flow responses get special 'flow_response' type
+          type: isFlowResponse
+            ? "flow_response"
+            : type === "interactive"
+              ? "button_click"
+              : message.type,
+          isVoice: type === "audio",
+          location: locationData, // Pass location data to message gateway
+          // Forward button/list IDs as action & value for proper ContextRouter routing
+          action: (message as any)._buttonAction,
+          value: (message as any)._buttonValue,
+          // WhatsApp Flow response data (parsed from nfm_reply.response_json)
+          ...(isFlowResponse && {
+            flowResponseData: (message as any)._flowResponseData,
+          }),
+        },
+      );
+
       this.logger.log(`✅ MessageGateway result: ${JSON.stringify(result)}`);
 
       // Response is handled by ContextRouter → MessagingService
@@ -331,44 +502,57 @@ export class WebhookController {
    * Handle voice message from WhatsApp
    * Downloads audio from Meta API and transcribes using ASR
    */
-  private async handleVoiceMessage(message: any, from: string): Promise<string> {
+  private async handleVoiceMessage(
+    message: any,
+    from: string,
+  ): Promise<string> {
     try {
       const audioId = message.audio?.id;
       if (!audioId) {
         this.logger.warn(`No audio ID in voice message`);
-        return '';
+        return "";
       }
 
       // 1. Get media URL from Meta API
       const mediaUrl = await this.getWhatsAppMediaUrl(audioId);
       if (!mediaUrl) {
         this.logger.error(`Failed to get media URL for audio: ${audioId}`);
-        return '';
+        return "";
       }
 
       // 2. Download audio from Meta (requires auth header)
       const audioBuffer = await this.downloadWhatsAppMedia(mediaUrl);
       if (!audioBuffer) {
         this.logger.error(`Failed to download audio: ${audioId}`);
-        return '';
+        return "";
       }
 
       // 3. Transcribe using ASR service (with 15s timeout to avoid blocking if Mercury ASR is down)
       const transcription = await Promise.race([
         this.asrService.transcribe({
           audioData: audioBuffer,
-          language: 'auto', // Auto-detect Hindi or English
-          provider: 'auto',
+          language: "auto", // Auto-detect Hindi or English
+          provider: "auto",
         }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('ASR transcription timed out after 15s')), 15000)),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("ASR transcription timed out after 15s")),
+            15000,
+          ),
+        ),
       ]);
 
-      this.logger.log(`🎤 Transcription complete: "${transcription.text}" (confidence: ${transcription.confidence}, language: ${transcription.language})`);
-      
-      return transcription.text || '';
+      this.logger.log(
+        `🎤 Transcription complete: "${transcription.text}" (confidence: ${transcription.confidence}, language: ${transcription.language})`,
+      );
+
+      return transcription.text || "";
     } catch (error) {
-      this.logger.error(`Voice message handling failed: ${error.message}`, error.stack);
-      return '';
+      this.logger.error(
+        `Voice message handling failed: ${error.message}`,
+        error.stack,
+      );
+      return "";
     }
   }
 
@@ -404,7 +588,7 @@ export class WebhookController {
           headers: {
             Authorization: `Bearer ${this.accessToken}`,
           },
-          responseType: 'arraybuffer',
+          responseType: "arraybuffer",
         }),
       );
       return Buffer.from(response.data);
@@ -414,4 +598,3 @@ export class WebhookController {
     }
   }
 }
-
