@@ -166,8 +166,10 @@ export class SelectionExecutor implements ActionExecutor {
         this.logger.log(`✅ Direct item ID match: item_${itemId} → "${matchedItem.itemName}"`);
         matchedItem.quantity = quantity;
         const card = cards[matchedItem.itemIndex];
-        const foodVariations = card.food_variations || [];
-        const hasVariations = foodVariations.length > 0 && foodVariations.some((g: any) => g.values?.length > 0);
+        // food_variations may arrive as a JSON string from search results (same guard as search.executor)
+        const rawFoodVariations = card.food_variations || [];
+        const foodVariations = typeof rawFoodVariations === 'string' ? (() => { try { return JSON.parse(rawFoodVariations); } catch { return []; } })() : rawFoodVariations;
+        const hasVariations = Array.isArray(foodVariations) && foodVariations.length > 0 && foodVariations.some((g: any) => g.values?.length > 0);
 
         if (variationLabel) {
           for (const group of foodVariations) {
@@ -226,8 +228,10 @@ export class SelectionExecutor implements ActionExecutor {
       if (matchedItem) {
         matchedItem.quantity = quantity;
         const card = cards[matchedItem.itemIndex];
-        const foodVariations = card.food_variations || [];
-        const hasVariations = foodVariations.length > 0 && foodVariations.some((g: any) => g.values?.length > 0);
+        // food_variations may arrive as a JSON string from search results (same guard as search.executor)
+        const rawFoodVariations = card.food_variations || [];
+        const foodVariations = typeof rawFoodVariations === 'string' ? (() => { try { return JSON.parse(rawFoodVariations); } catch { return []; } })() : rawFoodVariations;
+        const hasVariations = Array.isArray(foodVariations) && foodVariations.length > 0 && foodVariations.some((g: any) => g.values?.length > 0);
         
         // If variation label provided, find matching variation from card data
         if (variationLabel) {

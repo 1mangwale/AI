@@ -2885,7 +2885,17 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
       ],
       transitions: {
         success: 'check_resolution_result',
+        // 🔧 FIX (2026-08-01): entity_resolution executor emits resolved/no_slots/
+        // store_not_found/items_not_found/multiple_stores — never 'success'. Without
+        // these mappings the flow STAYed here forever ("I am listening. Please
+        // continue.") eating every input incl. item clicks and "order food".
+        resolved: 'check_resolution_result',
+        no_slots: 'check_resolution_result',
+        store_not_found: 'check_resolution_result',
+        items_not_found: 'check_resolution_result',
+        multiple_stores: 'check_resolution_result',
         error: 'process_selection',  // Fallback to selection on error
+        default: 'check_resolution_result',
       },
     },
 
