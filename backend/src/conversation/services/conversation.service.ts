@@ -2548,29 +2548,32 @@ export class ConversationService {
       const shippingResult = await this.phpParcelService.calculateShippingCharge(
         distance,
         categoryId,
-        zoneIds
+        zoneIds,
+        {
+          pickup: { latitude: pickupLat, longitude: pickupLng },
+          drop: { latitude: deliveryLat, longitude: deliveryLng },
+        }
       );
-      
+
       estimatedAmount = shippingResult.total_charge;
       deliveryCharge = shippingResult.delivery_charge;
       taxAmount = shippingResult.tax;
-      
+
       this.logger.log(`✅ PHP delivery cost: ₹${estimatedAmount} (delivery: ₹${deliveryCharge}, tax: ₹${taxAmount})`);
-      
+
       // Store calculated values in session for order placement
       await this.sessionService.setData(phoneNumber, 'calculated_delivery_charge', deliveryCharge);
       await this.sessionService.setData(phoneNumber, 'calculated_tax', taxAmount);
       await this.sessionService.setData(phoneNumber, 'calculated_total', estimatedAmount);
       await this.sessionService.setData(phoneNumber, 'distance', distance);
     } catch (error) {
-      this.logger.warn(`⚠️ Failed to fetch delivery cost from PHP, using fallback: ${error.message}`);
-      // Fallback to local calculation only if PHP fails
-      estimatedAmount = Math.max(50, Math.ceil(distance * 15));
-      deliveryCharge = estimatedAmount;
-      
-      await this.sessionService.setData(phoneNumber, 'calculated_delivery_charge', deliveryCharge);
-      await this.sessionService.setData(phoneNumber, 'calculated_total', estimatedAmount);
-      await this.sessionService.setData(phoneNumber, 'distance', distance);
+      // GATE-MONEY: never invent a price. If the platform can't quote, fail honestly.
+      this.logger.error(`❌ Platform delivery quote failed: ${error.message}`);
+      await this.messagingService.sendTextMessage(Platform.WHATSAPP,
+        phoneNumber,
+        '❌ We could not calculate delivery charges right now. Please try again in a few minutes.'
+      );
+      return;
     }
     
     // Get wallet balance and determine payment options

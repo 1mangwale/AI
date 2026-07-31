@@ -170,6 +170,18 @@ export class SessionSyncService {
 
     // Case 3: Only DB has active flow (Redis expired)
     if (!redisFlowContext?.flowRunId && dbFlowRun) {
+      // Stale-flow guard (2026-07-31): Redis expiry is the liveness signal.
+      // A DB flow started >24h ago is a dead conversation — abandon it instead
+      // of resuming (a Jan 7 parcel flow once resumed mid-message in July).
+      const MAX_RECOVERY_AGE_MS = 24 * 60 * 60 * 1000;
+      const flowAgeMs = Date.now() - new Date(dbFlowRun.startedAt).getTime();
+      if (flowAgeMs > MAX_RECOVERY_AGE_MS) {
+        const ageHours = Math.round(flowAgeMs / 3600000);
+        this.logger.warn(`🧹 Not resuming stale flow ${dbFlowRun.id} (started ${ageHours}h ago) — marking abandoned`);
+        await this.markFlowAbandoned(dbFlowRun.id, `Stale flow not resumed (started ${ageHours}h ago)`);
+        return null;
+      }
+
       this.logger.warn(`🔄 Recovering flow from DB for session ${sessionId}: ${dbFlowRun.id}`);
       
       // Recover context from DB

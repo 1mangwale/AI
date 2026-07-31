@@ -55,10 +55,13 @@ export class ParcelExecutor implements ActionExecutor {
     try {
       // 1. Get pickup location to determine zone
       const pickupAddress = this.resolve(context, config.pickupAddressPath, 'sender_address') || config.pickup_address;
+      const dropAddress = this.resolve(context, config.dropAddressPath, 'delivery_address') || config.drop_address;
       
       // Support both .latitude/.longitude (PHP API format) and .lat/.lng (legacy)
       const pickupLat = pickupAddress?.latitude ?? pickupAddress?.lat;
       const pickupLng = pickupAddress?.longitude ?? pickupAddress?.lng;
+      const dropLat = dropAddress?.latitude ?? dropAddress?.lat;
+      const dropLng = dropAddress?.longitude ?? dropAddress?.lng;
 
       if (!pickupAddress || !pickupLat || !pickupLng) {
         // Fallback to default if no address (should not happen in flow)
@@ -93,26 +96,70 @@ export class ParcelExecutor implements ActionExecutor {
       const categories = await this.phpParcelService.getParcelCategories(moduleId, zoneId);
       this.logger.log(`📦 Fetched ${categories.length} categories for module ${moduleId}, zone ${zoneId}`);
 
-      // 3. Format as ProductCards — pass ALL PHP fields through
-      const cards = categories.map(cat => ({
+      if (categories.length === 0) {
+        return {
+          success: false,
+          error: 'No parcel vehicle categories available for this zone/module',
+          event: 'error',
+        };
+      }
+
+      const zoneIds = Array.isArray(context.data.zone_ids)
+        ? context.data.zone_ids
+        : (zoneId ? [zoneId] : []);
+
+      const liveQuotes = new Map<string, any>();
+      if (pickupLat && pickupLng && dropLat && dropLng) {
+        await Promise.all(categories.map(async (cat) => {
+          try {
+            const quote = await this.phpParcelService.calculateShippingCharge(
+              0.5,
+              Number(cat.id),
+              zoneIds,
+              {
+                pickup: pickupAddress,
+                drop: dropAddress,
+                customer: {
+                  name: context.data.sender_name || context.data.customer_name || 'Customer',
+                  phone: context.data.phone_number || context.data.user_phone || context._system?.phoneNumber,
+                },
+                paymentMethodHint: 'upi',
+              },
+            );
+            liveQuotes.set(cat.id.toString(), quote);
+          } catch (error) {
+            this.logger.warn(`Could not quote vehicle category ${cat.id}: ${error.message}`);
+          }
+        }));
+      }
+
+      // 3. Format as ProductCards — pass ALL PHP fields through. Do not show
+      // stale parcel_categories per-km rates; live quote is the pricing truth.
+      const cards = categories.map(cat => {
+        const quote = liveQuotes.get(cat.id.toString());
+        return ({
         id: cat.id.toString(),
         name: cat.name,
         description: cat.description || '',
         image: cat.image_full_url || cat.image,
-        price: `₹${cat.parcel_per_km_shipping_charge}/km`,
+        price: quote ? `₹${quote.delivery_charge}` : 'Live fare',
         cardType: 'vehicle' as const,
         action: {
           label: 'Select',
           value: cat.id.toString(),
         },
         metadata: {
-          per_km_charge: cat.parcel_per_km_shipping_charge,
-          minimum_charge: cat.parcel_minimum_shipping_charge,
+          quoted_delivery_charge: quote?.delivery_charge,
+          quoted_total_charge: quote?.total_charge,
+          quote_id: quote?.quote_id,
+          pricing_source: quote?.pricing_source,
+          vehicle_type: quote?.vehicle_type,
           description: cat.description,
           orders_count: cat.orders_count,
           module_id: cat.module_id,
         },
-      }));
+        });
+      });
 
       this.logger.log(`Generated ${cards.length} cards. First card image: ${cards[0]?.image}`);
 
@@ -186,7 +233,16 @@ export class ParcelExecutor implements ActionExecutor {
       const pricing = await this.phpParcelService.calculateShippingCharge(
         effectiveDistance,
         categoryId,
-        zoneIds
+        zoneIds,
+        {
+          pickup: this.resolve(context, 'pickup_address', 'pickup_address'),
+          drop: this.resolve(context, 'delivery_address', 'delivery_address'),
+          customer: {
+            name: context.data.sender_name || context.data.customer_name || 'Customer',
+            phone: context.data.phone_number || context.data.user_phone || context._system?.phoneNumber,
+          },
+          paymentMethodHint: 'upi',
+        }
       );
 
       // Phase 2: Record successful calculation for learning

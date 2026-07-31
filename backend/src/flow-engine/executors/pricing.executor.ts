@@ -2,20 +2,20 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ActionExecutor, ActionExecutionResult, FlowContext } from '../types/flow.types';
 import { PhpPaymentService } from '../../php-integration/services/php-payment.service';
-import { PhpOrderService } from '../../php-integration/services/php-order.service';
 import { SessionService } from '../../session/session.service';
 
 /**
  * Pricing Executor
  *
- * For food/ecommerce orders: populates the PHP cart, then calls get-Tax so PHP
- * returns the REAL tax (from its own business settings). Delivery fee is also
- * read from PHP's config API. Falls back to local calculation if any step fails.
+ * GATE-MONEY (2026-07-31, CEO-approved): the bot NEVER computes a price.
+ * Every number shown to the user comes from the platform:
+ *   - Delivery fee: Laravel /api/v1/customer/delivery-quote (same endpoint the
+ *     Flutter app uses — surge, rate-card versioning, server distance included)
+ *   - Tax: Laravel /api/v1/customer/order/get-Tax
+ * If the platform cannot price, this executor FAILS with an honest error —
+ * there is deliberately no local fallback math.
  *
- * For parcel: always local calculation (PHP parcel pricing is category-specific
- * and only computable at placement time).
- *
- * The actual order total is always calculated by PHP at placement time.
+ * The actual order total is always recalculated by PHP at placement time.
  * This executor produces the pre-confirmation preview shown to the user.
  */
 @Injectable()
@@ -26,7 +26,6 @@ export class PricingExecutor implements ActionExecutor {
   constructor(
     @Optional() private readonly configService?: ConfigService,
     @Optional() private readonly phpPaymentService?: PhpPaymentService,
-    @Optional() private readonly phpOrderService?: PhpOrderService,
     @Optional() private readonly sessionService?: SessionService,
   ) {}
 
@@ -37,25 +36,11 @@ export class PricingExecutor implements ActionExecutor {
     try {
       const type = config.type as 'food' | 'parcel' | 'ecommerce' || 'food';
 
-      let output: any;
+      const output = type === 'parcel'
+        ? await this.calculateParcelViaQuote(config, context)
+        : await this.calculateViaPhpCart(config, context, type);
 
-      // Food + ecommerce: try PHP cart-populate → get-Tax for real numbers
-      if (type === 'food' || type === 'ecommerce') {
-        output = await this.calculateViaPhpCart(config, context, type);
-      }
-
-      // Parcel or fallback: local calculation
-      if (!output) {
-        if (type === 'food') {
-          output = this.calculateFoodPricing(config, context);
-        } else if (type === 'parcel') {
-          output = this.calculateParcelPricing(config, context);
-        } else {
-          output = this.calculateEcommercePricing(config, context);
-        }
-      }
-
-      this.logger.debug(`Pricing calculated (${output.source || 'local'}): ₹${output.total}`);
+      this.logger.debug(`Pricing calculated (${output.source}): ₹${output.total}`);
 
       return {
         success: true,
@@ -73,211 +58,179 @@ export class PricingExecutor implements ActionExecutor {
   }
 
   /**
-   * Proper PHP-backed pricing:
-   * 1. Populate PHP cart with the selected items
-   * 2. Call get-Tax (PHP reads cart, returns real tax + delivery from zone config)
-   * 3. Return real numbers to display in order summary
+   * Food/ecom pricing — platform numbers only:
+   * 1. Delivery fee via Laravel delivery-quote (store → drop coordinates)
+   * 2. Tax via get-Tax with the explicit cart (authenticated when possible)
    */
   private async calculateViaPhpCart(
     config: any,
     context: FlowContext,
     type: 'food' | 'ecommerce',
-  ): Promise<any | null> {
-    try {
-      // Need auth token to populate PHP cart
-      const session = await this.sessionService?.getSession(context._system?.sessionId);
-      const authToken = session?.data?.auth_token;
-      if (!authToken) {
-        this.logger.debug('No auth token available — using local pricing estimate');
-        return null;
-      }
+  ): Promise<any> {
+    if (!this.phpPaymentService) {
+      throw new Error('PhpPaymentService unavailable — cannot price order');
+    }
 
-      const isEcom = type === 'ecommerce';
-      const moduleId = isEcom ? 5 : 4; // 5=Shop, 4=Food
-      const items = config.items || context.data.selected_items || context.data.cart_items || [];
-      const distance = config.distance || context.data.distance || 0;
+    const session = await this.sessionService?.getSession(context._system?.sessionId);
+    const authToken = session?.data?.auth_token;
 
-      if (!items || items.length === 0) {
-        this.logger.debug('No items to price — using local fallback');
-        return null;
-      }
+    const isEcom = type === 'ecommerce';
+    const moduleId = isEcom ? 5 : 4; // 5=Shop, 4=Food
+    const items = config.items || context.data.selected_items || context.data.cart_items || [];
+    let distance = config.distance || context.data.distance || 0;
 
-      const itemsTotal = items.reduce((s: number, i: any) => s + (i.price * (i.quantity || 1)), 0);
+    if (!items || items.length === 0) {
+      throw new Error('No items in cart — cannot price order');
+    }
 
-      // Step 1: Get delivery charge from PHP zone config (same formula PHP uses at placement)
-      // Zone ID is set by the zone executor after user's address is confirmed
-      const zoneId = context.data.delivery_zone?.zoneId
-        || context.data.zone_id
-        || session?.data?.zone_id;
+    const itemsTotal = items.reduce((s: number, i: any) => s + (i.price * (i.quantity || 1)), 0);
 
-      let deliveryCharge: number;
+    const storeId = config.storeId
+      || config.store_id
+      || context.data.store_id
+      || context.data.store?.id
+      || items[0]?.storeId
+      || items[0]?.store_id;
 
-      if (zoneId && this.phpPaymentService) {
-        const deliveryConfig = await this.phpPaymentService.getDeliveryConfig(zoneId, moduleId);
+    const firstItem = items[0] || {};
+    const deliveryAddress = context.data.delivery_address || {};
+    const pickupLat = Number(firstItem.storeLat ?? firstItem.store_lat ?? firstItem.pickupLat);
+    const pickupLng = Number(firstItem.storeLng ?? firstItem.store_lng ?? firstItem.pickupLng);
+    const dropLat = Number(deliveryAddress.latitude ?? deliveryAddress.lat);
+    const dropLng = Number(deliveryAddress.longitude ?? deliveryAddress.lng);
 
-        if (deliveryConfig.success) {
-          // Replicate PHP's DeliveryCharge calculation exactly:
-          // 1. Free delivery if order over threshold
-          // 2. Free delivery if distance under threshold
-          // 3. Otherwise: max(minCharge, distance × perKmCharge)
-          const freeOverAmount = deliveryConfig.freeDeliveryOverAmount ?? 0;
-          const freeUnderDistance = deliveryConfig.freeDeliveryDistance ?? 0;
+    if (![pickupLat, pickupLng, dropLat, dropLng].every(Number.isFinite)) {
+      throw new Error('Missing store or delivery coordinates — cannot get platform delivery quote');
+    }
 
-          if (freeOverAmount > 0 && itemsTotal >= freeOverAmount) {
-            deliveryCharge = 0;
-            this.logger.debug(`Free delivery: order ₹${itemsTotal} ≥ threshold ₹${freeOverAmount}`);
-          } else if (freeUnderDistance > 0 && distance <= freeUnderDistance) {
-            deliveryCharge = 0;
-            this.logger.debug(`Free delivery: distance ${distance}km ≤ threshold ${freeUnderDistance}km`);
-          } else {
-            const rawCharge = distance * (deliveryConfig.perKmCharge ?? 10);
-            deliveryCharge = Math.max(rawCharge, deliveryConfig.minCharge ?? 30);
-          }
-          this.logger.debug(`PHP zone ${zoneId} delivery config: ₹${deliveryCharge} (${distance}km)`);
-        } else {
-          // Config fetch failed — fall back to env vars
-          this.logger.warn(`Delivery config unavailable for zone ${zoneId}, using env fallback`);
-          deliveryCharge = this.localDeliveryFee(distance, isEcom, itemsTotal);
-        }
-      } else {
-        // No zone yet (user hasn't confirmed address) — local estimate
-        deliveryCharge = this.localDeliveryFee(distance, isEcom, itemsTotal);
-      }
+    const deliveryQuote = await this.phpPaymentService.getDeliveryQuote({
+      pickupLat,
+      pickupLng,
+      dropLat,
+      dropLng,
+      vehicleType: config.vehicleType || context.data.vehicle_type || 'BIKE',
+      orderType: isEcom ? 'ecommerce' : 'food',
+      moduleId,
+      isCod: context.data.payment_method === 'cash_on_delivery',
+      storeId,
+    });
 
-      // Step 2: Populate PHP cart so get-Tax reads real items
-      const cartResult = await this.phpOrderService?.populateCartForPricing(authToken, items, moduleId);
-      if (!cartResult?.success) {
-        this.logger.warn('Cart population failed — falling back to local pricing');
-        return null;
-      }
+    if (!deliveryQuote?.success || deliveryQuote.deliveryCharge == null || deliveryQuote.deliveryCharge < 0) {
+      throw new Error(`Platform delivery quote failed: ${deliveryQuote?.message || 'no delivery charge returned'}`);
+    }
 
-      // Step 3: Call get-Tax — PHP now reads the populated cart and applies
-      // the correct tax rate (food=0%, ecom=GST from business settings)
-      const taxResult = await this.phpPaymentService?.calculateTax({
-        items: [],  // PHP ignores this array and reads from the cart table
+    const deliveryCharge = deliveryQuote.deliveryCharge;
+    if (deliveryQuote.distanceKm && deliveryQuote.distanceKm > 0) {
+      distance = deliveryQuote.distanceKm;
+      context.data.distance = deliveryQuote.distanceKm;
+    }
+
+    // Tax: authenticated get-Tax with explicit cart when we have a token;
+    // otherwise use the quote's own platform-computed tax (never local math).
+    let tax: number;
+    if (authToken && storeId) {
+      const taxResult = await this.phpPaymentService.calculateTax({
+        items,
         deliveryCharge,
         distance,
         moduleId,
+        storeId,
+        orderType: 'delivery',
+        token: authToken,
       });
-
       if (!taxResult?.success) {
-        this.logger.warn('get-Tax failed after cart population — falling back to local pricing');
-        return null;
+        throw new Error(`Platform tax calculation failed: ${taxResult?.message || 'get-Tax error'}`);
       }
-
-      const tax = taxResult.tax ?? 0;
-      const total = itemsTotal + deliveryCharge + tax;
-      const freeShipping = isEcom && deliveryCharge === 0;
-
-      this.logger.log(
-        `PHP cart pricing (${type}): items=₹${itemsTotal}, delivery=₹${deliveryCharge}, tax=₹${tax}, total=₹${total}`
-      );
-
-      return {
-        items_total: itemsTotal,
-        itemsTotal,
-        delivery_fee: deliveryCharge,
-        shipping_fee: deliveryCharge,
-        shippingFee: deliveryCharge,
-        freeShipping,
-        subtotal: itemsTotal + deliveryCharge,
-        tax,
-        total,
-        source: 'php_cart',
-        breakdown: { items: itemsTotal, delivery: deliveryCharge, tax },
-      };
-    } catch (error) {
-      this.logger.warn(`PHP cart pricing error: ${error.message} — falling back to local calc`);
-      return null;
+      tax = taxResult.taxIncluded ? 0 : (taxResult.tax ?? 0);
+    } else {
+      const quoteTaxIncluded = deliveryQuote.raw?.tax_included === 1 || deliveryQuote.raw?.tax_included === true;
+      tax = quoteTaxIncluded ? 0 : (deliveryQuote.taxAmount ?? 0);
+      this.logger.log(`No auth token/store for get-Tax — using quote tax ₹${tax} (pre-auth preview)`);
     }
-  }
 
-  /** Env-var-based delivery fee estimate, used when zone config is unavailable */
-  private localDeliveryFee(distance: number, isEcom: boolean, itemsTotal: number): number {
-    if (isEcom) {
-      const freeThreshold = this.configService?.get<number>('pricing.ecomFreeShippingThreshold') || 500;
-      const baseFee = this.configService?.get<number>('pricing.ecomShippingFee') || 40;
-      return itemsTotal > freeThreshold ? 0 : baseFee;
-    }
-    const feePerKm = parseFloat(process.env.DEFAULT_DELIVERY_FEE_PER_KM) || 10;
-    const minFee = parseFloat(process.env.DEFAULT_MIN_DELIVERY_FEE) || 30;
-    return Math.max(distance * feePerKm, minFee);
-  }
+    const total = itemsTotal + deliveryCharge + tax;
+    const freeShipping = isEcom && deliveryCharge === 0;
 
-  private calculateFoodPricing(config: any, context: FlowContext): any {
-    this.logger.debug('Using local food pricing estimate (no auth token or PHP unavailable)');
-    const items = config.items || context.data.selected_items || [];
-    const distance = config.distance || context.data.distance || 0;
-
-    const itemsTotal = items.reduce((sum: number, item: any) => {
-      return sum + (item.price * (item.quantity || 1));
-    }, 0);
-
-    const deliveryFee = this.localDeliveryFee(distance, false, itemsTotal);
-    const subtotal = itemsTotal + deliveryFee;
-    const foodGstRate = parseFloat(process.env.FOOD_GST_RATE) || 0; // 0% food GST
-    const tax = Math.ceil(subtotal * foodGstRate);
-    const total = subtotal + tax;
+    this.logger.log(
+      `Platform pricing (${type}): items=₹${itemsTotal}, delivery=₹${deliveryCharge} [php_delivery_quote], tax=₹${tax}, total=₹${total}`
+    );
 
     return {
       items_total: itemsTotal,
       itemsTotal,
-      delivery_fee: deliveryFee,
-      subtotal,
+      delivery_fee: deliveryCharge,
+      shipping_fee: deliveryCharge,
+      shippingFee: deliveryCharge,
+      freeShipping,
+      subtotal: itemsTotal + deliveryCharge,
       tax,
       total,
-      source: 'local',
-      breakdown: { items: itemsTotal, delivery: deliveryFee, tax },
+      source: 'php_delivery_quote',
+      quote_id: deliveryQuote.quoteId,
+      rate_card_id: deliveryQuote.rateCardId,
+      rate_card_version: deliveryQuote.rateCardVersion,
+      distance,
+      breakdown: { items: itemsTotal, delivery: deliveryCharge, tax },
     };
   }
 
-  private calculateParcelPricing(config: any, context: FlowContext): any {
-    const distance = config.distance || context.data.distance || 0;
-    const perKmCharge = config.per_km_charge || context.data.per_km_charge || parseFloat(process.env.PARCEL_PER_KM_RATE) || 11.11;
-    const minimumCharge = config.minimum_charge || context.data.minimum_charge || parseFloat(process.env.PARCEL_MIN_CHARGE) || 44;
+  /**
+   * Parcel-style pricing (used by food-flow custom orders) — delivery-only
+   * charge from the platform quote. Pickup = custom pickup location,
+   * drop = delivery address.
+   */
+  private async calculateParcelViaQuote(config: any, context: FlowContext): Promise<any> {
+    if (!this.phpPaymentService) {
+      throw new Error('PhpPaymentService unavailable — cannot price order');
+    }
 
-    const distanceCharge = Math.ceil(distance * perKmCharge);
-    const subtotal = Math.max(minimumCharge, distanceCharge);
-    const parcelGstRate = parseFloat(process.env.PARCEL_GST_RATE) || 0.18;
-    const tax = Math.ceil(subtotal * parcelGstRate);
-    const total = subtotal + tax;
+    const pickup = context.data.custom_pickup_location || context.data.pickup_address || {};
+    const drop = context.data.delivery_address || {};
+    const pickupLat = Number(pickup.latitude ?? pickup.lat);
+    const pickupLng = Number(pickup.longitude ?? pickup.lng);
+    const dropLat = Number(drop.latitude ?? drop.lat);
+    const dropLng = Number(drop.longitude ?? drop.lng);
+
+    if (![pickupLat, pickupLng, dropLat, dropLng].every(Number.isFinite)) {
+      throw new Error('Missing pickup or delivery coordinates — cannot get platform parcel quote');
+    }
+
+    const quote = await this.phpPaymentService.getDeliveryQuote({
+      pickupLat,
+      pickupLng,
+      dropLat,
+      dropLng,
+      vehicleType: config.vehicleType || context.data.vehicle_type || 'BIKE',
+      orderType: 'parcel',
+      moduleId: config.moduleId || 3,
+      isCod: context.data.payment_method === 'cash_on_delivery',
+    });
+
+    if (!quote?.success || quote.deliveryCharge == null || quote.deliveryCharge <= 0) {
+      throw new Error(`Platform parcel quote failed: ${quote?.message || 'no delivery charge returned'}`);
+    }
+
+    const deliveryFee = quote.deliveryCharge;
+    const taxIncluded = quote.raw?.tax_included === 1 || quote.raw?.tax_included === true;
+    const tax = taxIncluded ? 0 : (quote.taxAmount ?? 0);
+    const total = Math.round((deliveryFee + tax) * 100) / 100;
+    const distance = quote.distanceKm || context.data.distance || 0;
+    if (quote.distanceKm && quote.distanceKm > 0) {
+      context.data.distance = quote.distanceKm;
+    }
+
+    this.logger.log(`Platform parcel pricing: delivery=₹${deliveryFee}, tax=₹${tax}, total=₹${total} (quote=${quote.quoteId || 'n/a'})`);
 
     return {
       distance,
-      per_km_charge: perKmCharge,
-      minimum_charge: minimumCharge,
-      subtotal,
+      delivery_fee: deliveryFee,
+      subtotal: deliveryFee,
       tax,
       total,
-      source: 'local',
-    };
-  }
-
-  private calculateEcommercePricing(config: any, context: FlowContext): any {
-    this.logger.debug('Using local ecommerce pricing estimate (PHP unavailable)');
-    const items = config.items || context.data.cart_items || context.data.selected_items || [];
-
-    const itemsTotal = items.reduce((sum: number, item: any) => {
-      return sum + (item.price * (item.quantity || 1));
-    }, 0);
-
-    const shippingFee = this.localDeliveryFee(0, true, itemsTotal);
-    const freeShipping = shippingFee === 0;
-    const subtotal = itemsTotal + shippingFee;
-    const tax = Math.ceil(subtotal * 0.18); // 18% GST fallback
-    const total = subtotal + tax;
-
-    return {
-      items_total: itemsTotal,
-      itemsTotal,
-      delivery_fee: shippingFee,
-      shipping_fee: shippingFee,
-      shippingFee,
-      freeShipping,
-      subtotal,
-      tax,
-      total,
-      source: 'local',
+      source: 'php_delivery_quote',
+      quote_id: quote.quoteId,
+      rate_card_id: quote.rateCardId,
+      rate_card_version: quote.rateCardVersion,
     };
   }
 }

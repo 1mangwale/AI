@@ -3,10 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import { PhpHttpClientService } from './http-client.service';
 import { OSRMService } from '../../routing/services/osrm.service';
 
+interface ParcelPricingOptions {
+  pickup?: { latitude?: number | string; longitude?: number | string; lat?: number | string; lng?: number | string; address?: string };
+  drop?: { latitude?: number | string; longitude?: number | string; lat?: number | string; lng?: number | string; address?: string };
+  customer?: { name?: string; phone?: string };
+  paymentMethodHint?: 'upi' | 'card' | 'wallet' | 'cod' | 'netbanking';
+}
+
 @Injectable()
 export class PhpParcelService {
   private readonly logger = new Logger(PhpParcelService.name);
   private readonly defaultModuleId: number;
+  // Category → rider vehicle type, resolved from PHP parcel-category names (cached)
+  private categoryVehicleCache: Map<number, 'BIKE' | '3_WHEELER' | '4_WHEELER'> = new Map();
 
   constructor(
     private httpClient: PhpHttpClientService,
@@ -168,114 +177,156 @@ export class PhpParcelService {
   }
 
   /**
-   * Calculate shipping charge via PHP backend
-   * Replaces local calculation logic to ensure zone-based pricing accuracy
+   * Calculate shipping charge through the same Laravel quote endpoint the
+   * Flutter customer app uses (/api/v1/customer/delivery-quote). Laravel routes
+   * to dispatcher/rider-api and preserves the production pricing audit path
+   * (surge, rate-card versioning, server-computed distance, tax).
+   *
+   * GATE-MONEY (2026-07-31, CEO-approved): the bot NEVER computes a price.
+   * If the platform quote fails, this throws — no local/category fallback.
    */
   async calculateShippingCharge(
     distance: number,
     parcelCategoryId: number,
-    zoneIds: number[]
+    zoneIds: number[],
+    options: ParcelPricingOptions = {}
   ): Promise<{
     total_charge: number;
     delivery_charge: number;
     tax: number;
     platform_fee: number;
     distance: number;
+    vehicle_type?: string;
+    quote_id?: string;
+    pricing_source?: string;
+    available_riders?: number;
+    estimated_pickup_minutes?: number;
+    estimated_delivery_minutes?: number;
   }> {
-    // Mock for testing or when PHP endpoint not available
-    const isMockMode = process.env.TEST_MODE === 'true' || process.env.MOCK_PARCEL_PRICING === 'true';
-    
-    // Platform fee (from config, matching PHP backend)
-    const PLATFORM_FEE = this.configService.get<number>('pricing.platformFee') || 5;
-    
-    // Calculate fallback pricing based on category pricing from PHP
-    const calculateLocalPricing = async (dist: number): Promise<{
-      total_charge: number;
-      delivery_charge: number;
-      tax: number;
-      platform_fee: number;
-      distance: number;
-    }> => {
-      try {
-        // Fetch actual category pricing from PHP
-        const zoneIdForPricing = zoneIds[0];
-        if (!zoneIdForPricing) {
-          this.logger.warn(`⚠️ getParcelCategories called without zone_id — using module default`);
-        }
-        const categories = await this.getParcelCategories(3, zoneIdForPricing);
-        const category = categories.find(c => c.id === parcelCategoryId);
-        
-        if (category) {
-          // Use actual category pricing
-          const perKmCharge = parseFloat(category.parcel_per_km_shipping_charge) || 11.11;
-          const minimumCharge = parseFloat(category.parcel_minimum_shipping_charge) || 44;
-          
-          // Calculate: max(minimum, distance * per_km)
-          const calculatedCharge = dist * perKmCharge;
-          const delivery_charge = Math.max(minimumCharge, Math.round(calculatedCharge * 100) / 100);
-          const tax = 0; // No additional tax as PHP doesn't add it
-          const total_charge = delivery_charge + PLATFORM_FEE;
-          
-          this.logger.log(`💰 Category pricing: ${category.name} - ₹${perKmCharge}/km, min ₹${minimumCharge}`);
-          this.logger.log(`💰 Calculated: delivery=₹${delivery_charge}, platform=₹${PLATFORM_FEE}, total=₹${total_charge}`);
-          
-          return {
-            total_charge,
-            delivery_charge,
-            tax,
-            platform_fee: PLATFORM_FEE,
-            distance: dist
-          };
-        }
-      } catch (catError) {
-        this.logger.warn(`⚠️ Failed to fetch category pricing: ${catError.message}`);
-      }
-      
-      // Absolute fallback with default pricing (matching Bike Delivery category)
-      const defaultMinimum = 44;
-      const defaultPerKm = 11.11;
-      const calculatedCharge = dist * defaultPerKm;
-      const delivery_charge = Math.max(defaultMinimum, Math.round(calculatedCharge * 100) / 100);
-      const total_charge = delivery_charge + PLATFORM_FEE;
-      
-      this.logger.log(`💰 Using default pricing: delivery=₹${delivery_charge}, platform=₹${PLATFORM_FEE}, total=₹${total_charge}`);
-      
-      return {
-        total_charge,
-        delivery_charge,
-        tax: 0,
-        platform_fee: PLATFORM_FEE,
-        distance: dist
-      };
-    };
+    this.logger.log(`💰 Calculating shipping via Laravel delivery-quote: distance=${distance}km, category=${parcelCategoryId}`);
 
-    try {
-      this.logger.log(`💰 Calculating shipping charge via PHP backend: distance=${distance}, category=${parcelCategoryId}`);
+    const phpQuote = await this.getPhpDeliveryQuote(parcelCategoryId, zoneIds, options);
+    this.logger.log(
+      `💰 Delivery quote (${phpQuote.pricing_source || 'laravel_delivery_quote'} / ${phpQuote.vehicle_type}): delivery=₹${phpQuote.delivery_charge}, tax=₹${phpQuote.tax}, total=₹${phpQuote.total_charge}, quote=${phpQuote.quote_id || 'n/a'}`,
+    );
+    return { ...phpQuote, distance };
+  }
 
-      // We pass zoneId in header as per other requests to ensure zone-specific pricing
-      const response = await this.httpClient.post(
-        '/api/v1/parcel/shipping-charge',
-        {
-          distance: distance,
-          parcel_category_id: parcelCategoryId,
-        },
-        {
-          'zoneId': JSON.stringify(zoneIds)
-        }
-      );
+  private async getPhpDeliveryQuote(
+    parcelCategoryId: number,
+    zoneIds: number[],
+    options: ParcelPricingOptions,
+  ): Promise<{
+    total_charge: number;
+    delivery_charge: number;
+    tax: number;
+    platform_fee: number;
+    vehicle_type: string;
+    quote_id?: string;
+    pricing_source?: string;
+    available_riders?: number;
+    estimated_pickup_minutes?: number;
+    estimated_delivery_minutes?: number;
+  }> {
+    const pickup = this.toLatLng(options.pickup);
+    const drop = this.toLatLng(options.drop);
 
-      return {
-        total_charge: parseFloat(response.total_charge || response.total_amount || 0),
-        delivery_charge: parseFloat(response.delivery_charge || 0),
-        tax: parseFloat(response.tax || response.tax_amount || 0),
-        platform_fee: parseFloat(response.platform_fee || PLATFORM_FEE),
-        distance: parseFloat(response.distance || distance)
-      };
-    } catch (error) {
-      this.logger.warn(`⚠️ PHP shipping-charge API failed, using category-based pricing: ${error.message}`);
-      // Fallback to category-based calculation
-      return await calculateLocalPricing(distance);
+    if (!pickup || !drop) {
+      throw new Error('Delivery quote requires pickup and drop coordinates');
     }
+
+    const vehicleType = await this.resolveVehicleType(parcelCategoryId, zoneIds?.[0]);
+
+    const payload: any = {
+      pickup_lat: pickup.lat,
+      pickup_lng: pickup.lng,
+      drop_lat: drop.lat,
+      drop_lng: drop.lng,
+      order_type: 'parcel',
+      vehicle_type: vehicleType,
+      mpc_id: Number(parcelCategoryId),
+      module_id: this.defaultModuleId,
+      stops: [
+        { lat: pickup.lat, lng: pickup.lng, isPickup: true },
+        { lat: drop.lat, lng: drop.lng, isPickup: false },
+      ],
+      num_stops: 2,
+    };
+    // Laravel validates zone_id as nullable|STRING — an integer is a 422
+    if (zoneIds?.length && zoneIds[0] != null) {
+      payload.zone_id = String(zoneIds[0]);
+    }
+
+    const data = await this.httpClient.post('/api/v1/customer/delivery-quote', payload, {
+      moduleId: this.defaultModuleId.toString(),
+    });
+    const deliveryCharge = this.roundMoney(data.delivery_charge);
+    const tax = data.tax_included ? 0 : this.roundMoney(data.tax_amount);
+    const total = this.roundMoney(deliveryCharge + tax);
+
+    if (!deliveryCharge || deliveryCharge <= 0) {
+      throw new Error('Laravel delivery-quote returned an invalid amount');
+    }
+
+    return {
+      total_charge: total,
+      delivery_charge: deliveryCharge,
+      platform_fee: 0,
+      tax,
+      vehicle_type: vehicleType,
+      quote_id: data.dispatcher_quote_id || data.quote_id,
+      pricing_source: data.pricing_source || 'rider_api_quote',
+      available_riders: Number(data.total_available_riders || data.available_riders || 0),
+      estimated_pickup_minutes: Number(data.estimated_pickup_minutes || 0),
+      estimated_delivery_minutes: Number(data.estimated_time_minutes || data.estimated_delivery_minutes || 0),
+    };
+  }
+
+  /**
+   * Map a parcel category to the rider vehicle type via the category name
+   * from PHP (e.g. 'Bike Delivery' → BIKE, 'Auto …' → 3_WHEELER). Cached.
+   */
+  private async resolveVehicleType(parcelCategoryId: number, zoneId?: number): Promise<'BIKE' | '3_WHEELER' | '4_WHEELER'> {
+    const key = Number(parcelCategoryId);
+    if (!this.categoryVehicleCache.has(key)) {
+      try {
+        const categories = await this.getParcelCategories(undefined, zoneId);
+        for (const cat of categories || []) {
+          this.categoryVehicleCache.set(Number(cat.id), this.toRiderVehicleType(cat.vehicle_type || cat.name));
+        }
+      } catch (error) {
+        this.logger.warn(`⚠️ Could not resolve vehicle type for category ${parcelCategoryId}: ${error.message} — defaulting to BIKE`);
+      }
+    }
+    return this.categoryVehicleCache.get(key) || 'BIKE';
+  }
+
+  private toLatLng(location?: ParcelPricingOptions['pickup']): { lat: number; lng: number; address?: string } | null {
+    const lat = Number(location?.latitude ?? location?.lat);
+    const lng = Number(location?.longitude ?? location?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) {
+      return null;
+    }
+    return {
+      lat,
+      lng,
+      ...(location?.address ? { address: location.address } : {}),
+    };
+  }
+
+  private toRiderVehicleType(vehicleType: string): 'BIKE' | '3_WHEELER' | '4_WHEELER' {
+    const normalized = String(vehicleType || '').toUpperCase().replace(/[-\s]/g, '_');
+    if (normalized.includes('3_WHEELER') || normalized.includes('AUTO')) {
+      return '3_WHEELER';
+    }
+    if (normalized.includes('4_WHEELER') || normalized.includes('CAR') || normalized.includes('TRUCK')) {
+      return '4_WHEELER';
+    }
+    return 'BIKE';
+  }
+
+  private roundMoney(value: unknown): number {
+    return Math.round(Number(value || 0) * 100) / 100;
   }
 
   /**

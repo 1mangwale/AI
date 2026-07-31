@@ -21,6 +21,11 @@ export class PhpPaymentService extends PhpApiService {
     deliveryCharge: number;
     distance: number;
     moduleId?: number;
+    storeId?: number | string;
+    orderType?: string;
+    token?: string;
+    /** State code for parcel GST — required so PHP doesn't default to IGST. Today '27' (Maharashtra/Nashik). */
+    customerStateCode?: string;
   }): Promise<{
     success: boolean;
     tax?: number;
@@ -36,11 +41,42 @@ export class PhpPaymentService extends PhpApiService {
         headers['moduleId'] = String(cartData.moduleId);
       }
 
-      const response: any = await this.post('/api/v1/customer/order/get-Tax', {
+      const cartItems = Array.isArray(cartData.items)
+        ? cartData.items
+          .map(item => {
+            const itemId = item?.item_id || item?.itemId || item?.id;
+            if (!itemId) return null;
+            return {
+              item_id: itemId,
+              quantity: item?.quantity || 1,
+              variation: item?.variation || item?.variant || [],
+              variant: item?.variant || item?.variation || [],
+              add_on_ids: item?.add_on_ids || item?.addon_ids || [],
+              add_on_qtys: item?.add_on_qtys || item?.addon_quantities || [],
+              model: item?.model || 'Item',
+              item_type: item?.item_type || 'AppModelsItem',
+              price: item?.price || item?.item_price || 0,
+            };
+          })
+          .filter(Boolean)
+        : [];
+
+      const payload = {
         items: cartData.items,
+        cart: cartItems.length > 0 ? JSON.stringify(cartItems) : undefined,
+        store_id: cartData.storeId,
+        order_type: cartData.orderType || 'delivery',
+        is_prescription: false,
         delivery_charge: cartData.deliveryCharge,
         distance: cartData.distance,
-      }, headers);
+        // Include state code so PHP's parcel GST calc uses CGST+SGST for
+        // intra-state rather than defaulting to IGST.
+        place_of_supply_state_code: cartData.customerStateCode || '27',
+      };
+
+      const response: any = cartData.token
+        ? await this.authenticatedRequest('post', '/api/v1/customer/order/get-Tax', cartData.token, payload, headers)
+        : await this.post('/api/v1/customer/order/get-Tax', payload, headers);
 
       // PHP returns { tax_amount, tax_included } — NOT tax, total, or delivery_charge
       return {
@@ -50,6 +86,66 @@ export class PhpPaymentService extends PhpApiService {
       };
     } catch (error) {
       this.logger.error(`Failed to calculate tax: ${error.message}`);
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  /**
+   * Platform delivery quote — same Laravel endpoint the Flutter app uses.
+   * Source of truth for delivery fee across food/ecom/parcel (surge,
+   * rate-card versioning, server-computed distance all applied by Laravel).
+   */
+  async getDeliveryQuote(params: {
+    pickupLat: number;
+    pickupLng: number;
+    dropLat: number;
+    dropLng: number;
+    vehicleType?: string;
+    orderType: 'food' | 'ecom' | 'ecommerce' | 'parcel';
+    moduleId?: number;
+    isCod?: boolean;
+    storeId?: number | string;
+  }): Promise<{
+    success: boolean;
+    deliveryCharge?: number;
+    originalDeliveryCharge?: number;
+    distanceKm?: number;
+    quoteId?: string;
+    rateCardId?: string;
+    rateCardVersion?: number;
+    taxAmount?: number;
+    message?: string;
+    raw?: any;
+  }> {
+    try {
+      const response: any = await this.post('/api/v1/customer/delivery-quote', {
+        pickup_lat: params.pickupLat,
+        pickup_lng: params.pickupLng,
+        drop_lat: params.dropLat,
+        drop_lng: params.dropLng,
+        vehicle_type: params.vehicleType || 'BIKE',
+        order_type: params.orderType,
+        module_id: params.moduleId,
+        is_cod: params.isCod || false,
+        store_id: params.storeId,
+      });
+
+      return {
+        success: true,
+        deliveryCharge: parseFloat(response.delivery_charge ?? 0),
+        originalDeliveryCharge: parseFloat(response.original_delivery_charge ?? response.delivery_charge ?? 0),
+        distanceKm: response.distance_km != null ? parseFloat(response.distance_km) : undefined,
+        quoteId: response.quote_id,
+        rateCardId: response.rate_card_id,
+        rateCardVersion: response.rate_card_version != null ? Number(response.rate_card_version) : undefined,
+        taxAmount: response.tax_amount != null ? parseFloat(response.tax_amount) : undefined,
+        raw: response,
+      };
+    } catch (error) {
+      this.logger.warn(`Delivery quote failed: ${error.message}`);
       return {
         success: false,
         message: error.message,

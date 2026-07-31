@@ -1179,7 +1179,7 @@ Return ONLY the numeric ID, nothing else.`,
           id: 'summary',
           executor: 'response',
           config: {
-            message: '📦 **Order Summary**\n\n📍 Pickup: {{pickup_address.address}}\n📍 Delivery: {{delivery_address.address}}\n👤 Recipient: {{recipient_details.name}} ({{recipient_details.phone}})\n📏 Distance: {{distance}} km\n\n💰 **Total: ₹{{pricing.total_charge}}**\n(Delivery: ₹{{pricing.delivery_charge}} + Fee: ₹{{pricing.platform_fee}})\n\n**Question 5/5:** Confirm your order? (You\'ll select payment method next)',
+            message: '📦 **Order Summary**\n\n📍 Pickup: {{pickup_address.address}}\n📍 Delivery: {{delivery_address.address}}\n👤 Recipient: {{recipient_details.name}} ({{recipient_details.phone}})\n📏 Distance: {{distance}} km\n\n💰 **Total: ₹{{pricing.total_charge}}**\n(Delivery: ₹{{pricing.delivery_charge}} + Tax: ₹{{pricing.tax}})\n\n**Question 5/5:** Confirm your order? (You\'ll select payment method next)',
             buttons: [
               { label: '✅ Confirm', value: 'yes', action: 'yes' },
               { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
