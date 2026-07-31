@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import * as crypto from 'crypto';
 import {
   TextMessage,
   ImageMessage,
@@ -38,6 +39,8 @@ export class WhatsAppCloudService {
   private readonly accessToken: string;
   private readonly apiVersion: string;
   private readonly baseUrl: string;
+  private readonly outboundAllowlistRequired: boolean;
+  private readonly outboundAllowedRecipientHashes: Set<string>;
 
   constructor(
     private configService: ConfigService,
@@ -47,6 +50,13 @@ export class WhatsAppCloudService {
     this.accessToken = this.configService.get('whatsapp.accessToken');
     this.apiVersion = this.configService.get('whatsapp.apiVersion') || 'v24.0';
     this.baseUrl = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}`;
+    this.outboundAllowlistRequired =
+      this.configService.get('WHATSAPP_OUTBOUND_ALLOWLIST_REQUIRED') !== 'false';
+    this.outboundAllowedRecipientHashes = this.parseHashAllowlist(
+      this.configService.get('WHATSAPP_OUTBOUND_ALLOWED_RECIPIENT_HASHES') ||
+      this.configService.get('WHATSAPP_REPLY_ALLOWED_SENDER_HASHES') ||
+      '',
+    );
     
     this.logger.log(`✅ WhatsApp Cloud Service initialized (API ${this.apiVersion})`);
   }
@@ -579,6 +589,14 @@ export class WhatsAppCloudService {
   // ============================================
 
   private async sendMessage(message: any): Promise<MessageResponse> {
+    if (message?.to && !this.isOutboundRecipientAllowed(String(message.to))) {
+      const recipientHash = this.recipientHashes(String(message.to))[0] || 'unknown';
+      this.logger.warn(
+        `Blocked WhatsApp outbound message to non-allowlisted recipient_hash=${recipientHash.slice(0, 12)} type=${message?.type || 'unknown'}`,
+      );
+      throw new Error('WhatsApp outbound recipient is not allowlisted');
+    }
+
     return this.sendToApi(message);
   }
 
@@ -628,5 +646,42 @@ export class WhatsAppCloudService {
     }
     
     return cleaned;
+  }
+
+  private parseHashAllowlist(raw: string | undefined): Set<string> {
+    return new Set(
+      String(raw || '')
+        .split(/[,\s]+/)
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => /^[a-f0-9]{64}$/.test(value)),
+    );
+  }
+
+  private isOutboundRecipientAllowed(to: string): boolean {
+    if (!this.outboundAllowlistRequired) {
+      return true;
+    }
+
+    if (this.outboundAllowedRecipientHashes.size === 0) {
+      return false;
+    }
+
+    return this.recipientHashes(to).some((hash) =>
+      this.outboundAllowedRecipientHashes.has(hash),
+    );
+  }
+
+  private recipientHashes(to: string): string[] {
+    const raw = String(to || '').trim();
+    const digits = raw.replace(/\D/g, '');
+    const normalizedDigits =
+      digits.length === 10 ? `91${digits}` : digits;
+    const e164 = normalizedDigits ? `+${normalizedDigits}` : '';
+
+    return Array.from(
+      new Set([raw, digits, normalizedDigits, e164].filter(Boolean).map((value) =>
+        crypto.createHash('sha256').update(value).digest('hex'),
+      )),
+    );
   }
 }

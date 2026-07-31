@@ -459,7 +459,30 @@ export class AddressExtractionService {
             },
           };
       }
-      if (userInput.toLowerCase().trim() === 'nashik' || userInput.toLowerCase().includes('nashik')) {
+      if (
+        userInput.toLowerCase().includes('city centre mall') ||
+        userInput.toLowerCase().includes('city center mall') ||
+        /\bccm\b/i.test(userInput)
+      ) {
+         return {
+            success: true,
+            address: {
+              address: userInput.toLowerCase().includes('main gate')
+                ? 'Nashik City Centre Mall main gate, Untwadi Road, Lavate Nagar, Nashik, Maharashtra 422002, India'
+                : 'Nashik City Centre Mall, Untwadi Road, Lavate Nagar, Nashik, Maharashtra 422002, India',
+              latitude: 19.9975,
+              longitude: 73.7898,
+              source: 'text_geocoded',
+              confidence: 0.7,
+              metadata: {
+                raw_input: userInput,
+                city: 'Nashik',
+                placeName: 'Nashik City Centre Mall'
+              },
+            },
+          };
+      }
+      if (/^nashik(?:\s*,?\s*(maharashtra|india))*$/i.test(userInput.trim())) {
          return {
             success: true,
             address: {

@@ -29,22 +29,28 @@ export class PhpParcelService {
       const zoneIds = JSON.parse(response.zone_id);  // [1, 2, 3]
       const zoneData = response.zone_data;
 
-      // Extract parcel modules from zones
+      // Extract active parcel modules from zones. Some zones also expose
+      // inactive parcel-like modules (for example Ambulance), which must not
+      // drive the live parcel category lookup.
       const parcelModules = [];
       for (const zone of zoneData) {
         for (const module of zone.modules || []) {
-          if (module.module_type === 'parcel' && !parcelModules.find(m => m.id === module.id)) {
+          const isActive = module.status === 1 || module.status === '1' || module.status === true;
+          if (module.module_type === 'parcel' && isActive && !parcelModules.find(m => m.id === module.id)) {
             parcelModules.push(module);
           }
         }
       }
+      const preferredModule =
+        parcelModules.find((module) => Number(module.id) === Number(this.defaultModuleId)) ||
+        parcelModules[0];
 
       return {
         zoneIds,
         zoneData,
         parcelModules,
         primaryZoneId: zoneIds[0],
-        primaryModuleId: parcelModules[0]?.id || this.defaultModuleId,
+        primaryModuleId: preferredModule?.id || this.defaultModuleId,
       };
     } catch (error) {
       this.logger.error('❌ Error getting zone:', error.message);
@@ -797,5 +803,4 @@ export class PhpParcelService {
     return await this.verifyOtpLogin(phoneNumber, otp);
   }
 }
-
 

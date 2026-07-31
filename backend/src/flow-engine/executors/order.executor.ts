@@ -285,6 +285,8 @@ export class OrderExecutor implements ActionExecutor {
     const senderPhone = session?.data?.phone || pickupAddress?.contact_person_number;
     const senderEmail = session?.data?.email || session?.data?.user_email || '';
     const sessionUserId = session?.data?.user_id || userId;
+    const orderSource = this.resolveOrderSource(config, context, session);
+    const requestId = this.buildOrderRequestId(config, context, orderSource);
 
     this.logger.log(`📦 Creating parcel order - Sender: ${senderName} (${senderPhone}), Receiver: ${receiverName} (${receiverPhone}), PaymentMethod: ${paymentMethod}`);
 
@@ -363,16 +365,22 @@ export class OrderExecutor implements ActionExecutor {
 
     const orderResult = await this.phpOrderService.createOrder(authToken, {
       pickupAddress: {
-        address: pickupAddress.address || pickupAddress.formatted,
+        address: this.resolveHumanAddress(pickupAddress),
         latitude: pickupAddress.lat || pickupAddress.latitude,
         longitude: pickupAddress.lng || pickupAddress.longitude,
         landmark: pickupAddress.landmark || '',
+        floor: pickupAddress.floor || pickupAddress.metadata?.floor || '',
+        road: pickupAddress.road || pickupAddress.metadata?.road || '',
+        house: pickupAddress.house || pickupAddress.metadata?.house || '',
       },
       deliveryAddress: {
-        address: deliveryAddress.address || deliveryAddress.formatted,
+        address: this.resolveHumanAddress(deliveryAddress),
         latitude: deliveryAddress.lat || deliveryAddress.latitude,
         longitude: deliveryAddress.lng || deliveryAddress.longitude,
         landmark: deliveryAddress.landmark || '',
+        floor: deliveryAddress.floor || deliveryAddress.metadata?.floor || '',
+        road: deliveryAddress.road || deliveryAddress.metadata?.road || '',
+        house: deliveryAddress.house || deliveryAddress.metadata?.house || '',
       },
       receiverName,
       receiverPhone,
@@ -381,6 +389,8 @@ export class OrderExecutor implements ActionExecutor {
       senderPhone,
       senderEmail,
       userId,
+      requestId,
+      source: orderSource,
       moduleId: 3, // Parcel/Local Delivery
       paymentMethod,
       totalAmount,
@@ -449,6 +459,97 @@ export class OrderExecutor implements ActionExecutor {
       if (typeof src === 'string' && src.trim()) return src.trim();
     }
     return undefined;
+  }
+
+  private resolveHumanAddress(address: any): string {
+    const resolved = String(address?.address || address?.formatted || address?.formatted_address || '').trim();
+    const rawInput = this.normalizeRawAddressLabel(
+      address?.raw_input || address?.metadata?.raw_input || address?.source_message || '',
+    );
+
+    if (this.shouldPreferRawAddressLabel(rawInput, resolved)) {
+      if (/nashik/i.test(rawInput)) return rawInput;
+      if (/nashik/i.test(resolved)) return `${rawInput}, ${resolved}`;
+      return rawInput;
+    }
+
+    return resolved || rawInput;
+  }
+
+  private normalizeRawAddressLabel(rawInput: any): string {
+    return String(rawInput || '')
+      .replace(/^\s*(pickup|pick up|sender|drop|delivery|receiver)\s*(location|address|from|to)?\s*[:\-]?\s*/i, '')
+      .trim();
+  }
+
+  private shouldPreferRawAddressLabel(rawInput: string, resolved: string): boolean {
+    if (!rawInput || rawInput.length < 8) return false;
+    if (/^(nashik|maharashtra|india|location shared)[\s,.-]*$/i.test(rawInput)) return false;
+
+    const cleanedRaw = rawInput.replace(/\s+/g, ' ').trim().toLowerCase();
+    const cleanedResolved = String(resolved || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!cleanedResolved || cleanedRaw === cleanedResolved || cleanedResolved.includes(cleanedRaw)) {
+      return false;
+    }
+
+    const specificAddressTerms = /\b(mall|gate|road|rd|college|hospital|school|tower|society|apartment|apt|building|bungalow|shop|store|market|chowk|naka|phata|circle|bus stop|station|mandir|temple|masjid|lane|floor|flat|house|near|opposite|opp|behind)\b/i;
+    return specificAddressTerms.test(rawInput) || rawInput.length > resolved.length + 8;
+  }
+
+  private resolveOrderSource(config: any, context: FlowContext, session: any): string {
+    const explicitSource =
+      config?.source ||
+      context.data.order_source ||
+      context.data.source_channel ||
+      context.data.source;
+    const normalizedExplicit = explicitSource ? this.normalizeOrderSource(explicitSource) : undefined;
+    if (explicitSource && normalizedExplicit !== 'web') {
+      return normalizedExplicit;
+    }
+
+    const platform = [
+      context.data.platform,
+      context.data.channel,
+      session?.data?.platform,
+      session?.data?.channel,
+    ].filter(Boolean).join(' ');
+
+    if (/whats\s*app|whatsapp|\bwa\b/i.test(platform)) return 'whatsapp_ai';
+    if (/web|chat/i.test(platform)) return 'web_ai';
+    if (/mobile|app|flutter|android|ios/i.test(platform)) return 'app';
+
+    return normalizedExplicit || 'ai';
+  }
+
+  private normalizeOrderSource(source: any): string {
+    const normalized = String(source || 'web')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    const allowedSources = new Set([
+      'app',
+      'mobile',
+      'user_app',
+      'web',
+      'web_ai',
+      'chat_ai',
+      'whatsapp',
+      'whatsapp_ai',
+      'ai',
+      'api',
+      'enterprise_api',
+    ]);
+    return allowedSources.has(normalized) ? normalized : 'web';
+  }
+
+  private buildOrderRequestId(config: any, context: FlowContext, source: string): string {
+    const explicitRequestId = config?.request_id || context.data.request_id || context.data.order_request_id;
+    const rawRequestId = explicitRequestId || `${source}_${context._system.flowRunId || context._system.sessionId || Date.now()}`;
+    return String(rawRequestId)
+      .trim()
+      .replace(/[^a-zA-Z0-9_:\-]/g, '_')
+      .slice(0, 80);
   }
 
   /**

@@ -10,6 +10,7 @@ import { StateMachineEngine } from './state-machine.engine';
 import { ExecutorRegistryService } from './executor-registry.service';
 import { PrismaService } from '../database/prisma.service';
 import { FlowDefinition } from './types/flow.types';
+import { InputValidatorService } from './executors/input-validator.service';
 
 describe('Flow Engine E2E Integration Tests', () => {
   let contextService: FlowContextService;
@@ -422,6 +423,7 @@ describe('Flow Engine E2E Integration Tests', () => {
         FlowContextService,
         StateMachineEngine,
         ExecutorRegistryService,
+        InputValidatorService,
         { provide: PrismaService, useValue: mockPrismaService },
       ],
     }).compile();
@@ -624,6 +626,61 @@ describe('Flow Engine E2E Integration Tests', () => {
       expect(result).toBeDefined();
       // Action states should produce a result (may have nextState or be waiting for execution)
       expect(result.context).toBeDefined();
+    });
+
+    it('should prefer meaningful action events over generic defaults', async () => {
+      executorRegistry.register({
+        name: 'generic_default',
+        execute: jest.fn().mockResolvedValue({
+          success: true,
+          output: { prompted: true },
+          event: 'default',
+        }),
+      } as any);
+
+      executorRegistry.register({
+        name: 'valid_address',
+        execute: jest.fn().mockResolvedValue({
+          success: true,
+          output: { address: 'Nashik, Maharashtra, India' },
+          event: 'address_valid',
+        }),
+      } as any);
+
+      const addressFlow: FlowDefinition = {
+        id: 'address-flow',
+        name: 'Address Flow',
+        module: 'parcel',
+        initialState: 'COLLECT_PICKUP',
+        finalStates: ['NEXT', 'STUCK'],
+        states: {
+          COLLECT_PICKUP: {
+            type: 'action',
+            actions: [
+              { executor: 'generic_default', config: {} },
+              { executor: 'valid_address', config: {} },
+            ],
+            transitions: {
+              address_valid: 'NEXT',
+              default: 'STUCK',
+            },
+          },
+          NEXT: { type: 'end', transitions: {} },
+          STUCK: { type: 'end', transitions: {} },
+        },
+      };
+
+      const context = contextService.createContext(
+        addressFlow.id,
+        'run-address-1',
+        'session-address-1'
+      );
+      context._system.currentState = 'COLLECT_PICKUP';
+
+      const result = await stateMachine.executeState(addressFlow, context);
+
+      expect(result.event).toBe('address_valid');
+      expect(result.nextState).toBe('NEXT');
     });
 
     it('should handle wait state with event', async () => {

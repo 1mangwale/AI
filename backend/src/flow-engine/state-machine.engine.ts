@@ -583,11 +583,24 @@ export class StateMachineEngine {
    * For wait states, only return explicit events (not inferred)
    */
   private findTriggeredEvent(results: ActionExecutionResult[], stateType?: string): string | undefined {
-    // First, check for explicit events
-    for (const result of results) {
-      if (result.event) {
-        return result.event;
-      }
+    const explicitEvents = results
+      .map((result) => result.event)
+      .filter((event): event is string => Boolean(event));
+
+    const meaningfulEvent = explicitEvents.find((event) => !this.isGenericActionEvent(event));
+    if (meaningfulEvent) {
+      return meaningfulEvent;
+    }
+
+    // Failed actions without a specific event should drive error transitions
+    // instead of being hidden by a generic "default" action event.
+    const anyFailed = results.some(r => r.success === false);
+    if (anyFailed) {
+      return 'error';
+    }
+
+    if (explicitEvents.length > 0) {
+      return explicitEvents[0];
     }
     
     // Only infer 'success' for action states (not wait states)
@@ -599,13 +612,11 @@ export class StateMachineEngine {
       }
     }
     
-    // Check if any action failed - always return 'error' for failures
-    const anyFailed = results.some(r => r.success === false);
-    if (anyFailed) {
-      return 'error';
-    }
-    
     return undefined;
+  }
+
+  private isGenericActionEvent(event: string): boolean {
+    return event === 'default' || event === 'success';
   }
 
   /**

@@ -59,6 +59,10 @@ export class PhpOrderService extends PhpApiService {
         // Required fields
         order_type: 'parcel',  // CRITICAL: Must specify order type
         payment_method: orderData.paymentMethod === 'cash' ? 'cash_on_delivery' : (orderData.paymentMethod || 'cash_on_delivery'),
+        request_id: orderData.requestId || orderData.request_id || undefined,
+        source: orderData.source || 'web',
+        source_channel: orderData.source || 'web',
+        order_source: orderData.source || 'web',
         
         // Sender (user) contact info - REQUIRED by PHP
         contact_person_name: orderData.senderName || orderData.userName || 'Customer',

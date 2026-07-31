@@ -40,6 +40,8 @@ export class WebhookController {
   private readonly accessToken: string;
   private readonly graphApiVersion: string;
   private readonly appSecret: string;
+  private readonly replyAllowlistRequired: boolean;
+  private readonly replyAllowedSenderHashes: Set<string>;
 
   constructor(
     private sessionService: SessionService,
@@ -58,6 +60,11 @@ export class WebhookController {
     this.graphApiVersion =
       this.configService.get("whatsapp.apiVersion") || "v24.0";
     this.appSecret = this.configService.get("WHATSAPP_APP_SECRET", "");
+    this.replyAllowlistRequired =
+      this.configService.get("WHATSAPP_REPLY_ALLOWLIST_REQUIRED") !== "false";
+    this.replyAllowedSenderHashes = this.parseHashAllowlist(
+      this.configService.get("WHATSAPP_REPLY_ALLOWED_SENDER_HASHES", ""),
+    );
     this.logger.log(
       `✅ Webhook Controller initialized (API ${this.graphApiVersion}, Voice Support)`,
     );
@@ -248,6 +255,17 @@ export class WebhookController {
       message_types: Array.isArray(value?.messages)
         ? value.messages.map((message: any) => message?.type).filter(Boolean)
         : undefined,
+      message_sender_hashes: Array.isArray(value?.messages)
+        ? value.messages
+            .map((message: any) =>
+              this.firstNonEmptyString(message?.from)
+                ? this.senderHash(
+                    normalizePhoneNumber(message.from) || String(message.from),
+                  ).slice(0, 12)
+                : undefined,
+            )
+            .filter(Boolean)
+        : undefined,
       call_count: Array.isArray(value?.calls) ? value.calls.length : undefined,
       call_events: Array.isArray(value?.calls)
         ? value.calls
@@ -289,8 +307,16 @@ export class WebhookController {
       // Normalize to E.164 (+91...) so session keys match MessageGatewayService
       const from = normalizePhoneNumber(message.from) || message.from;
       const type = message.type;
+      const senderHash = this.senderHash(from);
 
-      this.logger.log(`📩 Message from ${from}: ${type}`);
+      if (!this.isReplySenderAllowed(from, message.from)) {
+        this.logger.warn(
+          `Blocked WhatsApp inbound message from non-allowlisted sender_hash=${senderHash.slice(0, 12)} type=${type}`,
+        );
+        return;
+      }
+
+      this.logger.log(`📩 Message from hash=${senderHash.slice(0, 12)}: ${type}`);
 
       // Mark as read via Cloud API (shows blue ticks immediately)
       this.whatsappCloudService.markAsRead(messageId).catch(() => {});
@@ -418,7 +444,9 @@ export class WebhookController {
         messageText = message.text?.body || "";
       }
 
-      this.logger.log(`💬 WhatsApp message from ${from}: "${messageText}"`);
+      this.logger.log(
+        `💬 WhatsApp message from hash=${this.senderHash(from).slice(0, 12)}: "${messageText}"`,
+      );
 
       // Get session data for user info
       const session = await this.sessionService.getSession(from);
@@ -596,5 +624,37 @@ export class WebhookController {
       this.logger.error(`Failed to download media: ${error.message}`);
       return null;
     }
+  }
+
+  private parseHashAllowlist(raw: string | undefined): Set<string> {
+    return new Set(
+      String(raw || "")
+        .split(/[,\s]+/)
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => /^[a-f0-9]{64}$/.test(value)),
+    );
+  }
+
+  private isReplySenderAllowed(normalizedFrom: string, rawFrom?: string): boolean {
+    if (!this.replyAllowlistRequired) {
+      return true;
+    }
+
+    if (this.replyAllowedSenderHashes.size === 0) {
+      return false;
+    }
+
+    const candidateHashes = new Set<string>([
+      this.senderHash(normalizedFrom),
+      rawFrom ? this.senderHash(String(rawFrom).trim()) : "",
+    ]);
+
+    return [...candidateHashes].some((hash) =>
+      this.replyAllowedSenderHashes.has(hash),
+    );
+  }
+
+  private senderHash(value: string): string {
+    return this.sha256(value);
   }
 }
