@@ -752,6 +752,7 @@ export class SearchExecutor implements ActionExecutor {
         let storeResolutionStatus: 'exact' | 'similar' | 'not_found' = resolvedStore?.id ? 'exact' : 'exact';
         let similarStores: any[] = [];
         let requestedStoreName: string | undefined = resolvedStore?.name || context.data.resolved_store_context?.requested_store_name;
+        let resolvedStoreName: string | undefined = resolvedStore?.name;
         
         if (!resolvedStoreId && storeNameFilter?.value) {
           requestedStoreName = String(storeNameFilter.value);
@@ -764,6 +765,7 @@ export class SearchExecutor implements ActionExecutor {
             
             if (storeResult.storeId) {
               resolvedStoreId = storeResult.storeId;
+              resolvedStoreName = storeResult.storeName;
               storeResolutionStatus = 'exact';
               this.logger.log(`✅ Resolved "${requestedStoreName}" → store_id: ${resolvedStoreId} (${storeResult.storeName})`);
             } else {
@@ -887,11 +889,12 @@ export class SearchExecutor implements ActionExecutor {
         const storeResolution = {
           status: storeResolutionStatus,
           requestedName: requestedStoreName,
+          resolvedName: resolvedStoreName,
           resolvedId: resolvedStoreId,
           similarStores: similarStores,
         };
 
-        return this.formatSmartSearchResults(smartResult, limit, storeResolution);
+        return await this.formatSmartSearchResults(smartResult, limit, storeResolution);
       }
 
       // If useIntentSearch is enabled, use the Search API v2 which handles
@@ -1565,16 +1568,17 @@ export class SearchExecutor implements ActionExecutor {
    * 
    * Includes enhanced query understanding info and NLP entities
    */
-  private formatSmartSearchResults(
+  private async formatSmartSearchResults(
     smartResult: import('../../search/services/enhanced-search.service').SmartSearchResult,
     limit: number,
     storeResolution?: {
       status: 'exact' | 'similar' | 'not_found';
       requestedName?: string;
+      resolvedName?: string;
       resolvedId?: number;
       similarStores?: any[];
     }
-  ): ActionExecutionResult {
+  ): Promise<ActionExecutionResult> {
     // S3 bucket and storage CDN for images
     const S3_BASE = 'https://s3.ap-south-1.amazonaws.com/mangwale/product';
     const STORAGE_CDN = this.storageCdnUrl;
@@ -1652,7 +1656,41 @@ export class SearchExecutor implements ActionExecutor {
       output.storeResolution = storeResolution;
     }
 
-    const event = hasResults ? 'items_found' : 'no_items';
+    let event = hasResults ? 'items_found' : 'no_items';
+
+    // 🕐 HONESTY GUARD (2026-07-31): if the store WAS resolved to a real partner
+    // but the item search returned 0 (customer search hides closed-store items),
+    // never fall through to the "not a Mangwale partner" branch. Distinguish:
+    //   store_closed       → partner exists, currently closed (schedule says so)
+    //   no_items_in_store  → partner exists and is open, query matched nothing
+    if (!hasResults && storeResolution?.resolvedId) {
+      const partnerName =
+        storeResolution.resolvedName || storeResolution.requestedName || 'This restaurant';
+      let scheduleStatus: { is_open: boolean; message: string; opens_at?: string } | undefined;
+      try {
+        scheduleStatus = await this.storeScheduleService?.isStoreOpen(storeResolution.resolvedId);
+      } catch {
+        // schedule unknown → treat as open, fall through to no_items_in_store
+      }
+      if (scheduleStatus && !scheduleStatus.is_open) {
+        event = 'store_closed';
+        output.closedStore = {
+          id: storeResolution.resolvedId,
+          name: partnerName,
+          statusMessage: scheduleStatus.message,
+          opensAt: scheduleStatus.opens_at,
+        };
+        this.logger.log(
+          `🕐 Partner store "${partnerName}" (${storeResolution.resolvedId}) resolved but CLOSED — emitting store_closed instead of no_items`,
+        );
+      } else {
+        event = 'no_items_in_store';
+        output.partnerStore = { id: storeResolution.resolvedId, name: partnerName };
+        this.logger.log(
+          `🍽️ Partner store "${partnerName}" (${storeResolution.resolvedId}) resolved but query matched 0 items — emitting no_items_in_store`,
+        );
+      }
+    }
 
     this.logger.log(
       `🎯 Smart Search Results: ${items.length}/${smartResult.total} items ` +

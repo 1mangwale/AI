@@ -840,9 +840,63 @@ export const foodOrderFlow: FlowDefinition = {
       transitions: {
         // For express orders with items, go directly to auto-cart
         items_found: 'check_auto_select',
+        // Store resolved to a REAL partner → never claim "not a partner" (2026-07-31 Tushar Misal fix)
+        store_closed: 'show_partner_store_closed',
+        no_items_in_store: 'show_partner_store_no_item',
         no_items: 'show_restaurant_not_found',
         error: 'show_restaurant_not_found',
         default: 'show_restaurant_not_found', // Fallback for any unknown event
+      },
+    },
+
+    // Partner store resolved but currently closed — honest reply with timing.
+    // Replaces the false "not a Mangwale partner" Google-Maps fallback for this case.
+    show_partner_store_closed: {
+      type: 'wait',
+      description: 'Store is a Mangwale partner but closed right now',
+      onEntry: [
+        {
+          id: 'show_store_closed_msg',
+          executor: 'response',
+          config: {
+            message: `🕐 **{{search_results.closedStore.name}}** is a Mangwale partner, but it's **currently closed**.\n\n{{search_results.closedStore.statusMessage}}\n\n{{#if extracted_food.search_query}}Want me to find "{{extracted_food.search_query}}" from restaurants that are open right now?{{else}}Want to browse restaurants that are open right now?{{/if}}`,
+            buttons: [
+              { id: 'btn_find_open', label: '🔍 Find from open places', value: '{{#if extracted_food.search_query}}{{extracted_food.search_query}}{{else}}show me partner restaurants{{/if}}' },
+              { id: 'btn_browse_partners', label: '🍽️ Browse restaurants', value: 'show me partner restaurants' },
+            ],
+          },
+          output: '_last_response',
+        },
+      ],
+      actions: [],
+      transitions: {
+        user_message: 'resolve_user_intent',
+        default: 'resolve_user_intent',
+      },
+    },
+
+    // Partner store resolved and open, but the requested item isn't on their menu.
+    show_partner_store_no_item: {
+      type: 'wait',
+      description: 'Store is a Mangwale partner but no matching items found',
+      onEntry: [
+        {
+          id: 'show_store_no_item_msg',
+          executor: 'response',
+          config: {
+            message: `🤔 **{{search_results.partnerStore.name}}** is a Mangwale partner, but I couldn't find {{#if extracted_food.search_query}}"{{extracted_food.search_query}}"{{else}}that item{{/if}} on their menu right now.\n\nWant to see what they offer, or search other restaurants?`,
+            buttons: [
+              { id: 'btn_store_menu', label: '📋 See their menu', value: 'show menu of {{search_results.partnerStore.name}}' },
+              { id: 'btn_search_others', label: '🔍 Other restaurants', value: '{{#if extracted_food.search_query}}{{extracted_food.search_query}}{{else}}show me partner restaurants{{/if}}' },
+            ],
+          },
+          output: '_last_response',
+        },
+      ],
+      actions: [],
+      transitions: {
+        user_message: 'resolve_user_intent',
+        default: 'resolve_user_intent',
       },
     },
 
