@@ -341,6 +341,13 @@ export class EntityExtractorService {
     // Food extraction: Validate NER results against store reference
     // If NER returns partial words (e.g., "mom" from "momos"), prefer regex
     const storeRef = merged.store_reference?.toLowerCase() || '';
+    // 🔧 FIX (2026-08-01): message text with the store phrase removed ONCE.
+    // If a dish token still appears here, the user named the dish separately
+    // from the store ("mala Tushar Misal madhun misal pahije" → dish "misal"
+    // must survive even though it is a substring of store "Tushar Misal").
+    const textMinusStore = storeRef
+      ? (originalText || '').toLowerCase().replace(storeRef, ' ')
+      : (originalText || '').toLowerCase();
     if (nerResult.food_reference && nerResult.food_reference.length > 0) {
       // Common action words that should NOT be in food names
       const invalidFoodPrefixes = ['remove', 'add', 'order', 'cancel', 'show', 'get'];
@@ -349,7 +356,8 @@ export class EntityExtractorService {
       const validNerFood = nerResult.food_reference.filter((f: string) => {
         const fLower = f.toLowerCase();
         // Skip if food is subset of store (e.g., "momo" when store is "wow momo")
-        if (storeRef && storeRef.includes(fLower)) {
+        // — unless the dish ALSO appears outside the store phrase
+        if (storeRef && storeRef.includes(fLower) && !textMinusStore.includes(fLower)) {
           this.logger.debug(`Skipping NER food "${f}" - subset of store "${storeRef}"`);
           return false;
         }
@@ -392,12 +400,18 @@ export class EntityExtractorService {
       
       merged.food_reference = merged.food_reference.map((f: string) => {
         let fLower = f.toLowerCase();
+        // 🔧 FIX (2026-08-01): if the dish name appears in the message outside
+        // the store phrase, keep it intact — stripping shared tokens here used
+        // to turn "misal" into "" when the store was "Tushar Misal"
+        if (fLower.length > 2 && textMinusStore.includes(fLower)) {
+          return fLower;
+        }
         for (const sw of storeWords) {
           fLower = fLower.replace(new RegExp(`\\b${sw}\\b`, 'gi'), '').trim();
           fLower = fLower.replace(/\s+/g, ' ').trim();
         }
         return fLower;
-      }).filter((f: string) => f.length > 2 && !storeWords.includes(f));
+      }).filter((f: string) => f.length > 2 && (textMinusStore.includes(f) || !storeWords.includes(f)));
       
       // Update product_name
       if (merged.food_reference.length > 0) {
@@ -496,8 +510,21 @@ export class EntityExtractorService {
    * Original regex-based extraction (fast path)
    */
   private async extractWithRegex(text: string): Promise<Record<string, any>> {
+    // 🔧 Marathi → Hindi normalization (2026-08-01): the regex pattern zoo below
+    // (store "X se ...", desire "chahiye", etc.) only knows Hindi/English. Map
+    // Marathi postpositions/verbs to Hindi equivalents so Marathi orders parse:
+    // "mala Tushar Misal madhun misal pahije" → "Tushar Misal se misal chahiye".
+    text = text
+      .replace(/^\s*(?:mala|amhala)\s+/i, '')
+      .replace(/\b(?:madhun|madun|kadun)\b/gi, ' se ')
+      .replace(/मधून|मधुन|कडून/g, ' se ')
+      .replace(/\b(?:pahije|paahije|pahijet)\b/gi, 'chahiye')
+      .replace(/पाहिजे|हवी आहे|हवा आहे|हवे आहे/g, 'chahiye')
+      .replace(/\s+/g, ' ')
+      .trim();
+
     const entities: Record<string, any> = {};
-    
+
     // ALWAYS extract all entity types (for training data collection)
     // This ensures we capture maximum information regardless of intent
     // Note: These are SLOTS (raw references), not resolved entities
@@ -515,8 +542,16 @@ export class EntityExtractorService {
       // Post-process: Remove food items that include the restaurant name or its words
       const restaurantLower = restaurant.toLowerCase();
       const restaurantWords = restaurantLower.split(/\s+/).filter(w => w.length > 2);
+      // 🔧 Positional guard (2026-08-01): a dish that shares a token with the
+      // store name ("misal" @ "Tushar Misal") must survive when the user said
+      // it AGAIN outside the store name. Compare against the text minus the
+      // first store-name occurrence.
+      const textMinusStore = text.toLowerCase().replace(restaurantLower, ' ');
       products = products.map(p => {
         let pLower = p.toLowerCase();
+        if (pLower.length > 2 && textMinusStore.includes(pLower)) {
+          return pLower; // dish independently present outside the store name — keep intact
+        }
         // Remove restaurant words from the food item
         for (const rw of restaurantWords) {
           // Remove restaurant word if it appears as a separate word
@@ -529,7 +564,8 @@ export class EntityExtractorService {
         // Filter out empty or very short results
         if (p.length <= 2) return false;
         // Filter out if the cleaned result is just a restaurant word
-        if (restaurantWords.includes(p)) return false;
+        // (unless it also appears outside the store name — then it's the dish)
+        if (restaurantWords.includes(p) && !textMinusStore.includes(p)) return false;
         return true;
       });
       // Deduplicate

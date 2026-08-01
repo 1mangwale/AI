@@ -2922,7 +2922,11 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
         },
         {
           // Case -3: HIGHEST PRIORITY - Detect "browse menu" / "browse categories" button click
-          expression: `/^(browse_menu|browse\\s+menu|browse\\s+categories|categories)$/i.test(context._user_message?.trim()) || context.food_nlu?.intent === 'browse_menu' || context.food_nlu?.intent === 'browse_category'`,
+          // 🔧 FIX (2026-08-01): browse intent must NOT swallow a resolved store —
+          // "show menu of Tushar Misal" classifies as browse_menu (0.92) but the user
+          // wants THAT store's menu, not global categories. Exact button clicks
+          // ("browse menu") carry no store_reference so they still match here.
+          expression: `(/^(browse_menu|browse\\s+menu|browse\\s+categories|categories)$/i.test(context._user_message?.trim()) || context.food_nlu?.intent === 'browse_menu' || context.food_nlu?.intent === 'browse_category') && !(context.resolved_entities?.stores?.length > 0)`,
           event: 'browse_detected',
         },
         {

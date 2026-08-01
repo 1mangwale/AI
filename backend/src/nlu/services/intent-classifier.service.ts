@@ -4,12 +4,13 @@ import { IndicBERTService } from './indicbert.service';
 import { LlmIntentExtractorService } from './llm-intent-extractor.service';
 import { NluTrainingDataService } from './nlu-training-data.service';
 import { SelfLearningService } from '../../learning/services/self-learning.service';
+import { FOOD_KEYWORDS_LIST, PARCEL_HINT_REGEX } from '../food-keywords.const';
 
 interface IntentResult {
   intent: string;
   confidence: number;
   language: string;
-  provider: 'indicbert' | 'llm' | 'heuristic' | 'heuristic-priority' | 'fallback';
+  provider: 'indicbert' | 'llm' | 'heuristic' | 'heuristic-priority' | 'fallback' | 'keyword-precheck';
   semanticSimilarItems?: string[]; // Food items found via semantic search
 }
 
@@ -110,6 +111,25 @@ export class IntentClassifierService {
       // IndicBERT returned result but low confidence - log it
       if (corrected.intent) {
         this.logger.debug(`IndicBERT v3 low confidence: ${corrected.intent} (${(corrected.confidence * 100).toFixed(1)}%) < threshold ${this.confidenceThreshold * 100}%`);
+      }
+
+      // 🔧 FIX (2026-08-01): cheap keyword pre-check BEFORE the LLM fallback.
+      // "misal" (IndicBERT 0.42) used to burn the full NLU_LLM_TIMEOUT_MS in the
+      // Gemma fallback, time out, run heuristics, and then land on the SAME
+      // keyword override downstream in IntentRouterService — the user stared at
+      // a silent chat for 10+ seconds. Decide from the keyword list up front.
+      if (!PARCEL_HINT_REGEX.test(text)) {
+        const lowerText = text.toLowerCase();
+        const foodKeywordHit = FOOD_KEYWORDS_LIST.find(k => lowerText.includes(k));
+        if (foodKeywordHit) {
+          this.logger.log(`✓ Keyword pre-check: order_food (matched "${foodKeywordHit}", skipping LLM fallback)`);
+          return {
+            intent: 'order_food',
+            confidence: 0.8,
+            language,
+            provider: 'keyword-precheck',
+          };
+        }
       }
 
       // Step 2: LLM Fallback (if enabled and IndicBERT wasn't confident)

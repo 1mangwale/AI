@@ -758,14 +758,20 @@ export class MessageGatewayService {
         }
       } else {
         // NEW USER - Mark for onboarding
-        this.logger.log(`🆕 New user on ${channel}: ${phone}`);
+        // 🔧 FIX (2026-08-01): a phone that is not in MySQL yet may STILL have
+        // completed chat onboarding (registration only happens at first order).
+        // This branch used to write onboarding_completed: false on EVERY message,
+        // clobbering the flag the onboarding flow just saved — the user was
+        // re-onboarded in an endless loop until they typed an order sentence.
+        const chatOnboarded = session?.data?.onboarding_completed === true;
+        this.logger.log(`🆕 New user on ${channel}: ${phone}${chatOnboarded ? ' (chat onboarding already done — preserving)' : ''}`);
         await this.sessionService.saveSession(phone, {
           ...session,
           data: {
             ...session.data,
             is_new_user: true,
-            onboarding_completed: false,
-            profile_completeness: 0,
+            onboarding_completed: chatOnboarded,
+            profile_completeness: chatOnboarded ? (session?.data?.profile_completeness ?? 70) : 0,
           },
         });
       }

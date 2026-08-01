@@ -284,7 +284,17 @@ export class ProfileExecutor implements ActionExecutor {
         if (normalizedValue.includes('vegan')) {
           return 'vegan';
         }
-        return normalizedValue;
+        if (normalizedValue.includes('jain')) {
+          return 'jain';
+        }
+        if (normalizedValue.includes('flex') || normalizedValue.includes('sab') || normalizedValue.includes('anything') || normalizedValue.includes('everything')) {
+          return 'flexible';
+        }
+        // 🔧 FIX (2026-08-01): free text that matches no dietary option must not
+        // be stored as a diet ("show me the menu of Tushar Misal" was saved
+        // verbatim as dietary_type). Default to flexible.
+        this.logger.warn(`Unrecognized dietary_type "${value}" — defaulting to flexible`);
+        return 'flexible';
 
       case 'price_sensitivity':
         if (normalizedValue.includes('budget') || normalizedValue.includes('100')) {

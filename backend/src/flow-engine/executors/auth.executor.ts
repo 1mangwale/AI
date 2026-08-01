@@ -464,7 +464,20 @@ export class AuthExecutor implements ActionExecutor {
     }
 
     const name = input.trim();
-    
+
+    // 🔧 FIX (2026-08-01): navigation/order text is not a name — "browse menu"
+    // was captured as user_name ("Great browse menu!"). Don't capture it, but
+    // let the flow proceed rather than re-asking in a loop.
+    const notAName = /\b(menu|order|browse|cart|checkout|food|parcel|track|search|deliver|show|khana|misal|pizza|burger|thali)\b/i;
+    if (notAName.test(name) || name.split(/\s+/).length > 4) {
+      this.logger.log(`⏭️ Input "${name}" looks like a command, not a name — proceeding without capturing`);
+      return {
+        success: true,
+        output: { skipped: true, reason: 'not_a_name' },
+        event: 'valid',
+      };
+    }
+
     // Validate name (at least 2 characters, only letters and spaces)
     if (name.length < 2) {
       return {

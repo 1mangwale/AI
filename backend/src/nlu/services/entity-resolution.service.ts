@@ -287,106 +287,42 @@ export class EntityResolutionService {
     context?: ResolutionContext,
   ): Promise<ResolvedStore[]> {
     try {
-      // Build search query for OpenSearch
-      const searchBody = {
-        size: 5,
-        query: {
-          bool: {
-            should: [
-              // Fuzzy match on store name
-              {
-                match: {
-                  name: {
-                    query: reference,
-                    fuzziness: 'AUTO',
-                    boost: 2,
-                  },
-                },
-              },
-              // Match on aliases (dominos, domino's, domino)
-              {
-                match: {
-                  'aliases': {
-                    query: reference,
-                    fuzziness: 'AUTO',
-                    boost: 1.5,
-                  },
-                },
-              },
-              // Prefix match for partial names
-              {
-                prefix: {
-                  'name.keyword': {
-                    value: reference.toLowerCase(),
-                    boost: 1,
-                  },
-                },
-              },
-            ],
-            minimum_should_match: 1,
-            filter: [],
-          },
-        },
-        // Sort by relevance + distance
-        sort: [
-          { _score: 'desc' },
-        ],
-      };
-
-      // Add location filter if available
+      // 🔧 FIX (2026-08-01): the old raw-DSL POST /search/stores route no longer
+      // exists on search-api (404 for EVERY request), so every store reference
+      // fell through to the PHP fallback which also failed (403) — the bot then
+      // claimed real partners were "not partner restaurants". Use the real
+      // store-search route (transliteration + spell-correction built in).
+      const params: Record<string, any> = { q: reference, size: 5 };
       if (location?.lat && location?.lng) {
-        (searchBody.query.bool.filter as any[]).push({
-          geo_distance: {
-            distance: '25km',
-            location: {
-              lat: location.lat,
-              lon: location.lng,
-            },
-          },
-        });
-
-        // Add distance-based scoring
-        searchBody.sort.push({
-          _geo_distance: {
-            location: {
-              lat: location.lat,
-              lon: location.lng,
-            },
-            order: 'asc',
-            unit: 'km',
-          },
-        } as any);
+        params.lat = location.lat;
+        params.lon = location.lng;
+        params.radius_km = 25;
       }
 
-      // Boost stores user has ordered from before
-      if (context?.recentStores?.length) {
-        (searchBody.query.bool.should as any[]).push({
-          terms: {
-            'id': context.recentStores,
-            boost: 3,
-          },
-        });
-      }
+      const response = await firstValueFrom(
+        this.httpService.get(`${this.searchApiUrl}/search/food/stores`, {
+          params,
+          timeout: 5000,
+        }),
+      );
 
-      const response = await this.searchOpenSearch('stores', searchBody);
-      
-      if (!response?.hits?.hits?.length) {
-        // Fallback to PHP API search
+      const stores = response.data?.stores || [];
+      if (!stores.length) {
         return this.fallbackStoreSearch(reference, location);
       }
 
-      return response.hits.hits.map((hit: any) => ({
-        id: hit._source.id || hit._id,
-        name: hit._source.name,
-        slug: hit._source.slug,
-        rating: hit._source.rating,
-        distance_km: hit.sort?.[1], // Distance from geo sort
-        delivery_time_mins: hit._source.delivery_time,
-        is_open: hit._source.is_open ?? true,
-        match_score: hit._score / (response.hits.max_score || 1),
-        match_reason: `Matched "${reference}" with score ${hit._score.toFixed(2)}`,
+      const maxScore = Math.max(...stores.map((s: any) => s.score || 0), 1);
+      return stores.map((store: any) => ({
+        id: store.id,
+        name: store.name,
+        slug: store.slug,
+        rating: store.avg_rating ?? store.rating,
+        distance_km: store.distance_km,
+        delivery_time_mins: store.delivery_time,
+        is_open: store.is_open ?? store.active === 1,
+        match_score: (store.score || 0) / maxScore,
+        match_reason: `Matched "${reference}" via /search/food/stores (score ${(store.score || 0).toFixed(2)})`,
       }));
-
     } catch (error) {
       this.logger.error(`Store resolution error: ${error.message}`);
       return this.fallbackStoreSearch(reference, location);
@@ -685,19 +621,28 @@ export class EntityResolutionService {
     location?: ResolvedLocation,
   ): Promise<ResolvedStore[]> {
     try {
+      // 🔧 FIX (2026-08-01): this endpoint 403'd on every call — it requires
+      // moduleId + zoneId headers and the query param is `name`, not `q`
+      // (offset is 1-based). moduleId 4 = food, zoneId [4] = Nashik launch zone
+      // (same single-city posture as the '27' GST fallback).
       const response = await firstValueFrom(
         this.httpService.get(`${this.phpBackendUrl}/api/v1/stores/search`, {
           params: {
-            q: reference,
+            name: reference,
             lat: location?.lat,
             lng: location?.lng,
             limit: 5,
+            offset: 1,
+          },
+          headers: {
+            moduleId: '4',
+            zoneId: '[4]',
           },
           timeout: 5000,
         })
       );
 
-      return (response.data?.data || []).map((store: any) => ({
+      return (response.data?.stores || response.data?.data || []).map((store: any) => ({
         id: store.id,
         name: store.name,
         slug: store.slug,

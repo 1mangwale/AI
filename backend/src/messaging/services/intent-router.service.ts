@@ -20,6 +20,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { SemanticFoodDetectorService } from '../../nlu/services/semantic-food-detector.service';
 import { SemanticParcelDetectorService } from '../../nlu/services/semantic-parcel-detector.service';
+import { FOOD_KEYWORDS_LIST } from '../../nlu/food-keywords.const';
 
 /**
  * Flow trigger cache entry
@@ -112,35 +113,9 @@ export class IntentRouterService implements OnModuleInit {
   // ⚠️ DEPRECATED: Now using AI-powered SemanticFoodDetectorService
   // This list is kept only as emergency fallback if AI detection fails
   // DO NOT ADD NEW KEYWORDS - improve AI model instead
-  private readonly FOOD_KEYWORDS = [
-    // Indian food
-    'paneer', 'biryani', 'chicken', 'mutton', 'dal', 'roti', 'naan', 'thali',
-    'paratha', 'kulcha', 'tikka', 'kebab', 'curry', 'masala', 'momos',
-    'dosa', 'idli', 'sambar', 'vada', 'uttapam', 'pulao',
-    'manchurian', 'chowmein', 'fried rice',
-    // Western food
-    'burger', 'pizza', 'sandwich', 'fries', 'pasta', 'noodles',
-    // Beverages & desserts
-    'soup', 'starter', 'dessert', 'shake', 'juice', 'lassi', 'coffee', 'tea',
-    // Breakfast items
-    'egg', 'anda', 'aanda', 'omelette', 'omlet', 'bhurji',
-    // Generic food terms
-    'khana', 'khane', 'breakfast', 'lunch', 'dinner', 'snack',
-    'quick bite', 'bite', 'kuch khana', 'kuch khane', 'bhook', 'hungry', 'hungry hai',
-    'food', 'eat', 'order food', 'want to eat', 'looking for food',
-    // Establishment types (indicates food order intent)
-    'cafe', 'restaurant', 'hotel', 'dhaba', 'eatery',
-    // 🍽️ Maharashtra / Nashik local dishes (critical for local market)
-    'misal', 'missal', 'misal pav', 'missal pav', 'poha', 'sabudana', 'vada pav', 'pav bhaji',
-    'bhakri', 'zunka', 'thalipeeth', 'kanda poha', 'batata vada',
-    'puran poli', 'modak', 'ukadiche modak', 'dhokla', 'khandvi',
-    'pithla', 'shevaya', 'upma', 'sheera', 'puri', 'bhel', 'sev puri', 'ragda',
-    'plate', 'half plate', 'full plate',  // Quantity + food indicators (ordering context)
-    // 🛒 Weight-sold items (dry goods, sweets, spices) - often ordered by gram/kg
-    'gulkand', 'murabba', 'chyawanprash', 'namkeen', 'farsan', 'mixture', 'chivda',
-    'pedha', 'barfi', 'ladoo', 'halwa', 'chakli', 'shankarpale', 'karanji',
-    'aamchur', 'jeera', 'mirchi', 'masala', 'chutney', 'pickle', 'achar',
-  ];
+  // List moved to src/nlu/food-keywords.const.ts so IntentClassifierService
+  // can share it for the pre-LLM short-circuit (2026-08-01).
+  private readonly FOOD_KEYWORDS = FOOD_KEYWORDS_LIST;
   
   // ========================================
   // P2P (Parcel) CONTEXT PATTERNS

@@ -17,6 +17,7 @@ export class NluService {
   private readonly confidenceThreshold: number;
   private readonly enableLlmFallback: boolean;
   private readonly captureTrainingData: boolean;
+  private readonly trainingAutoApprove: boolean;
 
   constructor(
     private readonly config: ConfigService,
@@ -32,6 +33,11 @@ export class NluService {
     this.confidenceThreshold = parseFloat(this.config.get('NLU_CONFIDENCE_THRESHOLD', '0.65'));
     this.enableLlmFallback = this.config.get('NLU_LLM_FALLBACK_ENABLED', 'true') === 'true';
     this.captureTrainingData = this.config.get('NLU_CAPTURE_TRAINING_DATA', 'true') === 'true';
+    // Kill switch for unsupervised auto-approval of training samples (2026-08-01):
+    // heuristic/IndicBERT predictions at >=0.85 were self-labelling the training
+    // set during broken conversations. 'false' keeps capture but routes ALL
+    // samples to human review.
+    this.trainingAutoApprove = this.config.get('NLU_TRAINING_AUTO_APPROVE', 'true') === 'true';
     
     this.logger.log(`NLU Service initialized: enabled=${this.nluEnabled}, threshold=${this.confidenceThreshold}, llmFallback=${this.enableLlmFallback}`);
   }
@@ -64,7 +70,7 @@ export class NluService {
         let reviewStatus: 'pending' | 'approved' = 'pending';
         
         // Auto-approve high confidence IndicBERT predictions (they're reliable)
-        if (!isLlmFallback && isHighConfidence) {
+        if (this.trainingAutoApprove && !isLlmFallback && isHighConfidence) {
           reviewStatus = 'approved';
           this.logger.debug(`✨ Auto-approving high confidence IndicBERT prediction: ${intentResult.intent} (${intentResult.confidence.toFixed(2)})`);
         }
