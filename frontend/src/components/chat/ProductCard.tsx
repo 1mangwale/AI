@@ -3,41 +3,24 @@ import Image from 'next/image'
 import { useState, useEffect, memo } from 'react'
 import type { ProductCard as ProductCardType, VariantOption } from '@/types/chat'
 
-// Multiple image sources for fallback cascade
+// Image sources verified 2026-08-02: MinIO CDN primary, S3 fallback
 const IMAGE_SOURCES = [
-  'https://chat.mangwale.ai/storage/mangwale/product',     // MinIO via Traefik proxy (same server, reliable)
-  'https://storage.mangwale.ai/mangwale/product',           // MinIO CDN (external domain)
-  'https://mangwale.s3.ap-south-1.amazonaws.com/product',  // S3 bucket-style (last resort)
+  'https://storage.mangwale.com/mangwale/product',         // MinIO CDN (primary)
+  'https://mangwale.s3.ap-south-1.amazonaws.com/product',  // S3 bucket (fallback)
 ];
 const S3_BASE_URL = IMAGE_SOURCES[0]; // Primary source
 
-// Track consecutive image failures PER S3 PREFIX across ALL cards in this page load.
-// After 3 failures for a specific prefix, skip image loading for that prefix only.
-// This prevents product/ image failures from blocking parcel_category/ images.
-const imageFailureCounts: Record<string, number> = {};
-const IMAGE_FAILURE_THRESHOLD = 3;
-
-function getImagePrefix(url: string): string {
-  try {
-    const u = new URL(url);
-    // Extract the S3 path prefix (e.g., 'product', 'parcel_category', 'store')
-    const parts = u.pathname.split('/').filter(Boolean);
-    // For S3 URLs like /product/filename.png → 'product'
-    // For /parcel_category/filename.png → 'parcel_category'
-    return parts.length > 1 ? parts[parts.length - 2] : 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
+// Remember exact URLs that failed so we never re-request them. A single missing
+// file must never disable images for every other card (the old per-prefix
+// circuit breaker did exactly that: all product images share one prefix).
+const failedImageUrls = new Set<string>();
 
 function shouldSkipImage(url: string): boolean {
-  const prefix = getImagePrefix(url);
-  return (imageFailureCounts[prefix] || 0) >= IMAGE_FAILURE_THRESHOLD;
+  return failedImageUrls.has(url);
 }
 
 function recordImageFailure(url: string): void {
-  const prefix = getImagePrefix(url);
-  imageFailureCounts[prefix] = (imageFailureCounts[prefix] || 0) + 1;
+  failedImageUrls.add(url);
 }
 
 // Food emoji mapping based on item name/category
@@ -182,7 +165,9 @@ function getNextImageUrl(image: string, currentUrl: string): string | null {
         return null;
       }
     } catch { /* fall through */ }
-    return `${IMAGE_SOURCES[0]}/${filename}`;
+    // Return the first candidate that differs from the URL that just failed —
+    // returning currentUrl itself would stall the fallback walk.
+    return IMAGE_SOURCES.map(src => `${src}/${filename}`).find(u => u !== currentUrl) || null;
   }
   
   // Find which product source we're currently on
@@ -265,9 +250,16 @@ function ProductCardInner({ card, onAction, index = 0, compact = false, directio
   
   // Handle image error with fallback cascade (per-prefix tracking)
   const handleImageError = () => {
-    recordImageFailure(currentImageUrl); // Track failures per S3 prefix
-    const nextUrl = getNextImageUrl(card.image, currentImageUrl);
-    if (nextUrl && !shouldSkipImage(nextUrl)) {
+    recordImageFailure(currentImageUrl);
+    // Walk the fallback chain, skipping candidates already known to fail.
+    // Bounded walk: getNextImageUrl never returns its input, but cap anyway.
+    let nextUrl = getNextImageUrl(card.image, currentImageUrl);
+    for (let hops = 0; nextUrl && shouldSkipImage(nextUrl); hops++) {
+      if (hops >= IMAGE_SOURCES.length) { nextUrl = null; break; }
+      const candidate = getNextImageUrl(card.image, nextUrl);
+      nextUrl = candidate === nextUrl ? null : candidate;
+    }
+    if (nextUrl) {
       setCurrentImageUrl(nextUrl);
     } else {
       setImageError(true);
