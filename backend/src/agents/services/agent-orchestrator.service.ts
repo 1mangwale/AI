@@ -999,9 +999,12 @@ export class AgentOrchestratorService implements OnModuleInit {
       // Also detect potential gibberish: short messages with no real words
       // Expanded word list for better Hinglish support
       const isPotentialGibberish = message.length < 10 && 
-        !/\b(hi|hey|hello|food|order|help|menu|thanks|bye|what|how|where|when|why|kya|kaise|kab|kahan|khana|pizza|biryani|burger|delivery|parcel|track|cancel|chal|raha|happening|samjha|samajh|nahi|haan|ji|theek|okay|ok|accha)\b/i.test(message);
+        !/\b(hi|hey|hello|yes|no|yeah|yep|sure|food|order|help|menu|thanks|bye|what|how|where|when|why|kya|kaise|kab|kahan|khana|pizza|biryani|burger|delivery|parcel|track|cancel|chal|raha|happening|samjha|samajh|nahi|haan|ji|theek|okay|ok|accha)\b/i.test(message);
       
-      if ((routing.confidence < lowConfidenceThreshold || isPotentialGibberish) && !protectedIntents.includes(routing.intent)) {
+      // A word-list heuristic must never override a confident classifier:
+      // "yes" (confirm @0.997) was landing here because it wasn't in the list.
+      const gibberishOverride = isPotentialGibberish && routing.confidence < 0.85;
+      if ((routing.confidence < lowConfidenceThreshold || gibberishOverride) && !protectedIntents.includes(routing.intent)) {
         this.logger.log(`🤔 Low confidence (${routing.confidence}) or gibberish detected for intent "${routing.intent}" - asking for clarification`);
         return {
           response: this.generateClarificationMenu(message),
