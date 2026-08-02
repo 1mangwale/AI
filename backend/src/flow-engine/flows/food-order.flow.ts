@@ -2223,6 +2223,9 @@ export const foodOrderFlow: FlowDefinition = {
         }
       ],
       transitions: {
+        // Stale-button guard: 'Tell me more about #1' clicked from an older results
+        // message while flow sits in display_categories (search_results persists in context)
+        describe_first_item: 'describe_item',
         user_message: 'route_category_input',
         default: 'route_category_input',
       },

@@ -1383,23 +1383,8 @@ export class SearchExecutor implements ActionExecutor {
    * Used for recommendations and diverse discovery searches
    */
   private formatHybridSearchResults(items: any[], limit: number): ActionExecutionResult {
-      // S3 bucket and storage CDN for images
-      const S3_BASE = 'https://s3.ap-south-1.amazonaws.com/mangwale/product';
-      const STORAGE_CDN = this.storageCdnUrl;
-
-      // Helper to get proper image URL — always normalize to filename for frontend fallback
-      const getImageUrl = (item: any): string | undefined => {
-        let imageUrl = item.image || item.images?.[0] || item.image_url;
-        if (!imageUrl) imageUrl = item.image_full_url || item.image_fallback_url;
-        if (!imageUrl) return undefined;
-        let filename = imageUrl;
-        if (filename.startsWith('http://') || filename.startsWith('https://')) {
-          try { const p = filename.split('/'); filename = p[p.length - 1] || filename; } catch { /* keep */ }
-        }
-        if (filename.startsWith('/product/')) filename = filename.replace('/product/', '');
-        else if (filename.startsWith('product/')) filename = filename.replace('product/', '');
-        return `https://mangwale.s3.ap-south-1.amazonaws.com/product/${filename}`;
-      };
+      // Resolve product image via shared resolveImageUrl (CDN base from storage.cdnUrl)
+      const getImageUrl = (item: any): string | undefined => resolveImageUrl(item, this.storageCdnUrl);
 
     const output: any = {
       items: items,
@@ -1449,23 +1434,8 @@ export class SearchExecutor implements ActionExecutor {
   }
 
   private formatSearchResults(results: any, limit: number): ActionExecutionResult {
-      // S3 bucket and storage CDN for images
-      const S3_BASE = 'https://s3.ap-south-1.amazonaws.com/mangwale/product';
-      const STORAGE_CDN = this.storageCdnUrl;
-
-      // Helper to get proper image URL — always normalize to filename for frontend fallback
-      const getImageUrl = (item: any): string | undefined => {
-        let imageUrl = item.image || item.images?.[0] || item.image_url;
-        if (!imageUrl) imageUrl = item.image_full_url || item.image_fallback_url;
-        if (!imageUrl) return undefined;
-        let filename = imageUrl;
-        if (filename.startsWith('http://') || filename.startsWith('https://')) {
-          try { const p = filename.split('/'); filename = p[p.length - 1] || filename; } catch { /* keep */ }
-        }
-        if (filename.startsWith('/product/')) filename = filename.replace('/product/', '');
-        else if (filename.startsWith('product/')) filename = filename.replace('product/', '');
-        return `https://mangwale.s3.ap-south-1.amazonaws.com/product/${filename}`;
-      };
+      // Resolve product image via shared resolveImageUrl (CDN base from storage.cdnUrl)
+      const getImageUrl = (item: any): string | undefined => resolveImageUrl(item, this.storageCdnUrl);
 
     // Flatten results
     const flattenedItems = (results.results || []).map((item: any) => ({
@@ -1579,23 +1549,8 @@ export class SearchExecutor implements ActionExecutor {
       similarStores?: any[];
     }
   ): Promise<ActionExecutionResult> {
-    // S3 bucket and storage CDN for images
-    const S3_BASE = 'https://s3.ap-south-1.amazonaws.com/mangwale/product';
-    const STORAGE_CDN = this.storageCdnUrl;
-    
-    // Helper to get proper image URL — always normalize to filename for frontend fallback
-    const getImageUrl = (item: any): string | undefined => {
-      let imageUrl = item.image || item.images?.[0] || item.image_url;
-      if (!imageUrl) imageUrl = item.image_full_url || item.image_fallback_url;
-      if (!imageUrl) return undefined;
-      let filename = imageUrl;
-      if (filename.startsWith('http://') || filename.startsWith('https://')) {
-        try { const p = filename.split('/'); filename = p[p.length - 1] || filename; } catch { /* keep */ }
-      }
-      if (filename.startsWith('/product/')) filename = filename.replace('/product/', '');
-      else if (filename.startsWith('product/')) filename = filename.replace('product/', '');
-      return `https://mangwale.s3.ap-south-1.amazonaws.com/product/${filename}`;
-    };
+    // Resolve product image via shared resolveImageUrl (CDN base from storage.cdnUrl)
+    const getImageUrl = (item: any): string | undefined => resolveImageUrl(item, this.storageCdnUrl);
 
     // Use diversification if available (already diversified in execute), otherwise just slice
     const items = smartResult.items.slice(0, limit);
