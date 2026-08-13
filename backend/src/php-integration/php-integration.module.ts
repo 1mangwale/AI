@@ -20,6 +20,7 @@ import { VendorNotificationService } from './services/vendor-notification.servic
 import { PhpWishlistService } from './services/php-wishlist.service';
 import { OrderDatabaseService } from './services/order-database.service';
 import { RoutingModule } from '../routing/routing.module';
+import { WhatsAppCloudService } from '../whatsapp/services/whatsapp-cloud.service';
 
 @Module({
   imports: [
@@ -49,6 +50,10 @@ import { RoutingModule } from '../routing/routing.module';
     VendorNotificationService,
     PhpWishlistService,
     OrderDatabaseService,
+    // Local provider (not an import of WhatsAppModule) — it depends only on
+    // ConfigService + HttpService, both already available here. Importing the
+    // full WhatsApp module would create a Nest circular dependency.
+    WhatsAppCloudService,
   ],
   exports: [
     PhpHttpClientService,

@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import axios from 'axios';
+import * as crypto from 'crypto';
+import { WhatsAppCloudService } from '../../whatsapp/services/whatsapp-cloud.service';
 
 /**
  * Order Notification Payload
@@ -59,10 +61,21 @@ export class VendorNotificationService {
   private readonly whatsappServiceUrl: string;
   private readonly nerveServiceUrl: string;
   private readonly fcmServerKey: string;
-  
+
+  /**
+   * Pilot gate. Fail-closed by design: unless VENDOR_NOTIFY_ALLOWLIST_REQUIRED
+   * is the literal string 'false', a vendor phone must hash-match
+   * VENDOR_NOTIFY_ALLOWED_VENDOR_HASHES or NO channel fires (FCM, WhatsApp, voice).
+   * Empty allowlist + required = nobody is notified. That is the safe state.
+   * Same sha256 scheme as WhatsAppCloudService so one hash works in both places.
+   */
+  private readonly notifyAllowlistRequired: boolean;
+  private readonly notifyAllowedVendorHashes: Set<string>;
+
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    private readonly whatsappCloudService: WhatsAppCloudService,
   ) {
     this.whatsappServiceUrl = this.configService.get<string>(
       'WHATSAPP_SERVICE_URL',
@@ -73,9 +86,68 @@ export class VendorNotificationService {
       'http://localhost:7100'
     );
     this.fcmServerKey = this.configService.get<string>('FCM_SERVER_KEY', '');
-    
+
+    this.notifyAllowlistRequired =
+      this.configService.get<string>('VENDOR_NOTIFY_ALLOWLIST_REQUIRED') !== 'false';
+    this.notifyAllowedVendorHashes = this.parseHashAllowlist(
+      this.configService.get<string>('VENDOR_NOTIFY_ALLOWED_VENDOR_HASHES') || '',
+    );
+
     this.logger.log(`✅ VendorNotificationService initialized`);
     this.logger.log(`   Nerve System: ${this.nerveServiceUrl}`);
+    this.logger.log(
+      `   Pilot gate: required=${this.notifyAllowlistRequired} ` +
+      `allowlisted=${this.notifyAllowedVendorHashes.size}`
+    );
+  }
+
+  /**
+   * sha256 of the recipient in every shape a phone can arrive in
+   * (raw, digits-only, 91-normalised, +E164). Mirrors
+   * WhatsAppCloudService.recipientHashes so a single hash covers both gates.
+   */
+  private recipientHashes(to: string): string[] {
+    const raw = String(to || '').trim();
+    if (!raw) return [];
+
+    const digits = raw.replace(/\D+/g, '');
+    const candidates = new Set<string>([raw]);
+    if (digits) {
+      candidates.add(digits);
+      const normalized = digits.length === 10 ? `91${digits}` : digits;
+      candidates.add(normalized);
+      candidates.add(`+${normalized}`);
+    }
+
+    return Array.from(candidates).map((value) =>
+      crypto.createHash('sha256').update(value).digest('hex'),
+    );
+  }
+
+  private parseHashAllowlist(raw: string): Set<string> {
+    return new Set(
+      String(raw || '')
+        .split(/[,\s]+/)
+        .map((entry) => entry.trim().toLowerCase())
+        .filter((entry) => /^[a-f0-9]{64}$/.test(entry)),
+    );
+  }
+
+  private isVendorAllowed(phone: string): boolean {
+    if (!this.notifyAllowlistRequired) return true;
+    if (this.notifyAllowedVendorHashes.size === 0) return false;
+    return this.recipientHashes(phone).some((hash) =>
+      this.notifyAllowedVendorHashes.has(hash),
+    );
+  }
+
+  private blockedResult(channel: NotificationResult['channel']): NotificationResult {
+    return {
+      success: false,
+      channel,
+      sentAt: new Date(),
+      error: 'vendor_not_allowlisted',
+    };
   }
 
   /**
@@ -86,10 +158,21 @@ export class VendorNotificationService {
     order: OrderNotificationPayload
   ): Promise<NotificationResult[]> {
     const results: NotificationResult[] = [];
-    
+
     this.logger.log(
       `📦 Notifying vendor ${vendor.storeName} about new order #${order.orderId}`
     );
+
+    if (!this.isVendorAllowed(vendor.vendorPhone)) {
+      this.logger.warn(
+        `🚫 Vendor ${vendor.vendorId} not allowlisted — all channels skipped for order #${order.orderId}`
+      );
+      return [
+        this.blockedResult('fcm'),
+        this.blockedResult('whatsapp'),
+        this.blockedResult('voice'),
+      ];
+    }
 
     // Step 1: Send FCM Push (immediate)
     const fcmResult = await this.sendFcmNotification(vendor, order);
@@ -181,25 +264,21 @@ export class VendorNotificationService {
 
       const message = this.formatWhatsAppOrderMessage(vendor, order);
 
-      const response = await axios.post(
-        `${this.whatsappServiceUrl}/api/whatsapp/send`,
-        {
-          phone: vendor.vendorPhone,
-          message,
-          type: 'vendor_order_notification',
-          metadata: {
-            orderId: order.orderId,
-            vendorId: vendor.vendorId,
-          },
-        },
-        { timeout: 10000 }
+      // Send through WhatsAppCloudService, not a bare axios POST. The old path
+      // built `${WHATSAPP_SERVICE_URL}/api/whatsapp/send`, which resolves to
+      // https://graph.facebook.com/v24.0/api/whatsapp/send — a route that exists
+      // nowhere. Going through the service also inherits its fail-closed
+      // outbound allowlist.
+      const response = await this.whatsappCloudService.sendText(
+        vendor.vendorPhone,
+        message,
       );
 
       return {
-        success: response.data.success === true,
+        success: Boolean(response?.messages?.[0]?.id),
         channel: 'whatsapp',
         sentAt: new Date(),
-        messageId: response.data.messageId,
+        messageId: response?.messages?.[0]?.id,
       };
     } catch (error) {
       this.logger.error(`❌ WhatsApp notification failed: ${error.message}`);
@@ -310,24 +389,26 @@ export class VendorNotificationService {
     status: string,
     details: string
   ): Promise<NotificationResult> {
+    if (!this.isVendorAllowed(vendor.vendorPhone)) {
+      this.logger.warn(
+        `🚫 Vendor ${vendor.vendorId} not allowlisted — update for order #${orderId} skipped`
+      );
+      return this.blockedResult('whatsapp');
+    }
+
     try {
       const message = `📦 Order #${orderId} Update\n\nStatus: ${status}\n${details}`;
 
-      const response = await axios.post(
-        `${this.whatsappServiceUrl}/api/whatsapp/send`,
-        {
-          phone: vendor.vendorPhone,
-          message,
-          type: 'vendor_order_update',
-        },
-        { timeout: 10000 }
+      const response = await this.whatsappCloudService.sendText(
+        vendor.vendorPhone,
+        message,
       );
 
       return {
-        success: true,
+        success: Boolean(response?.messages?.[0]?.id),
         channel: 'whatsapp',
         sentAt: new Date(),
-        messageId: response.data.messageId,
+        messageId: response?.messages?.[0]?.id,
       };
     } catch (error) {
       this.logger.error(`❌ Order update notification failed: ${error.message}`);
