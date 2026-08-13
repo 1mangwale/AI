@@ -52,6 +52,7 @@ describe('WebhookController WhatsApp reply allowlist', () => {
       messageGateway as any,
       whatsappCloudService as any,
       {} as any,
+      { handleCallEvent: jest.fn().mockResolvedValue(undefined) } as any,
     );
 
     return {

@@ -28,6 +28,7 @@ import { firstValueFrom } from "rxjs";
 import { MessageGatewayService } from "../../messaging/services/message-gateway.service";
 import { WhatsAppCloudService } from "../services/whatsapp-cloud.service";
 import { WhatsAppCallingSupportIntakeService } from "../services/whatsapp-calling-support-intake.service";
+import { WhatsAppCallingMediaBridgeService } from "../services/whatsapp-calling-media-bridge.service";
 import * as crypto from "crypto";
 import { Request } from "express";
 import { normalizePhoneNumber } from "../../common/utils/helpers";
@@ -54,6 +55,7 @@ export class WebhookController {
     private messageGateway: MessageGatewayService,
     private whatsappCloudService: WhatsAppCloudService,
     private whatsappCallingSupportIntake: WhatsAppCallingSupportIntakeService,
+    private whatsappCallingMediaBridge: WhatsAppCallingMediaBridgeService,
   ) {
     this.verifyToken = this.configService.get("whatsapp.verifyToken");
     this.accessToken = this.configService.get("whatsapp.accessToken");
@@ -217,6 +219,11 @@ export class WebhookController {
       `WhatsApp calling webhook event=${intake.event} call_id_hash=${intake.call_id_hash.slice(0, 12)} ` +
         `customer_phone_hash=${intake.customer_phone_hash?.slice(0, 12) || "none"} dry_run=true`,
     );
+
+    // The intake above only observes. Answering the call is the media bridge's
+    // job, and it stays fail-closed: disabled by default, allowlisted callers
+    // only, so this line is a no-op until both are deliberately turned on.
+    await this.whatsappCallingMediaBridge.handleCallEvent(call, intake);
   }
 
   private summarizeWebhookPayload(payload: any): Record<string, any> {

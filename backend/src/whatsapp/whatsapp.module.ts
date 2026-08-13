@@ -14,6 +14,7 @@ import { WhatsAppCallingLiveExecutorService } from "./services/whatsapp-calling-
 import { WhatsAppCallingPermissionService } from "./services/whatsapp-calling-permission.service";
 import { WhatsAppCallingReadinessService } from "./services/whatsapp-calling-readiness.service";
 import { WhatsAppCallingSupportIntakeService } from "./services/whatsapp-calling-support-intake.service";
+import { WhatsAppCallingMediaBridgeService } from "./services/whatsapp-calling-media-bridge.service";
 import { PhpIntegrationModule } from "../php-integration/php-integration.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { SessionModule } from "../session/session.module";
@@ -66,6 +67,7 @@ import { ApprovalModule } from "../approval/approval.module";
     WhatsAppCallingExecutorService,
     WhatsAppCallingLiveExecutorService,
     WhatsAppCallingSupportIntakeService,
+    WhatsAppCallingMediaBridgeService,
   ],
   exports: [
     MessageService,
@@ -78,6 +80,7 @@ import { ApprovalModule } from "../approval/approval.module";
     WhatsAppCallingExecutorService,
     WhatsAppCallingLiveExecutorService,
     WhatsAppCallingSupportIntakeService,
+    WhatsAppCallingMediaBridgeService,
   ],
 })
 export class WhatsAppModule {}
