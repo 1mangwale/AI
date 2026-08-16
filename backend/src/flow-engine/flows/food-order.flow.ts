@@ -3800,6 +3800,53 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
       ],
       transitions: {
         authenticated: 'review_cart_before_checkout',  // 🛒 Show cart review before address
+        default: 'route_unauthenticated_checkout',
+      },
+    },
+
+    // On WhatsApp/Telegram the session id IS the sender's phone, and Meta has
+    // already authenticated it. Sending such a user to `request_phone` asked them
+    // to type the number they were messaging from, then burned an SMS OTP to that
+    // same number - verifying nothing the channel had not already proven.
+    // Existing users never hit this (message-gateway.service.ts:290 auto-logs-in
+    // any phone already in MySQL), so it stayed invisible right up until the
+    // allowlist comes off and every new customer arrives on this exact path.
+    // Web keeps the typed-phone path: a browser session id proves nothing.
+    route_unauthenticated_checkout: {
+      type: 'decision',
+      description: 'Phone-identified channels can self-authenticate; web cannot',
+      conditions: [
+        {
+          expression: 'context.platform === "whatsapp" || context.platform === "telegram"',
+          event: 'phone_platform',
+        },
+      ],
+      transitions: {
+        phone_platform: 'auto_auth_phone_checkout',
+        default: 'request_phone',
+      },
+    },
+
+    // auto_auth_by_phone (auth.executor.ts:759) already does the whole job:
+    // checkUserExists -> autoLogin for a known phone, autoRegister for a new one,
+    // both writing auth_token/user_id into context and session. It was built for
+    // exactly this case and referenced by NO flow in the codebase. Any failure
+    // falls back to the original typed-phone path rather than dead-ending a cart.
+    auto_auth_phone_checkout: {
+      type: 'action',
+      description: 'Authenticate or register a WhatsApp/Telegram user from their own number',
+      actions: [
+        {
+          id: 'auto_auth_by_phone_action',
+          executor: 'auth',
+          config: { action: 'auto_auth_by_phone' },
+          output: '_auto_auth_result',
+        },
+      ],
+      transitions: {
+        authenticated: 'review_cart_before_checkout',
+        auth_failed: 'request_phone',
+        error: 'request_phone',
         default: 'request_phone',
       },
     },

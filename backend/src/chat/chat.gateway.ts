@@ -1201,7 +1201,13 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         try {
           const session = await this.sessionService.getSession(sessionId);
           const flowContext = session?.data?.flowContext;
-          const currentState = flowContext?._system?.currentState;
+          // `session.data.flowContext` is FLAT — `flow-engine.service.ts:688 getContext()`
+          // returns `{flowRunId, currentState, flowId}` and the sibling resume block at
+          // :573 reads `flowContext.currentState` directly. Reading `_system.currentState`
+          // here always yielded undefined, so this post-login resume has never once fired:
+          // a web user who logged in from the checkout modal was left staring at a dead
+          // chat instead of being carried back into their order.
+          const currentState = flowContext?.currentState;
           
           if (flowContext && (currentState === 'trigger_frontend_auth_order' || currentState === 'handle_frontend_auth_response')) {
             this.logger.log(`🔄 Flow waiting at ${currentState}, sending auth completion signal to resume flow`);

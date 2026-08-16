@@ -15,6 +15,38 @@ import { ActionExecutor, ActionExecutionResult, FlowContext } from '../types/flo
  * 
  * Collects and validates addresses (with saved address support)
  */
+/**
+ * Every addressData literal in this file carries `latitude`/`longitude`, but the
+ * food flow's search states interpolate `{{location.lat}}` / `{{location.lng}}`
+ * (food-order.flow.ts:827-828) and `check_existing_location` gates on
+ * `context.location.lat && context.location.lng` (:206). WhatsApp's GPS share
+ * writes the correct `{lat,lng}` shape straight to the session
+ * (webhook.controller.ts:464), so only the TEXT path lands here — and it was
+ * overwriting `context.data.location` with keys nothing downstream reads.
+ *
+ * Result before this fix: typing an area name produced "Got your location!",
+ * then `search.executor.ts:983` `if (lat && lng)` never fired, so the
+ * geo-distance filter was silently dropped and stores from any city ranked
+ * equally. On web chat there is no GPS button at all, so this was the ONLY
+ * path — which is why web food search has never been distance-ranked.
+ *
+ * Additive on purpose: `latitude`/`longitude` stay, because the parcel flow
+ * reads them directly (address.executor.ts:497-498 does `.latitude || .lat`).
+ * Mutates in place so the same object reference reaches both
+ * `context.data[field]` and the executor's `output`.
+ */
+function ensureLatLng(addressData: any): void {
+  if (!addressData) return;
+  const lat = addressData.latitude ?? addressData.lat;
+  const lng = addressData.longitude ?? addressData.lng;
+  if (lat !== undefined && lat !== null && !Number.isNaN(Number(lat))) {
+    addressData.lat = Number(lat);
+  }
+  if (lng !== undefined && lng !== null && !Number.isNaN(Number(lng))) {
+    addressData.lng = Number(lng);
+  }
+}
+
 @Injectable()
 export class AddressExecutor implements ActionExecutor {
   readonly name = 'address';
@@ -105,6 +137,7 @@ export class AddressExecutor implements ActionExecutor {
             source: 'saved_address',
             raw_input: userMessage,
           };
+          ensureLatLng(addressData);
           context.data[field] = addressData;
           delete context.data._suggested_pickup_address;
           delete context.data[`${field}_options`];
@@ -147,6 +180,7 @@ export class AddressExecutor implements ActionExecutor {
             source: 'saved_address',
             raw_input: userMessage,
           };
+          ensureLatLng(addressData);
           context.data[field] = addressData;
           delete context.data._suggested_delivery_address;
           delete context.data._delivery_address_hint;
@@ -676,6 +710,7 @@ export class AddressExecutor implements ActionExecutor {
               source_message: userMessage, // Store original message for duplicate detection
             };
 
+            ensureLatLng(addressData);
             context.data[field] = addressData;
             context.data._last_response = `✅ Using your saved address for ${matched.contactPersonName || matched.addressType}: ${matched.address}`;
 
@@ -783,6 +818,7 @@ export class AddressExecutor implements ActionExecutor {
             raw_input: userMessage,
           };
 
+          ensureLatLng(addressData);
           context.data[field] = addressData;
           delete context.data[`${field}_options`];
           delete context.data[`${field}_offered`];
@@ -883,6 +919,7 @@ export class AddressExecutor implements ActionExecutor {
             raw_input: userMessage,
           };
 
+          ensureLatLng(addressData);
           context.data[field] = addressData;
           context.data._last_response = `✅ Location received: ${addressData.address}`;
 
@@ -968,6 +1005,7 @@ export class AddressExecutor implements ActionExecutor {
           context.data._last_response = `✅ Address confirmed: ${addr.address}`;
         }
 
+        ensureLatLng(addressData);
         context.data[field] = addressData;
 
         return {
