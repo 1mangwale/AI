@@ -2367,7 +2367,7 @@ export const foodOrderFlow: FlowDefinition = {
       ],
       transitions: {
         user_message: 'copy_recs_to_search_results',
-        item_selected: 'process_selection',
+        item_selected: 'clear_entities_for_selection',
         default: 'copy_recs_to_search_results',
       }
     },
@@ -2445,7 +2445,7 @@ export const foodOrderFlow: FlowDefinition = {
       ],
       transitions: {
         user_message: 'copy_fast_delivery_to_search_results',
-        item_selected: 'process_selection',
+        item_selected: 'clear_entities_for_selection',
         default: 'copy_fast_delivery_to_search_results',
       }
     },
@@ -2948,7 +2948,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
           // Case 0: HIGHEST PRIORITY - Detect selection patterns (item_ID, numbers, add to cart)
           // MUST be checked before checkout/view_cart because NLU can misclassify "item_10201" as view_cart
           // Matches: "item_12345" (card button click), "1", "2", "add 1 to cart", "first one", "add paneer to cart", etc.
-          expression: `/^item_\\d+/i.test(context._user_message?.trim()) || /^(add\\s+)?\\d+(\\s*,\\s*\\d+)*\\s*(to\\s+cart)?$/i.test(context._user_message?.trim()) || /^(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)(\\s+one)?$/i.test(context._user_message?.trim()) || /^add\\s+.+\\s+to\\s+(my\\s+)?cart$/i.test(context._user_message?.trim()) || /^select\\s+(\\d+|all)/i.test(context._user_message?.trim())`,
+          expression: `/^item_\\d+/i.test(context._user_message?.trim()) || /^(add\\s+)?\\d+(\\s*,\\s*\\d+)*\\s*(to\\s+cart)?$/i.test(context._user_message?.trim()) || /^(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)(\\s+one)?$/i.test(context._user_message?.trim()) || /^add\\s+.+?(\\s+to\\s+(my\\s+)?cart)?$/i.test(context._user_message?.trim()) || /^select\\s+(\\d+|all)/i.test(context._user_message?.trim())`,
           event: 'selection_detected',
         },
         {
@@ -3294,7 +3294,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
         },
       ],
       transitions: {
-        item_selected: 'process_selection',
+        item_selected: 'clear_entities_for_selection',
         default: 'handle_cart_action',
       },
     },
