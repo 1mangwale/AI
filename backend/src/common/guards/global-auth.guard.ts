@@ -38,15 +38,58 @@ const PUBLIC_PATH_PREFIXES = [
  * Prefixes enforced even while the guard is in shadow mode.
  *
  * These are operational control surfaces with no legitimate unauthenticated
- * caller, confirmed reachable from the open internet on 2026-08-16:
- * /api/docker exposes the container inventory, per-container logs, and a
- * POST action route, with no guard of any kind.
+ * caller. Each was confirmed reachable from the open internet on 2026-08-16
+ * through chat.mangwale.ai, whose traefik router sends /api/* straight to :3200.
  *
- * The dashboard calls these from three places without a credential, so its
- * Docker page returns 401 until the frontend authenticates. That is the
- * intended trade.
+ *   /api/docker/        container inventory, per-container logs, start/stop.
+ *   /api/settings/key/  returns ANY setting by exact name, and PUTs any value.
+ *                       A live probe returned ADMIN_API_KEY -- the very
+ *                       credential this guard accepts -- in plaintext to an
+ *                       anonymous caller. No frontend code calls this prefix,
+ *                       so enforcing it breaks nothing.
+ *   /api/secrets/       secret CRUD + rotate. Its module is not currently
+ *                       imported so it 404s; enforcing now means it ships
+ *                       closed whenever someone mounts it.
+ *   /api/broadcast/     POST send / quick-send fan real WhatsApp messages out
+ *                       to an audience. Outward-facing and irreversible.
+ *   /api/llm/           POST chat spends metered Groq / OpenRouter quota.
+ *   /api/healing/trigger, /api/healing/config
+ *                       start a repair cycle and enable auto-repair, which
+ *                       writes config and NLU training data. The rest of
+ *                       /api/healing/ stays in shadow, because client-logger.ts
+ *                       posts browser logs to /api/healing/client-logs.
+ *
+ * Admin pages calling these without a credential now 401 until the frontend
+ * sends its admin JWT. That is the intended trade: each is a LAN-only admin
+ * screen, while the surfaces above answer to the open internet.
  */
-const ALWAYS_ENFORCED_PREFIXES = ['/api/docker/'];
+const ALWAYS_ENFORCED_PREFIXES = [
+  '/api/docker/',
+  '/api/settings/key/',
+  '/api/secrets/',
+  '/api/broadcast/',
+  '/api/llm/',
+  '/api/healing/trigger',
+  '/api/healing/config',
+
+  // main.ts:65 sets a global 'api' prefix, and 14 mounted controllers ALSO
+  // declare @Controller('api/...'), so they serve at /api/api/... and matched
+  // NONE of the rules above -- this allowlist silently did not cover them.
+  // Confirmed public through chat.mangwale.ai on 2026-08-16:
+  //   mos/scheduler/jobs/:name/run    fires a bulk WhatsApp blast
+  //   mos/whatsapp-commerce/orders    returns real customer phone numbers
+  //   mos/models/orchestra/test       spends metered LLM credit
+  //   approvals/:id/approve           forges an AI workflow decision
+  // Nothing internal breaks: next.config.ts:226 rewrites /api/mos/* to the
+  // SINGLE prefix, so the dashboard already 404s on these -- enforcing turns
+  // a 404 into a 401 with no visible change.
+  // BEFORE WHATSAPP FLOWS GO LIVE, move /api/api/whatsapp/flows/ into
+  // PUBLIC_PATH_PREFIXES: Meta calls it with no credential and it validates
+  // its own flow_token instead. Safe to enforce today only because every
+  // WA_FLOW_*_ID is empty and it has never received a POST (log spans
+  // 2026-03-18 to now).
+  '/api/api/',
+];
 
 /**
  * Default-closed authentication for the whole application.
