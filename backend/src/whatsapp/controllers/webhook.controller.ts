@@ -410,7 +410,9 @@ export class WebhookController {
       // Handle different message types
       if (type === "audio") {
         // 🎤 VOICE MESSAGE - Transcribe using ASR
-        this.logger.log(`🎤 Voice message from ${from} - transcribing...`);
+        this.logger.log(
+          `🎤 Voice message from hash=${this.senderHash(from).slice(0, 12)} - transcribing...`,
+        );
         messageText = await this.handleVoiceMessage(message, from);
         if (!messageText) {
           await this.messageService.sendTextMessage(
@@ -428,7 +430,8 @@ export class WebhookController {
         };
         messageText = `LOCATION:${locationData.latitude},${locationData.longitude}`;
         this.logger.log(
-          `📍 Location from ${from}: ${locationData.latitude}, ${locationData.longitude}`,
+          `📍 Location from hash=${this.senderHash(from).slice(0, 12)} ` +
+            `approx=${Number(locationData.latitude).toFixed(2)},${Number(locationData.longitude).toFixed(2)}`,
         );
       } else if (type === "interactive") {
         // 🔘 INTERACTIVE MESSAGE - Button or List selection
