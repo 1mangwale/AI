@@ -62,6 +62,7 @@ import { BroadcastModule } from './broadcast/broadcast.module'; // ✨ WhatsApp 
 import { ApprovalModule } from './approval/approval.module'; // ✨ Approval Queue & Workflow
 import { DemandModule } from './demand/demand.module'; // ✨ Demand Forecasting & Dynamic Pricing
 import { RedisModule } from './redis/redis.module'; // 🔗 Centralized Redis Connection Pool
+import { GlobalAuthGuard } from './common/guards/global-auth.guard';
 import { AdminModule } from './admin/admin.module'; // ✨ Admin Auth (Login, OTP Password Reset)
 import { ExotelModule } from './exotel/exotel.module'; // ✨ Exotel + Nerve IVR
 import { MarketingModule } from './marketing/marketing.module'; // ✨ Social Trends & Ad Attribution
@@ -185,6 +186,12 @@ FlowManagementModule, // ✨ Visual Flow Builder & Execution
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    // 🔒 Default-closed authentication.
+    // Modes via GLOBAL_AUTH_MODE: off | shadow (default) | enforce
+    {
+      provide: APP_GUARD,
+      useClass: GlobalAuthGuard,
     },
     // 🔍 Trace ID interceptor for request tracking
     {
