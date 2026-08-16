@@ -35,6 +35,20 @@ const PUBLIC_PATH_PREFIXES = [
 ];
 
 /**
+ * Prefixes enforced even while the guard is in shadow mode.
+ *
+ * These are operational control surfaces with no legitimate unauthenticated
+ * caller, confirmed reachable from the open internet on 2026-08-16:
+ * /api/docker exposes the container inventory, per-container logs, and a
+ * POST action route, with no guard of any kind.
+ *
+ * The dashboard calls these from three places without a credential, so its
+ * Docker page returns 401 until the frontend authenticates. That is the
+ * intended trade.
+ */
+const ALWAYS_ENFORCED_PREFIXES = ['/api/docker/'];
+
+/**
  * Default-closed authentication for the whole application.
  *
  * Auth in this codebase has been opt-in: 96 controllers, 20 of which carry any
@@ -84,7 +98,9 @@ export class GlobalAuthGuard implements CanActivate {
     const outcome = this.authenticate(request);
     if (outcome === 'admin-jwt' || outcome === 'api-key') return true;
 
-    if (this.mode === 'shadow') {
+    const alwaysEnforced = ALWAYS_ENFORCED_PREFIXES.some((p) => path.startsWith(p));
+
+    if (this.mode === 'shadow' && !alwaysEnforced) {
       this.logger.warn(
         `[GAUTH] WOULD-BLOCK ${request.method} ${path} reason=${outcome} ` +
           `ip=${this.clientIp(request)} ua="${this.shortUa(request)}"`,
