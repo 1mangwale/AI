@@ -837,14 +837,25 @@ export class AuthExecutor implements ActionExecutor {
         }
       }
       
-      // User doesn't exist - auto-register for WhatsApp/Telegram users
+      // User doesn't exist - register them. This used to call autoRegister,
+      // which POSTs /api/v1/auth/auto-register - a route that does not exist
+      // in Laravel (grep routes/: platform-login is there, auto-register is
+      // not), so every brand-new customer 404'd here and fell straight through
+      // to "Auto-authentication failed". Existing users never saw it: they take
+      // the checkUserExists -> autoLogin branch above.
+      //
+      // platform-login upserts: CustomerAuthController@platformLogin looks the
+      // phone up three ways and, finding nothing, User::create()s it with
+      // is_phone_verified=1, generates a ref_code and records DPDP consent
+      // (CustomerAuthController.php:1717-1732). Its validator is
+      // in:whatsapp,telegram - exactly isPhoneBasedPlatform.
       if (isPhoneBasedPlatform) {
-        this.logger.log(`📝 Auto-registering new user: ${normalizedPhone}`);
-        
-        const registerResult = await this.phpAuthService.autoRegister({
-          phone: normalizedPhone,
-          channel: platform,
-        });
+        this.logger.log(`📝 Registering new user via platform-login: ${normalizedPhone}`);
+
+        const registerResult = await this.phpAuthService.autoLogin(
+          normalizedPhone,
+          platform as 'whatsapp' | 'telegram',
+        );
         
         if (registerResult.success && registerResult.data) {
           // Store auth in context
@@ -865,7 +876,7 @@ export class AuthExecutor implements ActionExecutor {
           
           await this.sessionIdentifierService.linkPhoneToSession(sessionId, normalizedPhone);
           
-          this.logger.log(`✅ Auto-registered and authenticated (NEW USER): ${normalizedPhone}`);
+          this.logger.log(`✅ Registered and authenticated via platform-login (NEW USER): ${normalizedPhone}`);
           
           return {
             success: true,
