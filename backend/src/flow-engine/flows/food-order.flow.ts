@@ -431,9 +431,22 @@ export const foodOrderFlow: FlowDefinition = {
             saveToContext: {
               // Restore original query for NLU analysis
               _user_message: '{{original_food_query}}',
-              // Mark session as having location ready - prevents re-asking
-              _session_has_location: true,
-              _location_captured_at: '{{_now}}',
+              // NOTE: this state used to also set _session_has_location: true
+              // and _location_captured_at: '{{_now}}'. Both were removed.
+              //
+              // _session_has_location claimed to "prevent re-asking", but the
+              // re-ask gate is check_existing_location, which tests the real
+              // object: context.location.lat && context.location.lng. Nothing
+              // in the repo ever read the flag. Worse, this state is also the
+              // target of the `skipped` and `error` arms, so the flag was set
+              // to true for users who had explicitly skipped or whose address
+              // failed to geocode - a false signal waiting for its first
+              // reader.
+              //
+              // _location_captured_at stored the empty string: {{_now}} is not
+              // a context path, so resolveSimpleReference returned undefined
+              // and interpolation fell through to "". If location staleness is
+              // ever needed, the engine has to grow a real clock token first.
             },
             event: 'restored',
           },
@@ -4277,9 +4290,25 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
       transitions: {
         valid: 'collect_address',
         otp_valid: 'collect_address',
+        // A brand-new customer verifies their OTP successfully but has no
+        // profile yet, so AuthExecutor emits `needs_profile`, not `valid`
+        // (auth.executor.ts:399). This state had no arm for it AND no
+        // `default`, and the engine resolves an unmatched event with no
+        // default to nextState=null - meaning STAY (state-machine.engine.ts:252).
+        // So the correct OTP produced silence, and the user's next message was
+        // then re-verified as if it were an OTP and answered "That OTP is
+        // incorrect". Exactly the new-customer population d4903c24 was written
+        // to unblock. They are authenticated here - the missing piece is only a
+        // name - so proceed like `valid`; parcel-delivery.flow.ts:1615 already
+        // treats it the same way.
+        needs_profile: 'collect_address',
         invalid: 'otp_retry',
         otp_invalid: 'otp_retry',
         error: 'otp_error',
+        // Never strand silently again: any unforeseen event says something
+        // honest and returns to request_phone, rather than claiming a correct
+        // OTP was wrong.
+        default: 'otp_error',
       },
     },
 

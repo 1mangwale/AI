@@ -1090,7 +1090,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         location: { lat, lng },
         _user_location: { latitude: lat, longitude: lng, zoneId },
         lastLocationUpdate: Date.now(),
-        _session_has_location: true,
+        // no _session_has_location flag: `location` above IS the gate that
+        // check_existing_location reads.
       });
       client.emit('location:updated', { success: true });
       
