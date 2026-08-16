@@ -20,6 +20,7 @@ import { ContextRouterService } from './services/context-router.service';
 import { CommandHandlerService } from './services/command-handler.service';
 import { IntentRouterService } from './services/intent-router.service';
 import { WhatsAppCloudService } from '../whatsapp/services/whatsapp-cloud.service';
+import { WhatsAppOptOutService } from '../whatsapp/services/whatsapp-optout.service';
 import { ChannelRendererService } from './services/channel-renderer.service';
 
 /**
@@ -62,6 +63,7 @@ import { ChannelRendererService } from './services/channel-renderer.service';
     CommandHandlerService, // NEW: Command handling
     IntentRouterService, // NEW: Centralized intent-to-flow routing (GAP 1 fix)
     WhatsAppCloudService, // Direct WhatsApp Cloud API service
+    WhatsAppOptOutService,
     ChannelRendererService, // Unified channel message renderer
   ],
   exports: [
@@ -71,6 +73,7 @@ import { ChannelRendererService } from './services/channel-renderer.service';
     CommandHandlerService,
     IntentRouterService, // Export for testing and external use
     WhatsAppCloudService, // Export for direct WhatsApp access
+    WhatsAppOptOutService,
     ChannelRendererService, // Export for use across modules
   ],
 })

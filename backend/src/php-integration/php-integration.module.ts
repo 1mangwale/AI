@@ -21,6 +21,7 @@ import { PhpWishlistService } from './services/php-wishlist.service';
 import { OrderDatabaseService } from './services/order-database.service';
 import { RoutingModule } from '../routing/routing.module';
 import { WhatsAppCloudService } from '../whatsapp/services/whatsapp-cloud.service';
+import { WhatsAppOptOutService } from '../whatsapp/services/whatsapp-optout.service';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { WhatsAppCloudService } from '../whatsapp/services/whatsapp-cloud.servic
     // ConfigService + HttpService, both already available here. Importing the
     // full WhatsApp module would create a Nest circular dependency.
     WhatsAppCloudService,
+    WhatsAppOptOutService,
   ],
   exports: [
     PhpHttpClientService,

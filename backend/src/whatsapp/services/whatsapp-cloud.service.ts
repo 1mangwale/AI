@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { WhatsAppOptOutService } from './whatsapp-optout.service';
 import * as crypto from 'crypto';
 import {
   TextMessage,
@@ -45,6 +46,7 @@ export class WhatsAppCloudService {
   constructor(
     private configService: ConfigService,
     private httpService: HttpService,
+    private readonly optOutService: WhatsAppOptOutService,
   ) {
     this.phoneNumberId = this.configService.get('whatsapp.phoneNumberId');
     this.accessToken = this.configService.get('whatsapp.accessToken');
@@ -71,6 +73,13 @@ export class WhatsAppCloudService {
   async sendText(to: string, text: string, options?: {
     previewUrl?: boolean;
     replyToMessageId?: string;
+    /**
+     * Send even if this recipient has opted out. The ONLY legitimate use is
+     * the single confirmation that acknowledges their STOP - without it the
+     * user sends STOP and hears nothing, which is indistinguishable from
+     * being ignored.
+     */
+    bypassOptOut?: boolean;
   }): Promise<MessageResponse> {
     // Validate length
     if (text.length > WHATSAPP_CAPABILITIES.maxTextLength) {
@@ -92,7 +101,7 @@ export class WhatsAppCloudService {
       message.context = { message_id: options.replyToMessageId };
     }
 
-    return this.sendMessage(message);
+    return this.sendMessage(message, { bypassOptOut: options?.bypassOptOut });
   }
 
   // ============================================
@@ -588,7 +597,28 @@ export class WhatsAppCloudService {
   // INTERNAL HELPERS
   // ============================================
 
-  private async sendMessage(message: any): Promise<MessageResponse> {
+  private async sendMessage(
+    message: any,
+    options?: { bypassOptOut?: boolean },
+  ): Promise<MessageResponse> {
+    // Deliberately NOT folded into isOutboundRecipientAllowed(). That method
+    // returns true unconditionally once WHATSAPP_OUTBOUND_ALLOWLIST_REQUIRED
+    // is 'false' - which is precisely the change that opens the bot to the
+    // public. An opt-out living inside it would stop working on launch day,
+    // the one day it starts mattering.
+    if (message?.to && !options?.bypassOptOut) {
+      if (await this.optOutService.isOptedOut(String(message.to))) {
+        const optedHash = this.recipientHashes(String(message.to))[0] || 'unknown';
+        this.logger.warn(
+          `Suppressed WhatsApp outbound to opted-out recipient_hash=${optedHash.slice(0, 12)} type=${message?.type || 'unknown'}`,
+        );
+        // Return rather than throw: a send to someone who asked us to stop is
+        // a no-op, not an error, and callers must not treat it as a failure
+        // worth retrying.
+        return { messaging_product: 'whatsapp', suppressed: true } as any;
+      }
+    }
+
     if (message?.to && !this.isOutboundRecipientAllowed(String(message.to))) {
       const recipientHash = this.recipientHashes(String(message.to))[0] || 'unknown';
       this.logger.warn(
@@ -598,6 +628,18 @@ export class WhatsAppCloudService {
     }
 
     return this.sendToApi(message);
+  }
+
+  /**
+   * 4 leading + 2 trailing digits. This line fires on EVERY outbound message,
+   * so it was the single highest-volume source of cleartext customer phone
+   * numbers in the log file.
+   */
+  private maskPhone(value: any): string {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return 'API';
+    if (digits.length <= 6) return `${digits.slice(0, 2)}****`;
+    return `${digits.slice(0, 4)}****${digits.slice(-2)}`;
   }
 
   private async sendToApi(payload: any): Promise<any> {
@@ -613,7 +655,7 @@ export class WhatsAppCloudService {
         }),
       );
 
-      this.logger.log(`✅ Message sent to ${payload.to || 'API'} - Response: ${JSON.stringify(response.data)}`);
+      this.logger.log(`✅ Message sent to ${this.maskPhone(payload.to)} - Response: ${JSON.stringify(response.data)}`);
       return response.data;
     } catch (error) {
       const errorData = error.response?.data?.error || error.message;

@@ -29,6 +29,7 @@ import { MessageGatewayService } from "../../messaging/services/message-gateway.
 import { WhatsAppCloudService } from "../services/whatsapp-cloud.service";
 import { WhatsAppCallingSupportIntakeService } from "../services/whatsapp-calling-support-intake.service";
 import { WhatsAppCallingMediaBridgeService } from "../services/whatsapp-calling-media-bridge.service";
+import { WhatsAppOptOutService } from "../services/whatsapp-optout.service";
 import * as crypto from "crypto";
 import { Request } from "express";
 import { normalizePhoneNumber } from "../../common/utils/helpers";
@@ -56,6 +57,7 @@ export class WebhookController {
     private whatsappCloudService: WhatsAppCloudService,
     private whatsappCallingSupportIntake: WhatsAppCallingSupportIntakeService,
     private whatsappCallingMediaBridge: WhatsAppCallingMediaBridgeService,
+    private optOutService: WhatsAppOptOutService,
   ) {
     this.verifyToken = this.configService.get("whatsapp.verifyToken");
     this.accessToken = this.configService.get("whatsapp.accessToken");
@@ -319,6 +321,56 @@ export class WebhookController {
       if (!this.isReplySenderAllowed(from, message.from)) {
         this.logger.warn(
           `Blocked WhatsApp inbound message from non-allowlisted sender_hash=${senderHash.slice(0, 12)} type=${type}`,
+        );
+        return;
+      }
+
+      // STOP / START are handled before anything else. An opted-out user
+      // should not even see a typing indicator, and must never reach the flow
+      // engine. Until now "stop" only existed as a flow-cancel keyword in
+      // agent-orchestrator.service.ts - it ended the current flow, and the bot
+      // messaged the same person again on the next trigger.
+      const controlText = type === "text" ? message.text?.body || "" : "";
+
+      if (controlText && this.optOutService.isStopKeyword(controlText)) {
+        await this.optOutService.optOut(from, controlText);
+        // bypassOptOut, because we just switched suppression on for this
+        // number. Sending STOP and hearing nothing back is indistinguishable
+        // from being ignored, so this one confirmation has to get through.
+        await this.whatsappCloudService
+          .sendText(
+            from,
+            "You have been unsubscribed. You will not receive any more messages from Mangwale.\n\nSend START any time to turn them back on.",
+            { bypassOptOut: true },
+          )
+          .catch(() => {});
+        this.logger.warn(`Opted out sender_hash=${senderHash.slice(0, 12)}`);
+        return;
+      }
+
+      // START is honoured only for someone who is actually opted out.
+      // Otherwise "start" is just a word a customer types to begin ordering,
+      // and answering it with "you're resubscribed" would be worse than
+      // useless.
+      if (
+        controlText &&
+        this.optOutService.isStartKeyword(controlText) &&
+        (await this.optOutService.isOptedOut(from))
+      ) {
+        await this.optOutService.optIn(from);
+        await this.whatsappCloudService
+          .sendText(from, "You are subscribed again. How can I help you today?")
+          .catch(() => {});
+        this.logger.log(`Opted in sender_hash=${senderHash.slice(0, 12)}`);
+        return;
+      }
+
+      // Past the START check, so this cannot swallow a resubscribe. Dropping
+      // the message here rather than letting it run and suppressing the reply
+      // at send time saves an LLM round-trip whose output nobody receives.
+      if (await this.optOutService.isOptedOut(from)) {
+        this.logger.log(
+          `Ignoring inbound from opted-out sender_hash=${senderHash.slice(0, 12)} (START resumes)`,
         );
         return;
       }
