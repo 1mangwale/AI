@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject, forwardRef, Optional } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
+import { createHash } from 'crypto';
 import { SessionService } from '../../session/session.service';
 import { ConversationLoggerService } from '../../database/conversation-logger.service';
 import { MetricsService } from '../../metrics/metrics.service';
@@ -558,7 +559,7 @@ export class MessageGatewayService {
     const data = `${input.identifier}:${input.message}:${window}`;
 
     // Simple hash using Buffer
-    return Buffer.from(data).toString('base64').substring(0, 32);
+    return createHash('sha256').update(data).digest('hex').substring(0, 32);
   }
 
   /**
