@@ -14,7 +14,7 @@ import {
   Req,
   UseGuards,
 } from "@nestjs/common";
-import { SkipThrottle, Throttle } from "@nestjs/throttler";
+import { SkipThrottle } from "@nestjs/throttler";
 import { AdminAuthGuard } from "../../admin/guards/admin-auth.guard";
 import { SessionService } from "../../session/session.service";
 import { MessageService } from "../services/message.service";
@@ -34,7 +34,7 @@ import * as crypto from "crypto";
 import { Request } from "express";
 import { normalizePhoneNumber } from "../../common/utils/helpers";
 
-@SkipThrottle({ default: true })
+@SkipThrottle({ short: true, medium: true, long: true })
 @Controller("webhook/whatsapp")
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
@@ -124,8 +124,6 @@ export class WebhookController {
 
   @Post()
   @HttpCode(200)
-  @SkipThrottle({ default: false })
-  @Throttle({ default: { limit: 300, ttl: 60000 } }) // 300 requests per minute per IP
   async receive(
     @Body() payload: any,
     @Headers("x-hub-signature-256") hubSignature: string,
@@ -186,10 +184,19 @@ export class WebhookController {
       );
 
       if (value.messages) {
-        this.logger.log(`📩 Found ${value.messages.length} messages`);
-        for (const message of value.messages) {
-          await this.handleIncomingMessage(message);
-        }
+        const messages = value.messages;
+        this.logger.log(`📩 Found ${messages.length} messages`);
+        // Not awaited: Meta times the webhook out at 20s and treats any
+        // timeout or non-2xx as a delivery failure, backing off and
+        // eventually disabling the subscription. Processing runs on its own
+        // and this handler ACKs in milliseconds.
+        void (async () => {
+          for (const message of messages) {
+            await this.handleIncomingMessage(message);
+          }
+        })().catch((error) => {
+          this.logger.error("Async webhook message processing failed:", error);
+        });
       }
 
       if (Array.isArray(value.calls) && value.calls.length > 0) {
@@ -371,6 +378,21 @@ export class WebhookController {
       if (await this.optOutService.isOptedOut(from)) {
         this.logger.log(
           `Ignoring inbound from opted-out sender_hash=${senderHash.slice(0, 12)} (START resumes)`,
+        );
+        return;
+      }
+
+      // Per-sender flood cap. Placed after STOP/START/opted-out so a flooding
+      // sender can always still unsubscribe, and before markAsRead, the typing
+      // indicator, the session read and the flow engine - so a dropped message
+      // costs one INCR and nothing else.
+      //
+      // Dropped silently and internally: the webhook still returns 200 to
+      // Meta, because a 429 to Meta would disable the subscription for every
+      // user rather than throttle this one.
+      if (await this.messageGateway.checkWaSenderRateLimit(from)) {
+        this.logger.warn(
+          `Rate limited WhatsApp inbound sender_hash=${senderHash.slice(0, 12)} type=${type}`,
         );
         return;
       }

@@ -78,6 +78,11 @@ export class MessageGatewayService {
   private readonly MESSAGE_CHANNEL = 'mangwale:messages';
   private readonly DEDUP_TTL = 2; // seconds - reduced from 5s for faster conversation flow
   private readonly DEDUP_PREFIX = 'dedup:';
+  // Per-sender inbound flood limit. Separate concern from dedup above: dedup
+  // drops the SAME message twice, this caps DIFFERENT messages from one sender.
+  private readonly WA_RATE_PREFIX = 'wa:ratelimit:';
+  private readonly WA_RATE_LIMIT: number;
+  private readonly WA_RATE_WINDOW_MS: number;
   
   // Lazy-loaded ContextRouter to avoid circular dependency
   private contextRouter: any = null;
@@ -90,6 +95,13 @@ export class MessageGatewayService {
     @Optional() private readonly phpAuthService?: PhpAuthService,
     @Optional() private readonly orderSyncService?: OrderSyncService,
   ) {
+    this.WA_RATE_LIMIT = Number(
+      this.configService.get('WA_SENDER_RATE_LIMIT', 20),
+    );
+    this.WA_RATE_WINDOW_MS = Number(
+      this.configService.get('WA_SENDER_RATE_WINDOW_MS', 60000),
+    );
+
     // Initialize Redis clients
     const redisConfig = {
       host: this.configService.get('REDIS_HOST', 'redis'),
@@ -523,6 +535,57 @@ export class MessageGatewayService {
    * across different flow states (e.g., pickup address "1" then delivery address "1").
    * The ChatGateway already has its own dedup to prevent true double-clicks.
    */
+  /**
+   * Per-sender inbound flood limit for WhatsApp.
+   *
+   * Returns true when this sender has exceeded WA_SENDER_RATE_LIMIT messages
+   * inside the current WA_SENDER_RATE_WINDOW_MS window, and the caller should
+   * drop the message.
+   *
+   * Keyed on the sender's phone number, NOT on req.ip. Inbound WhatsApp is
+   * delivered by Meta's servers, so every customer on the platform shares one
+   * source address (verified: 9,397/9,397 webhook hits arrive from the traefik
+   * bridge 172.30.0.2). An IP bucket here is a global bucket.
+   *
+   * Fixed window, not sliding: one INCR plus one conditional EXPIRE, so a
+   * flood costs one Redis round-trip per message. A sender can burst up to 2x
+   * the limit across a window boundary; that is an acceptable trade for the
+   * simplicity, because this is an abuse cap and not a billing quota.
+   *
+   * Fails OPEN. Redis also holds every session, so a Redis outage already
+   * means the flow engine is dead; failing closed would silence the bot for
+   * everyone rather than protect anything. Same posture as
+   * WhatsAppOptOutService.isOptedOut().
+   */
+  async checkWaSenderRateLimit(phone: string): Promise<boolean> {
+    if (!phone || this.WA_RATE_LIMIT <= 0) return false;
+
+    // digits-only, matching WhatsAppOptOutService.key(), so +919999999999 /
+    // 919999999999 / 9999999999 cannot become three different buckets.
+    const digits = phone.replace(/\D/g, '');
+    if (!digits) return false;
+
+    const window = Math.floor(Date.now() / this.WA_RATE_WINDOW_MS);
+    const key = `${this.WA_RATE_PREFIX}${digits}:${window}`;
+
+    try {
+      const count = await this.redis.incr(key);
+      if (count === 1) {
+        // +1s so the window cannot expire during its own final second.
+        await this.redis.expire(
+          key,
+          Math.ceil(this.WA_RATE_WINDOW_MS / 1000) + 1,
+        );
+      }
+      return count > this.WA_RATE_LIMIT;
+    } catch (error) {
+      this.logger.warn(
+        `Rate-limit check failed, allowing message through: ${error?.message}`,
+      );
+      return false;
+    }
+  }
+
   private async isDuplicate(input: MessageInput): Promise<boolean> {
     // Skip dedup for button clicks - they can legitimately repeat the same value
     // in different flow states (e.g., address selection "1" for pickup then "1" for delivery)
