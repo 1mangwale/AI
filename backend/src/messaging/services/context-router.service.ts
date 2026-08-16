@@ -1380,11 +1380,43 @@ export class ContextRouterService implements OnModuleInit {
     const isLocationRelatedIntent = ['manage_address', 'provide_location', 'check_address', 'save_address'].includes(intent.intent);
     const messageContainsLocation = event.message?.includes('Location shared') || event.message?.includes('Coordinates:') || /\d+\.\d+,\s*\d+\.\d+/.test(event.message || '');
     
-    // 🔧 FIX: Only recurse if we haven't already set buttonEvent to location_shared (prevents infinite loop)
-    if (isLocationWaitState && (isLocationRelatedIntent || messageContainsLocation) && buttonEvent !== 'location_shared') {
-      this.logger.log(`📍 Flow is waiting for location, not switching to address flow - continuing ${flowId}`);
-      // Continue the current flow with the location data
-      return this.continueFlowSync(event, session, intent, 'location_shared');
+    // Sentinel meaning "stay in this flow, but do NOT claim a location arrived".
+    // It is not a declared transition on any location state, so the state
+    // machine falls through to `default` -> handle_location_response, which is
+    // the branch that actually knows how to geocode text.
+    const LOCATION_NEEDS_GEOCODE = '__location_needs_geocode__';
+
+    // 🔧 FIX: Only recurse if we haven't already forced an event (prevents infinite loop)
+    if (
+      isLocationWaitState &&
+      (isLocationRelatedIntent || messageContainsLocation) &&
+      buttonEvent !== 'location_shared' &&
+      buttonEvent !== LOCATION_NEEDS_GEOCODE
+    ) {
+      // Both arms stay in the flow - switching to address-management here is
+      // what strands the user at a login wall. But they are NOT the same input:
+      //
+      //   messageContainsLocation -> a real GPS payload with coordinates. The
+      //     flow can trust `location_shared` and skip straight to confirming.
+      //
+      //   isLocationRelatedIntent -> IndicBERT merely thinks the text looks
+      //     like an address ("Shop 5, College Road, Nashik" scores
+      //     manage_address 0.99). There are no coordinates in it. Forcing
+      //     `location_shared` here jumped request_location straight to
+      //     confirm_location_received, so extract_location_from_text - the one
+      //     state that runs the address executor and turns text into lat/lng -
+      //     was never reached. restore_original_query then set
+      //     _session_has_location=true regardless, and the bot answered
+      //     "📍 Got your location!" holding no location at all. Every
+      //     downstream geo filter silently dropped, and the user was never
+      //     asked again because the flag said we already had it.
+      const forcedEvent = messageContainsLocation
+        ? 'location_shared'
+        : LOCATION_NEEDS_GEOCODE;
+      this.logger.log(
+        `📍 Flow is waiting for location, not switching to address flow - continuing ${flowId} (${forcedEvent})`,
+      );
+      return this.continueFlowSync(event, session, intent, forcedEvent);
     }
     
     // Check if user intent suggests switching to a different flow
