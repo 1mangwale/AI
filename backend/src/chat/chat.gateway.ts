@@ -564,10 +564,15 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         // We should RESUME the flow, not show a generic greeting
         try {
           const flowContext = await this.flowEngineService.getContext(sessionId);
+          // Parcel's three states were the whole list, so a food order that
+          // stopped at the login modal was never resumed after login - the
+          // user logged in and the chat just sat there holding their cart.
           const loginWaitStates = [
             'wait_for_login',
             'trigger_frontend_auth_order',
             'handle_frontend_auth_response',
+            'trigger_frontend_auth_food',
+            'handle_frontend_auth_food',
           ];
           
           if (flowContext && loginWaitStates.includes(flowContext.currentState)) {

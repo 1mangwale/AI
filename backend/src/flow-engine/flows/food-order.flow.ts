@@ -3820,9 +3820,14 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
           expression: 'context.platform === "whatsapp" || context.platform === "telegram"',
           event: 'phone_platform',
         },
+        {
+          expression: 'context.platform === "web"',
+          event: 'web_platform',
+        },
       ],
       transitions: {
         phone_platform: 'auto_auth_phone_checkout',
+        web_platform: 'trigger_frontend_auth_food',
         default: 'request_phone',
       },
     },
@@ -3848,6 +3853,104 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
         auth_failed: 'request_phone',
         error: 'request_phone',
         default: 'request_phone',
+      },
+    },
+
+    // Web chat has no GPS button and no SMS context. Asking a browser user to
+    // type a phone number and then wait for a real MSG91 SMS is both worse UX
+    // and the leading explanation for web chat's 813 messages and zero orders
+    // ever. Parcel solved this long ago - parcel-delivery.flow.ts:1257
+    // check_platform_for_auth_order hands web users the frontend login modal
+    // and keeps inline OTP for channels that have no frontend. Food never got
+    // the branch. These four states are that branch, mirroring parcel's shape
+    // so both flows fail and recover the same way.
+    trigger_frontend_auth_food: {
+      type: 'wait',
+      description: 'Ask the web frontend to open its login modal, then wait',
+      onEntry: [
+        {
+          id: 'notify_frontend_food_order',
+          executor: 'response',
+          config: {
+            message: '🔐 Please login to place your order.',
+            metadata: {
+              action: 'trigger_auth_modal',
+              reason: 'order_placement_required',
+            },
+            buttons: [
+              { label: '🔐 Login', value: 'login', action: 'trigger_auth_modal' },
+              { label: '❌ Cancel', value: 'cancel', action: 'cancel' },
+            ],
+          },
+          output: '_last_response',
+        },
+      ],
+      actions: [],
+      transitions: {
+        user_message: 'handle_frontend_auth_food',
+        default: 'handle_frontend_auth_food',
+      },
+    },
+
+    handle_frontend_auth_food: {
+      type: 'decision',
+      description: 'Interpret what came back after the login modal',
+      conditions: [
+        {
+          expression: 'context._user_message?.toLowerCase() === "login"',
+          event: 'waiting_for_auth',
+        },
+        {
+          expression: 'context.authenticated === true || context.data?.authenticated === true',
+          event: 'auth_complete',
+        },
+        {
+          // chat.gateway.ts resumes a login-waiting flow by replaying this
+          // sentinel once the session carries auth data.
+          expression: 'context._user_message === "__AUTH_COMPLETE__"',
+          event: 'auth_complete',
+        },
+        {
+          expression: 'context._user_message?.toLowerCase().match(/^(cancel|nahi|no|stop|exit)$/)',
+          event: 'cancelled',
+        },
+      ],
+      transitions: {
+        waiting_for_auth: 'trigger_frontend_auth_food',
+        auth_complete: 'review_cart_before_checkout',
+        cancelled: 'cancelled',
+        default: 'check_food_auth_now',
+      },
+    },
+
+    check_food_auth_now: {
+      type: 'action',
+      description: 'Re-read auth straight from the session before giving up',
+      actions: [
+        {
+          id: 'check_session_auth_food',
+          executor: 'session',
+          config: { action: 'read', key: 'authenticated' },
+          output: '_session_auth_food',
+        },
+      ],
+      transitions: {
+        default: 'food_auth_check_result',
+      },
+    },
+
+    food_auth_check_result: {
+      type: 'decision',
+      description: 'Proceed to cart review if the session now says authenticated',
+      conditions: [
+        {
+          expression: 'context._session_auth_food === true',
+          event: 'authenticated',
+        },
+      ],
+      transitions: {
+        authenticated: 'review_cart_before_checkout',
+        default: 'trigger_frontend_auth_food',
       },
     },
 
