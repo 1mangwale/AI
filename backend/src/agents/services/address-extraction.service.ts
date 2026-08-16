@@ -424,6 +424,27 @@ export class AddressExtractionService {
 
     try {
       this.logger.log(`🗺️ Geocoding text address: "${userInput.substring(0, 50)}..."`);
+
+      // Try the REAL forward geocoder before the mock table below. The mocks
+      // exist to keep smoke tests alive "when the API is down" - they must not
+      // shadow a working lookup, or a handful of hardcoded strings become the
+      // only addresses the platform can ever resolve.
+      const geo = await this.forwardGeocode(userInput);
+      if (geo) {
+        return {
+          success: true,
+          address: {
+            address: geo.formattedAddress,
+            latitude: geo.latitude,
+            longitude: geo.longitude,
+            source: 'text_geocoded',
+            confidence: 0.9,
+            metadata: {
+              raw_input: userInput,
+            },
+          },
+        };
+      }
       
       // MOCK FALLBACK for Smoke Tests / Dev (Fixes loop when API is down)
       // Order matters - check specific locations before generic "nashik" match
@@ -645,37 +666,14 @@ export class AddressExtractionService {
           };
       }
 
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.phpBackendUrl}/api/v1/config/geocode-api`, {
-          params: { address: userInput },
-          headers: {
-            moduleid: '3',
-            zoneid: '1',
-          },
-        }),
-      );
-
-      if (response.data && response.data.lat && response.data.lng) {
-        const lat = parseFloat(response.data.lat);
-        const lng = parseFloat(response.data.lng);
-        
-        if (this.validateCoordinates(lat, lng)) {
-          return {
-            success: true,
-            address: {
-              address: response.data.formatted_address || userInput,
-              latitude: lat,
-              longitude: lng,
-              source: 'text_geocoded',
-              confidence: 0.9,
-              metadata: {
-                raw_input: userInput,
-              },
-            },
-          };
-        }
-      }
-
+      // The forward geocode already ran at the top of this method. Reaching
+      // here means it failed AND no mock matched.
+      //
+      // What used to be here: a GET to /api/v1/config/geocode-api with
+      // ?address=... That route is Laravel's REVERSE geocoder - its validator
+      // is `lat` required, `lng` required - so it answered 403 to every single
+      // call this service ever made. Forward geocoding therefore only ever
+      // "worked" for the ~10 strings hardcoded in the mock table above.
       return {
         success: false,
         error: 'Geocoding API did not return valid coordinates',
@@ -830,6 +828,93 @@ Output: {"address": null, "landmark": null, "confidence": 0.0, "needs_clarificat
         success: false,
         error: 'Failed to extract address via LLM',
       };
+    }
+  }
+
+  /**
+   * Forward geocode: free text -> coordinates.
+   *
+   * Laravel exposes no single text->latlng route, so this is the two-leg path
+   * the mobile apps use, and both legs are public (no service key):
+   *   1. /config/place-api-autocomplete?search_text=...  -> placeId
+   *   2. /config/place-api-details?placeid=...           -> lat/lng
+   *
+   * Note leg 2's query param is `placeid`, not `place_id` - the latter answers
+   * 403 "The placeid field is required".
+   *
+   * Returns null on any failure so the caller can fall through to its mocks.
+   */
+  private async forwardGeocode(address: string): Promise<{
+    latitude: number;
+    longitude: number;
+    formattedAddress: string;
+    placeId?: string;
+  } | null> {
+    const headers = { moduleid: '3', zoneid: '1' };
+
+    try {
+      const suggest = await firstValueFrom(
+        this.httpService.get(
+          `${this.phpBackendUrl}/api/v1/config/place-api-autocomplete`,
+          { params: { search_text: address }, headers, timeout: 10000 },
+        ),
+      );
+
+      // Places API v1 shape: { suggestions: [{ placePrediction: {...} }] }.
+      // Older builds returned a bare array of { place_id, description }.
+      const data = suggest.data;
+      let placeId: string | undefined;
+      let described: string | undefined;
+
+      if (Array.isArray(data?.suggestions) && data.suggestions.length > 0) {
+        const p = data.suggestions[0]?.placePrediction;
+        placeId = p?.placeId || p?.place;
+        described = p?.text?.text;
+      } else if (Array.isArray(data) && data.length > 0) {
+        placeId = data[0]?.place_id;
+        described = data[0]?.description;
+      }
+
+      if (!placeId) {
+        this.logger.warn(`🗺️ No place match for: "${address}"`);
+        return null;
+      }
+
+      const details = await firstValueFrom(
+        this.httpService.get(
+          `${this.phpBackendUrl}/api/v1/config/place-api-details`,
+          { params: { placeid: placeId }, headers, timeout: 10000 },
+        ),
+      );
+
+      const d = details.data;
+      // v1: { location: { latitude, longitude }, formattedAddress }
+      // legacy: { result: { geometry: { location: { lat, lng } } } }
+      const lat = Number(
+        d?.location?.latitude ?? d?.result?.geometry?.location?.lat,
+      );
+      const lng = Number(
+        d?.location?.longitude ?? d?.result?.geometry?.location?.lng,
+      );
+
+      if (!this.validateCoordinates(lat, lng)) {
+        this.logger.warn(
+          `🗺️ Place ${placeId} returned no usable coordinates`,
+        );
+        return null;
+      }
+
+      const formattedAddress =
+        d?.formattedAddress || d?.result?.formatted_address || described || address;
+
+      this.logger.log(
+        `🗺️ Geocoded "${address}" -> ${formattedAddress} (${lat}, ${lng})`,
+      );
+
+      return { latitude: lat, longitude: lng, formattedAddress, placeId };
+    } catch (error) {
+      this.logger.error(`Forward geocoding failed: ${error.message}`);
+      return null;
     }
   }
 
