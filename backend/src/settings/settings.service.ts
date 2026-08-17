@@ -36,6 +36,13 @@ export class SettingsService {
   /**
    * Get all settings for the dashboard
    */
+  /**
+   * Sent in place of a secret's value by getAllSettings. Also refused by
+   * updateSettings, so a client that renders the mask into an input and saves
+   * the form cannot overwrite the real secret with these characters.
+   */
+  static readonly SECRET_MASK = '********';
+
   async getAllSettings() {
     let settings: any[] = [];
     try {
@@ -60,10 +67,20 @@ export class SettingsService {
       const dbKey = key.toLowerCase().replace(/_/g, '-'); // e.g. label-studio-url
       const dbSetting = settings.find(s => s.key === dbKey);
       
+      const rawValue = dbSetting ? dbSetting.value : (this.config.get(key) || '');
+      const isSecret = key.includes('KEY') || key.includes('TOKEN') || key.includes('PASSWORD');
+
       result.push({
         key: dbKey,
-        value: dbSetting ? dbSetting.value : (this.config.get(key) || ''),
-        isSecret: key.includes('KEY') || key.includes('TOKEN') || key.includes('PASSWORD'),
+        // A secret value never leaves the process. This list is not in
+        // GlobalAuthGuard's ALWAYS_ENFORCED_PREFIXES, so under
+        // GLOBAL_AUTH_MODE=shadow an anonymous GET /api/settings was served
+        // label-studio-api-key in full - the row even declared isSecret: true
+        // and returned the bytes anyway. Callers only need to know whether a
+        // secret is configured, which isSet answers.
+        value: isSecret && rawValue ? SettingsService.SECRET_MASK : rawValue,
+        isSecret,
+        isSet: Boolean(rawValue),
         source: dbSetting ? 'database' : 'env'
       });
     }
@@ -77,6 +94,12 @@ export class SettingsService {
   async updateSettings(settings: Array<{ key: string; value: string }>) {
     const results = [];
     for (const setting of settings) {
+      if (setting.value === SettingsService.SECRET_MASK) {
+        // The caller is echoing back the mask from getAllSettings, not a new
+        // secret. Writing it would destroy the stored credential.
+        results.push({ key: setting.key, success: false, error: 'Masked value ignored' });
+        continue;
+      }
       try {
         await (this.prisma as any).systemSettings?.upsert({
           where: { key: setting.key },

@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Put, Body, Param } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Body,
+  Param,
+  ForbiddenException,
+} from '@nestjs/common';
 import { SettingsService } from './settings.service';
 
 @Controller('settings')
@@ -101,14 +109,36 @@ export class SettingsController {
     return this.settingsService.testMinio();
   }
 
+  /**
+   * A setting is looked up by exact name, so this route hands out whatever name
+   * the caller can guess -- ADMIN_API_KEY included, which is how an anonymous
+   * request read the platform's admin credential on 2026-08-16.
+   *
+   * Secret-shaped names are refused here as well as in GlobalAuthGuard, because
+   * the guard's behaviour depends on GLOBAL_AUTH_MODE and a credential leak
+   * should not be one env var away from returning.
+   */
+  private static readonly SECRET_SHAPED_NAME =
+    /(SECRET|TOKEN|KEY|PASSWORD|PASSWD|CREDENTIAL|DSN|PRIVATE)/i;
+
   @Get('key/:key')
   async getSetting(@Param('key') key: string) {
+    if (SettingsController.SECRET_SHAPED_NAME.test(key)) {
+      throw new ForbiddenException(
+        'Secret-valued settings cannot be read through the settings API',
+      );
+    }
     const value = await this.settingsService.getSetting(key);
     return { key, value };
   }
 
   @Put('key/:key')
   async updateSetting(@Param('key') key: string, @Body() body: { value: string }) {
+    if (SettingsController.SECRET_SHAPED_NAME.test(key)) {
+      throw new ForbiddenException(
+        'Secret-valued settings cannot be written through the settings API',
+      );
+    }
     await this.settingsService.updateSettings([{ key, value: body.value }]);
     return { key, value: body.value, success: true };
   }

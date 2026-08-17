@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpException, HttpStatus, Logger, UseGuards } from '@nestjs/common';
 import { SecretsService } from './secrets.service';
+import { AdminAuthGuard } from '../admin/guards/admin-auth.guard';
 
 interface CreateSecretDto {
   name: string;
@@ -20,8 +21,14 @@ interface UpdateSecretDto {
  * 
  * All secret values are stored encrypted in the database.
  * Values are never returned in full - only masked versions for display.
+ *
+ * Guarded at the class level. This module is not currently imported into
+ * AppModule, so every route here 404s today -- which is exactly why the guard
+ * belongs on it now: whoever mounts it next inherits a closed controller
+ * instead of an open secret store.
  */
 @Controller('secrets')
+@UseGuards(AdminAuthGuard)
 export class SecretsController {
   private readonly logger = new Logger(SecretsController.name);
 
