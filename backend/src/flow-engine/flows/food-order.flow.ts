@@ -3285,7 +3285,7 @@ Ask: "Would you like me to send a rider to pick it up for you?"`,
               { id: 'btn_clear', label: '🗑️ Clear Cart', value: 'clear_cart' }
             ],
             saveToContext: {
-              cart_display: '{{cart_validation.cart_items}}',
+              cart_display: '{{cart_validation.cart_cards}}',
             },
           },
           output: '_last_response',

@@ -467,6 +467,10 @@ export class CartManagerExecutor implements ActionExecutor {
       output: {
         valid: true,
         cart_items: cart,
+        // Display-shaped copy. add() returns cards under cart_items; validate()
+        // returns raw rows there, so a caller rendering cart_items as cards got
+        // nameless entries. Callers that display must use cart_cards.
+        cart_cards: this.convertToCards(cart),
         totalPrice,
         totalItems: cart.reduce((sum, item) => sum + item.quantity, 0),
         storeId: storeIds.length === 1 ? storeGroups[storeIds[0]].storeId : undefined,

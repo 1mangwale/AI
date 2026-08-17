@@ -1900,7 +1900,7 @@ export class ContextRouterService implements OnModuleInit {
           
           // Build formatted message with items
           let itemsMessage = response.message + '\n\n';
-          const rows: Array<{ id: string; title: string; description?: string }> = [];
+          const rows: Array<{ id: string; title: string; description?: string; buttonTitle?: string }> = [];
           
           const maxItems = event.channel === 'whatsapp' ? 5 : 10;
           response.cards.slice(0, maxItems).forEach((card, idx) => {
@@ -1919,7 +1919,16 @@ export class ContextRouterService implements OnModuleInit {
             // card.action?.value is the preferred source (e.g., "item_10201")
             // Fallback: prefix card.id with "item_" to match the web format
             const rowId = card.action?.value || (card.id ? `item_${card.id}` : `item_${idx}`);
+            // The card declares its own action: search cards add, cart cards remove
+            // (cart-manager.executor.ts sets action.value = `remove <item>` and
+            // isCartItem = true). The button below used to hardcode `Add ...` for
+            // every card, so on the cart screen a Remove action shipped under an
+            // Add label, and tapping what read as Add deleted the item.
+            const isRemove =
+              card.isCartItem === true ||
+              /^remove\b/i.test(String(card.action?.value ?? ''));
             rows.push({
+              buttonTitle: `${isRemove ? '➖ Remove' : 'Add'} ${name}`,
               id: String(rowId).substring(0, 200), // WhatsApp list row ID limit
               title: String(name).substring(0, 24),
               description: `${vegIcon} ${price} • ${store || 'Unknown store'}`.substring(0, 72),
@@ -1951,7 +1960,7 @@ export class ContextRouterService implements OnModuleInit {
                 footer: footerText,
                 buttons: rows.map(r => ({
                   id: r.id,
-                  title: `Add ${r.title}`.substring(0, 20),
+                  title: (r.buttonTitle ?? `Add ${r.title}`).substring(0, 20),
                 })),
               }
             );
