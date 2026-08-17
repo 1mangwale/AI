@@ -425,8 +425,12 @@ export class StateMachineEngine {
           context
         );
 
-        // If successful or not retrying on failure, return immediately
-        if (result.success || !shouldRetry) {
+        // If successful, not retrying, or the executor explicitly marked this
+        // failure non-retryable, return immediately. The third clause matters:
+        // every other exit from this loop builds a fresh result object and so
+        // throws away result.event, which is how a named business-rule event
+        // (e.g. cod_not_available) would otherwise never reach the transitions.
+        if (result.success || !shouldRetry || result.retryable === false) {
           return result;
         }
 

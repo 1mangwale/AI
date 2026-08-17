@@ -483,9 +483,20 @@ export class PhpOrderService extends PhpApiService {
 
     } catch (error) {
       this.logger.error('Failed to create food order:', error.message);
+      // Classify business-rule refusals into a stable code at the PHP boundary,
+      // so callers never have to regex a translated sentence. Laravel's
+      // translate() turns the message key into prose (helpers.php:75), so the
+      // snake_case key is NOT present in error.message -- match the prose.
+      // errors[0].code is 'payment' for BOTH COD gates in PlaceNewOrder.php
+      // (:1511 module-zone and :1529 per-store); the same re-offer is correct
+      // for both, so one code deliberately covers them.
+      const isCodRefusal =
+        error?.code === 'payment' &&
+        /cash[\s_]*on[\s_]*delivery/i.test(String(error?.message || ''));
       return {
         success: false,
         message: error.message,
+        errorCode: isCodRefusal ? 'COD_NOT_AVAILABLE' : undefined,
       };
     }
   }

@@ -768,6 +768,11 @@ Hit confirm and I'll place your order! 🚀`,
       ],
       transitions: {
         success: 'completed',
+        // Defensive: this state has no `default`, so an unrouted event resolves
+        // to nextState=null with hasTransitions=true and the flow STALLS here
+        // (state-machine.engine.ts:252-268). Ecom shares createFoodOrder, so it
+        // can produce this event. Behaviour is identical to today's `error`.
+        cod_not_available: 'order_failed',
         error: 'order_failed',
       },
     },

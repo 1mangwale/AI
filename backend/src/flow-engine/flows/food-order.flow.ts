@@ -5829,6 +5829,7 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {
+        cod_not_available: 'check_cod_retry_guard',
         success: 'multi_store_completed',
         error: 'order_failed',
       },
@@ -5856,6 +5857,7 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {
+        cod_not_available: 'check_cod_retry_guard',
         success: 'show_food_payment_gateway',
         error: 'order_failed',
       },
@@ -5927,6 +5929,7 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {
+        cod_not_available: 'check_cod_retry_guard',
         success: 'completed',
         error: 'order_failed',
       },
@@ -5953,6 +5956,7 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {
+        cod_not_available: 'check_cod_retry_guard',
         success: 'completed',
         auth_expired: 'auth_expired_relogin',
         error: 'order_failed',
@@ -6036,6 +6040,7 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {
+        cod_not_available: 'check_cod_retry_guard',
         success: 'show_food_payment_gateway',
         auth_expired: 'auth_expired_relogin',
         error: 'order_failed',
@@ -6528,6 +6533,66 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {},
+    },
+
+    // ---- COD refused by store/zone -------------------------------------
+    // Laravel returns 403 for a store with cash_on_delivery=0
+    // (PlaceNewOrder.php:1529). Re-offer a payment method ONCE, then stop.
+    // The guard is its own state because a transition table is static: every
+    // COD entry point (hardcoded buttons, keyword match, saved preference)
+    // converges here, so one counter terminates all of them.
+    check_cod_retry_guard: {
+      type: 'decision',
+      description: 'Re-offer payment once when the store refuses cash, then give up',
+      conditions: [
+        {
+          expression: '!!context.cod_unavailable_shown',
+          event: 'already_shown',
+        },
+      ],
+      transitions: {
+        already_shown: 'order_failed',
+        default: 'cod_not_available_retry',
+      },
+    },
+
+    cod_not_available_retry: {
+      type: 'action',
+      description: 'Tell the user this store does not take cash and offer alternatives',
+      actions: [
+        {
+          id: 'cod_unavailable_msg',
+          executor: 'response',
+          config: {
+            message: '💵 Sorry, this store does not accept Cash on Delivery.\n\nPlease choose another way to pay:',
+            buttons: [
+              { label: '👛 Pay with Wallet', value: 'wallet', action: 'wallet' },
+              { label: '💳 Pay Online', value: 'digital_payment', action: 'digital_payment' },
+            ],
+            saveToContext: {
+              cod_unavailable_shown: true,
+            },
+          },
+          output: '_last_response',
+        },
+      ],
+      transitions: {
+        default: 'await_cod_alternative_choice',
+      },
+    },
+
+    // Wait state carries no actions on purpose: the engine runs a wait state's
+    // actions only when RESUMING (state-machine.engine.ts:215), and its onEntry
+    // on every entry -- putting the prompt here would overwrite the response
+    // the action state just produced.
+    await_cod_alternative_choice: {
+      type: 'wait',
+      description: 'Wait for wallet/online choice after cash was refused',
+      onEntry: [],
+      transitions: {
+        user_message: 'select_payment_method',
+        default: 'select_payment_method',
+      },
     },
 
     order_failed: {

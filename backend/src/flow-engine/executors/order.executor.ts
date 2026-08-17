@@ -126,6 +126,19 @@ export class OrderExecutor implements ActionExecutor {
         // Phase 2: Record failed order
         await this.recordOrderInteraction(context, orderType, false);
 
+        // The store/zone refuses cash. This is a decision Laravel already made,
+        // so retrying just re-POSTs the same placement (up to maxRetries times).
+        // retryable:false keeps the retry loop from swallowing the event.
+        if (result.errorCode === 'COD_NOT_AVAILABLE') {
+          this.logger.warn('COD not available for this store - re-offering payment methods');
+          return {
+            success: false,
+            error: result.message,
+            event: 'cod_not_available',
+            retryable: false,
+          };
+        }
+
         return {
           success: false,
           error: result.message,

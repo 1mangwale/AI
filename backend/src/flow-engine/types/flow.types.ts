@@ -183,6 +183,10 @@ export interface ActionExecutionResult {
   output?: any;
   error?: string;
   event?: string; // Event to emit after action
+  // Opt-in: set false when a failure is a business rule, not a transient error.
+  // executeActionWithRetry() then returns this result verbatim instead of
+  // retrying and discarding `event`. No executor sets it except order.executor.
+  retryable?: boolean;
   shouldTransition?: boolean; // Should transition immediately
   data?: Record<string, any>; // Additional data to pass
 }
