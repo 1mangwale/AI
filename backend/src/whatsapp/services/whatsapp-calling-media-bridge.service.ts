@@ -157,8 +157,11 @@ export class WhatsAppCallingMediaBridgeService {
       }),
     });
     if (!response.ok) {
+      // Meta's SDP rejection carries its only useful detail in error_user_msg,
+      // which sits past the 200-char mark — truncating here once cost a whole
+      // live call to discover.
       const text = await response.text();
-      throw new Error(`${action} -> HTTP ${response.status} ${text.slice(0, 200)}`);
+      throw new Error(`${action} -> HTTP ${response.status} ${text.slice(0, 1500)}`);
     }
   }
 
