@@ -1,8 +1,10 @@
-import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
+import { AdminApiKeyGuard } from '../common/guards/admin-api-key.guard';
 import { MessageGatewayService } from '../messaging/services/message-gateway.service';
 import { SessionService } from '../session/session.service';
 import { Platform } from '../common/enums/platform.enum';
 
+@UseGuards(AdminApiKeyGuard)
 @Controller('test-chat')
 export class TestChatController {
   constructor(

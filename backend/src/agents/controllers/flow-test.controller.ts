@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Get, Logger, Inject, Optional } from '@nestjs/common';
+import { Controller, Post, Body, Get, Logger, Inject, Optional, UseGuards } from '@nestjs/common';
+import { AdminApiKeyGuard } from '../../common/guards/admin-api-key.guard';
 import { AgentOrchestratorService } from '../services/agent-orchestrator.service';
 import { SessionService } from '../../session/session.service';
 
@@ -7,6 +8,7 @@ import { SessionService } from '../../session/session.service';
  * 
  * Endpoints for testing Flow integration (moved to /test/flows to avoid conflict)
  */
+@UseGuards(AdminApiKeyGuard)
 @Controller('test/flows')
 export class FlowTestController {
   private readonly logger = new Logger(FlowTestController.name);

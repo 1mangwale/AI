@@ -1,8 +1,10 @@
-import { Controller, Post, Body, Get, Param, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Logger, UseGuards } from '@nestjs/common';
+import { AdminApiKeyGuard } from '../../common/guards/admin-api-key.guard';
 import { MessageGatewayService } from '../../messaging/services/message-gateway.service';
 import { SessionService } from '../../session/session.service';
 import { Platform } from '../../common/enums/platform.enum';
 
+@UseGuards(AdminApiKeyGuard)
 @Controller('test')
 export class TestController {
   private readonly logger = new Logger(TestController.name);
