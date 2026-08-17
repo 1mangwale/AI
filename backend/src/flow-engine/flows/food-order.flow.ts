@@ -458,6 +458,22 @@ export const foodOrderFlow: FlowDefinition = {
       },
     },
 
+    // 🛑 Wait WITHOUT an onEntry, so the address executor's own message survives.
+    // request_location cannot be reused here: it is a wait state whose onEntry
+    // rewrites _last_response, which silently destroyed the saved-address
+    // picker and trapped every authenticated user at this step. Same shape as
+    // parcel's wait_for_pickup, which is why parcel's picker has always worked.
+    wait_for_location_choice: {
+      type: 'wait',
+      description: 'Show the address executor\'s own prompt (saved-address picker or not-found) and wait',
+      actions: [],
+      transitions: {
+        location_shared: 'confirm_location_received',
+        user_message: 'handle_location_response',
+        default: 'handle_location_response',
+      },
+    },
+
     // 📍 NEW: Try to extract location from text
     extract_location_from_text: {
       type: 'action',
@@ -477,7 +493,7 @@ export const foodOrderFlow: FlowDefinition = {
       transitions: {
         // 🔧 FIX: Restore original food query after text location extraction
         address_valid: 'restore_original_query',
-        waiting_for_input: 'request_location', // Go back to request if address not found
+        waiting_for_input: 'wait_for_location_choice', // Executor composed its own prompt - stand still and show it
         error: 'restore_original_query', // Continue even if extraction fails - but restore query first!
         default: 'restore_original_query', // Fallback - always restore query
       },
