@@ -42,6 +42,24 @@ interface MessagePayload {
   };
 }
 
+/**
+ * Every flow state that parks a user in front of the login modal.
+ *
+ * Both post-login resume paths MUST read this same list. They previously
+ * disagreed: `session:join` carried all five, while `auth:login` — the event
+ * the inline web login actually fires — carried only the two parcel states.
+ * A food order therefore never resumed on the socket; it survived purely on
+ * the frontend's 800ms `handleSend('checkout')` timer. That is a race, not a
+ * handshake, and it is invisible until the network is slow.
+ */
+const LOGIN_WAIT_STATES = [
+  'wait_for_login',
+  'trigger_frontend_auth_order',
+  'handle_frontend_auth_response',
+  'trigger_frontend_auth_food',
+  'handle_frontend_auth_food',
+];
+
 @WebSocketGateway({
   namespace: '/ai-agent',
   cors: {
@@ -564,18 +582,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         // We should RESUME the flow, not show a generic greeting
         try {
           const flowContext = await this.flowEngineService.getContext(sessionId);
-          // Parcel's three states were the whole list, so a food order that
-          // stopped at the login modal was never resumed after login - the
-          // user logged in and the chat just sat there holding their cart.
-          const loginWaitStates = [
-            'wait_for_login',
-            'trigger_frontend_auth_order',
-            'handle_frontend_auth_response',
-            'trigger_frontend_auth_food',
-            'handle_frontend_auth_food',
-          ];
-          
-          if (flowContext && loginWaitStates.includes(flowContext.currentState)) {
+          if (flowContext && LOGIN_WAIT_STATES.includes(flowContext.currentState)) {
             this.logger.log(`🔄 Active flow "${flowContext.flowId}" waiting at "${flowContext.currentState}" — resuming after login`);
             
             // Send a brief "logged in" confirmation
@@ -1147,6 +1154,49 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
    * Handle centralized authentication event from any channel
    * This syncs auth across all connected clients for the same phone
    */
+  /**
+   * The web frontend ALSO re-sends the literal text "checkout" 800ms after a
+   * successful login (page.tsx `InlineLogin.onSuccess`) as its own fallback for
+   * the socket resume below. While the resume never fired for food, that timer
+   * was the only thing carrying the customer back into their order.
+   *
+   * Now that the resume does fire, the trailing "checkout" would land on
+   * `wait_cart_review`, whose `user_message` transition advances — auto-clicking
+   * straight past the "Review Your Order / Confirm & Add Address" screen the
+   * customer never got to read. So when the resume owns the turn, seed the
+   * existing dedup cache to swallow that one message.
+   *
+   * Only "checkout" is suppressed — never "proceed", which is the customer's
+   * own confirm button and must always reach the flow.
+   */
+  private static readonly RESUME_FALLBACK_MESSAGE = 'checkout';
+
+  private resumeFallbackKey(sessionId: string): string {
+    const crypto = require('crypto');
+    const hash = crypto
+      .createHash('md5')
+      .update(ChatGateway.RESUME_FALLBACK_MESSAGE)
+      .digest('hex');
+    return `${sessionId}:${hash}`;
+  }
+
+  /** Swallow the frontend's 800ms "checkout" — the resume is handling this turn. */
+  private suppressResumeFallback(sessionId: string): void {
+    if (!this.messageCache.has(sessionId)) {
+      this.messageCache.set(sessionId, new Map());
+    }
+    const cache = this.messageCache.get(sessionId)!;
+    const key = this.resumeFallbackKey(sessionId);
+    cache.set(key, Date.now());
+    // Don't leave the entry behind: a real "checkout" typed later must get through.
+    setTimeout(() => cache.delete(key), this.DEDUP_WINDOW);
+  }
+
+  /** Resume failed — hand the turn back to the frontend's fallback timer. */
+  private releaseResumeFallback(sessionId: string): void {
+    this.messageCache.get(sessionId)?.delete(this.resumeFallbackKey(sessionId));
+  }
+
   @SubscribeMessage('auth:login')
   async handleAuthLogin(
     @MessageBody() data: { 
@@ -1215,9 +1265,13 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
           // chat instead of being carried back into their order.
           const currentState = flowContext?.currentState;
           
-          if (flowContext && (currentState === 'trigger_frontend_auth_order' || currentState === 'handle_frontend_auth_response')) {
+          if (flowContext && LOGIN_WAIT_STATES.includes(currentState)) {
             this.logger.log(`🔄 Flow waiting at ${currentState}, sending auth completion signal to resume flow`);
-            
+
+            // Claim this turn before the await — the frontend's fallback fires
+            // at 800ms and the resume can take longer than that.
+            this.suppressResumeFallback(sessionId);
+
             // Send internal message to resume the flow
             const resumeResult = await this.flowEngineService.processMessage(
               sessionId,
@@ -1239,6 +1293,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
           }
         } catch (resumeError) {
           this.logger.error(`⚠️ Error resuming flow after auth: ${resumeError.message}`);
+          // Resume died — let the frontend's 800ms "checkout" through after all.
+          this.releaseResumeFallback(sessionId);
         }
       } else {
         client.emit('auth:failed', {
