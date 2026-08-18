@@ -605,6 +605,27 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
             }
             return;
           }
+
+          // 🛒 A live flow that is NOT waiting for login: the customer logged
+          // in voluntarily, mid-order. Re-render where they actually are instead
+          // of burying a live cart under the generic menu greeting below.
+          // rerenderCurrentState() only re-runs a wait state's onEntry and never
+          // advances the flow, so this is safe for any non-terminal state.
+          if (flowContext?.currentState) {
+            const resumed = await this.flowEngineService.rerenderCurrentState(sessionId);
+            if (resumed?.response || resumed?.cards?.length) {
+              this.logger.log(
+                `🛒 Live flow "${flowContext.flowId}" parked at "${flowContext.currentState}" - re-rendering after voluntary login`,
+              );
+              client.emit('message', {
+                content: `Hello${payload.metadata.userName ? ' ' + payload.metadata.userName : ''}! 👋 Welcome back to Mangwale!\n\nPicking up where you left off...`,
+                role: 'assistant',
+                timestamp: Date.now(),
+              });
+              this.emitBotResponse(client, sessionId, resumed);
+              return;
+            }
+          }
         } catch (flowResumeErr) {
           this.logger.warn(`⚠️ Flow resume check failed: ${flowResumeErr.message}`);
           // Fall through to normal greeting

@@ -697,6 +697,92 @@ export class FlowEngineService {
   }
 
   /**
+   * Re-render the prompt of the state the session is currently parked in,
+   * WITHOUT advancing the flow.
+   *
+   * Used after a *voluntary* login - the customer logged in while parked
+   * mid-order rather than being walled by a login-required state - where the
+   * gateway would otherwise bury a live cart under a generic menu greeting.
+   *
+   * Safety properties, all load-bearing:
+   *  - Only 'wait' states are re-rendered. action/decision states auto-execute
+   *    and would advance the flow; end/final states are already done.
+   *  - executeState() is called with NO event, so for a wait state it runs only
+   *    onEntry (state-machine.engine.ts:146) and skips actions entirely
+   *    (:210 - shouldExecuteActions is false without an event). Nothing can
+   *    trigger a transition.
+   *  - The context is NEVER persisted and the flow run is NEVER updated. If the
+   *    state machine still reports a different next state, the render is dropped.
+   */
+  async rerenderCurrentState(sessionId: string): Promise<FlowProcessingResult | null> {
+    const session = await this.sessionService.getSession(sessionId);
+    const flowContext = session?.data?.flowContext;
+    if (!flowContext?.flowRunId || !flowContext?.currentState) return null;
+
+    const flowRun = await this.prisma.flowRun.findUnique({
+      where: { id: flowContext.flowRunId },
+    });
+    if (!flowRun) return null;
+    if (['completed', 'failed', 'cancelled'].includes(String(flowRun.status))) return null;
+
+    const flow = await this.getFlowById(flowRun.flowId);
+    if (!flow) return null;
+
+    const stateName: string = flowContext.currentState;
+    if (flow.finalStates?.includes(stateName)) return null;
+
+    const state = flow.states[stateName];
+    if (!state || state.type !== 'wait' || !state.onEntry?.length) return null;
+
+    const context: FlowContext = flowRun.context as any;
+    if (!context?._system || !context?.data) return null;
+    context._system.currentState = stateName;
+
+    // Reflect the login that just happened, so the re-rendered prompt is built
+    // from an authenticated context (same refresh processMessage() performs).
+    if (session?.data?.authenticated) {
+      context.data.authenticated = session.data.authenticated;
+      context.data.user_authenticated = session.data.authenticated;
+    }
+    if (session?.data?.auth_token) context.data.auth_token = session.data.auth_token;
+    if (session?.data?.user_id) context.data.user_id = session.data.user_id;
+
+    this.contextService.set(context, '_last_response', null);
+
+    const result = await this.stateMachine.executeState(flow, context);
+
+    if (result.nextState && result.nextState !== stateName) {
+      this.logger.warn(
+        `Re-render of "${stateName}" tried to transition to "${result.nextState}" - discarded, flow untouched`,
+      );
+      return null;
+    }
+
+    const { responseMessage, responseButtons, responseCards, responseMetadata, cards } =
+      this.extractResponseFromContext(context, '');
+
+    if (!responseMessage && !responseCards?.length && !cards) return null;
+
+    this.logger.log(`Re-rendered "${stateName}" of flow "${flow.id}" for ${sessionId} (no transition)`);
+
+    return {
+      flowRunId: flowRun.id,
+      currentState: stateName,
+      response: responseMessage,
+      completed: false,
+      collectingData: true,
+      progress: this.contextService.calculateProgress(
+        context,
+        Object.keys(flow.states).length,
+        flow.finalStates,
+      ),
+      buttons: responseButtons,
+      cards: responseCards || cards,
+      metadata: responseMetadata || (cards ? { cards } : undefined),
+    };
+  }
+
+  /**
    * Check if flow is in a wait state (collecting user input)
    * This is important to prevent interruptions during data collection
    */
