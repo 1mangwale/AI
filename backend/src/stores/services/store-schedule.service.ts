@@ -147,7 +147,6 @@ export class StoreScheduleService {
     }
 
     // Check each shift window; return open immediately if any window matches
-    let earliestOpen: string | undefined;
     for (const schedule of schedules) {
       const status = this.checkIfOpen(
         schedule.opening_time,
@@ -157,19 +156,34 @@ export class StoreScheduleService {
       if (status.is_open) {
         return status;
       }
-      // Track earliest opens_at across all windows for the closed message
-      if (!earliestOpen && status.opens_at) {
-        earliestOpen = status.opens_at;
-      }
     }
 
-    // All windows exhausted — store is closed
+    // All windows exhausted — the store is closed. Name the NEXT opening, not
+    // the first window we happened to iterate over. A split-shift store closed
+    // between lunch and dinner reopens LATER TODAY; telling that customer
+    // "Opens at 11:00 AM" sends them away until tomorrow and loses the order.
+    const nowMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    const toMinutes = (t: string): number => {
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + m;
+    };
+    const openings = schedules
+      .map((s) => s.opening_time)
+      .filter((t): t is string => Boolean(t))
+      .sort((a, b) => toMinutes(a) - toMinutes(b));
+
+    const laterToday = openings.find((o) => toMinutes(o) > nowMinutes);
+    const nextOpen = laterToday ?? openings[0];
+
+    if (!nextOpen) {
+      return { is_open: false, message: 'Closed today' };
+    }
+
+    // Only say "tomorrow" when every window for today has already passed.
     return {
       is_open: false,
-      message: earliestOpen
-        ? `Closed • Opens at ${this.formatTime(earliestOpen)}`
-        : 'Closed today',
-      opens_at: earliestOpen,
+      message: `Closed • Opens at ${this.formatTime(nextOpen)}${laterToday ? '' : ' tomorrow'}`,
+      opens_at: nextOpen,
     };
   }
 
