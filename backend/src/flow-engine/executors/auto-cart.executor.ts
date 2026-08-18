@@ -1,9 +1,21 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ActionExecutor, ActionExecutionResult, FlowContext } from '../types/flow.types';
 
+interface Measure {
+  /** grams for weight, millilitres for volume, plain count for pieces */
+  magnitude: number;
+  kind: 'weight' | 'volume' | 'count';
+  /** exactly what the customer said, for the message ("1 kg") */
+  spoken: string;
+}
+
 interface ExtractedItem {
   name: string;
   quantity: number;
+  /** Name with an inline measure token stripped ("1 kg malai paneer" -> "malai paneer") */
+  matchName?: string;
+  /** The size/weight the customer actually asked for, normalised. Null when they said none. */
+  requested?: Measure | null;
 }
 
 interface CardItem {
@@ -39,6 +51,14 @@ interface MatchedItem {
   add_on_ids?: any[];
   /** Quantities for each selected add-on */
   add_on_qtys?: any[];
+  /** Label of the size/weight option we actually selected ("1Kg"), when we selected one */
+  variationLabel?: string | null;
+  /** What the customer asked for, when they asked for a size ("1 kg") */
+  requestedMeasure?: string | null;
+  /** true when the customer named a size and this item has no option that matches it */
+  unitUnverified?: boolean;
+  /** Size options this item offers, when the customer named none: ["250gm - Rs200", ...] */
+  sizeOptions?: string[];
 }
 
 /**
@@ -77,6 +97,40 @@ export class AutoCartExecutor implements ActionExecutor {
           )
         : [];
 
+      // 📏 Attach the size/weight the customer asked for.
+      // extracted_food.items is food_reference — names only — so the unit never
+      // arrives here. It DOES survive in food_nlu.entities.item_quantities, which
+      // MultiStoreSearchExecutor already reads; do the same, then fall back to a
+      // measure written inline in the name ("1 kg malai paneer").
+      // NOTE: the numeric from item_quantities feeds the MEASURE only, never the
+      // cart quantity — "500 gm paneer" must add 1 pack of 500gm, not 500 packs.
+      const itemQuantities: Array<{ item: string; quantity: string; unit?: string }> =
+        (context.data as any)?.food_nlu?.entities?.item_quantities || [];
+      for (const extracted of extractedItems) {
+        const lowerName = String(extracted.name || '').toLowerCase().trim();
+        let requested: Measure | null = null;
+
+        const hit = itemQuantities.find((iq) => {
+          const other = String(iq?.item || '').toLowerCase().trim();
+          return !!other && (lowerName.includes(other) || other.includes(lowerName));
+        });
+        if (hit?.unit) {
+          const n = parseFloat(String(hit.quantity));
+          requested = this.normalizeMeasure(Number.isFinite(n) && n > 0 ? n : 1, hit.unit);
+        }
+
+        const inline = this.parseInlineMeasure(extracted.name);
+        if (inline) {
+          if (!requested) requested = inline.measure;
+          if (inline.rest) extracted.matchName = inline.rest;
+        }
+
+        extracted.requested = requested;
+        if (requested) {
+          this.logger.debug(`📏 "${extracted.name}" -> requested ${requested.spoken} (${requested.magnitude} ${requested.kind})`);
+        }
+      }
+
       if (!extractedItems || extractedItems.length === 0) {
         return {
           success: false,
@@ -105,7 +159,7 @@ export class AutoCartExecutor implements ActionExecutor {
 
       for (const extracted of extractedItems) {
         // Check for close matches (disambiguation needed)
-        const closeMatches = this.findCloseMatches(extracted.name, searchResults, preferredStoreId);
+        const closeMatches = this.findCloseMatches(extracted.matchName || extracted.name, searchResults, preferredStoreId);
 
         if (closeMatches.length > 1) {
           // Multiple similar items found — ask user to choose
@@ -140,13 +194,14 @@ export class AutoCartExecutor implements ActionExecutor {
           };
         }
 
-        const match = closeMatches.length === 1 ? { card: closeMatches[0].card, index: closeMatches[0].index, score: closeMatches[0].score } : this.findBestMatch(extracted.name, searchResults, preferredStoreId);
+        const match = closeMatches.length === 1 ? { card: closeMatches[0].card, index: closeMatches[0].index, score: closeMatches[0].score } : this.findBestMatch(extracted.matchName || extracted.name, searchResults, preferredStoreId);
         
         if (match) {
           const quantity = extracted.quantity || 1;
-          const price = this.parsePrice(match.card.price);
+          const sized = this.resolveVariation(match.card, extracted.requested || null);
+          const price = sized.price;
           const itemTotal = price * quantity;
-          
+
           matchedItems.push({
             itemIndex: match.index,
             itemId: match.card.id,
@@ -161,9 +216,13 @@ export class AutoCartExecutor implements ActionExecutor {
             storeLng: match.card.storeLng,
             extractedName: extracted.name,
             matchScore: match.score,
-            variation: [],
+            variation: sized.variation,
             add_on_ids: [],
             add_on_qtys: [],
+            variationLabel: sized.label,
+            requestedMeasure: extracted.requested?.spoken || null,
+            unitUnverified: sized.unitUnverified,
+            sizeOptions: sized.sizeOptions,
           });
           
           // 🏪 Set store affinity after first successful match
@@ -201,6 +260,11 @@ export class AutoCartExecutor implements ActionExecutor {
           totalPrice,
           message,
           allMatched: matchedItems.length === extractedItems.length,
+          // 📏 Items where the customer named a size this item cannot honour.
+          // Surfaced in the message; exposed here so a flow can branch on it later.
+          unitUnverifiedItems: matchedItems
+            .filter((i) => i.unitUnverified)
+            .map((i) => ({ itemName: i.itemName, requested: i.requestedMeasure })),
         },
         event,
       };
@@ -453,6 +517,10 @@ export class AutoCartExecutor implements ActionExecutor {
 
   /**
    * Build user-friendly cart message
+   *
+   * 📏 Every line says what the price covers: the selected size when we could
+   * select one, and an explicit caveat when the customer named a size this item
+   * cannot honour. A weight is never silently accepted.
    */
   private buildCartMessage(
     matchedItems: MatchedItem[],
@@ -465,28 +533,194 @@ export class AutoCartExecutor implements ActionExecutor {
 
     // Get store name from first item (all items should be from same store)
     const storeName = matchedItems[0]?.storeName;
-    
+
     const lines: string[] = ['🛒 **Your Cart**\n'];
-    
+
     // Show store prominently
     if (storeName) {
       lines.push(`📍 **From: ${storeName}**\n`);
     }
-    
+
     for (const item of matchedItems) {
-      lines.push(`${item.quantity}x ${item.itemName} - ₹${(item.price * item.quantity).toFixed(0)}`);
+      const size = item.variationLabel ? ` (${item.variationLabel})` : '';
+      lines.push(`${item.quantity}x ${item.itemName}${size} - ₹${(item.price * item.quantity).toFixed(0)}`);
     }
-    
+
     lines.push(`\n**Total: ₹${totalPrice.toFixed(0)}**`);
-    
+
+    // 📏 Say what the price covers whenever it is not self-evident.
+    const notes: string[] = [];
+    for (const item of matchedItems) {
+      if (item.unitUnverified) {
+        const asked = item.requestedMeasure ? `**${item.requestedMeasure}**` : 'that size';
+        if (item.sizeOptions?.length) {
+          notes.push(
+            `⚠️ **${item.itemName}** — you asked for ${asked}, which this store does not list. Available: ${item.sizeOptions.join(' · ')}. Tell me which one and I will update it.`,
+          );
+        } else {
+          notes.push(
+            `⚠️ **${item.itemName}** — you asked for ${asked}, but the store lists this item without any size or weight. ₹${item.price.toFixed(0)} is the price exactly as listed. Tell me if that is not what you wanted.`,
+          );
+        }
+      } else if (!item.variationLabel && item.sizeOptions?.length) {
+        notes.push(
+          `ℹ️ **${item.itemName}** — ₹${item.price.toFixed(0)} is the default listing. Sizes: ${item.sizeOptions.join(' · ')}. Say a size and I will switch it.`,
+        );
+      }
+    }
+    if (notes.length) {
+      lines.push('');
+      lines.push(...notes);
+    }
+
     if (unmatchedItems.length > 0) {
       lines.push(`\n⚠️ Couldn't find: ${unmatchedItems.join(', ')}`);
       lines.push('You can add them manually or search for alternatives.');
     }
-    
+
     lines.push('\nShall I proceed to checkout?');
-    
+
     return lines.join('\n');
+  }
+
+  /**
+   * 📏 Normalise a spoken quantity+unit into a comparable magnitude.
+   * Weight -> grams, volume -> millilitres, count -> pieces.
+   * Returns null for units that say nothing about size ("plate", "packet").
+   */
+  private normalizeMeasure(value: number, unit: string): Measure | null {
+    const u = String(unit || '').toLowerCase().trim().replace(/\./g, '');
+    const spoken = `${value} ${unit}`.trim();
+    const weight: Record<string, number> = {
+      kg: 1000, kgs: 1000, kilo: 1000, kilos: 1000, kilogram: 1000, kilograms: 1000,
+      g: 1, gm: 1, gms: 1, gram: 1, grams: 1, gramme: 1, grammes: 1,
+    };
+    const volume: Record<string, number> = {
+      l: 1000, ltr: 1000, ltrs: 1000, litre: 1000, litres: 1000, liter: 1000, liters: 1000,
+      ml: 1, mls: 1, millilitre: 1, milliliter: 1,
+    };
+    const count: Record<string, number> = {
+      pc: 1, pcs: 1, piece: 1, pieces: 1, nos: 1, no: 1, unit: 1, units: 1,
+      dozen: 12, dozens: 12,
+    };
+    if (weight[u] !== undefined) return { magnitude: value * weight[u], kind: 'weight', spoken };
+    if (volume[u] !== undefined) return { magnitude: value * volume[u], kind: 'volume', spoken };
+    if (count[u] !== undefined) return { magnitude: value * count[u], kind: 'count', spoken };
+    return null;
+  }
+
+  /** 📏 Pull a measure written inside a name/label ("1 kg malai paneer", "250gm", "1Kg"). */
+  private parseInlineMeasure(text: string): { measure: Measure; rest: string } | null {
+    const s = String(text || '');
+    const re = /(\d+(?:[.,]\d+)?)\s*(kgs?|kilos?|kilograms?|grams?|grammes?|gms?|g|mls?|millilitres?|milliliters?|litres?|liters?|ltrs?|l|dozens?|pcs?|pieces?|nos?)\b/i;
+    const m = s.match(re);
+    if (!m) return null;
+    const value = parseFloat(m[1].replace(',', '.'));
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const measure = this.normalizeMeasure(value, m[2]);
+    if (!measure) return null;
+    const rest = (s.slice(0, m.index) + s.slice((m.index || 0) + m[0].length))
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s,\-]+|[\s,\-]+$/g, '')
+      .trim();
+    return { measure, rest };
+  }
+
+  /**
+   * 📏 Decide which size/weight option of a card the customer actually gets, and
+   * what the price therefore covers.
+   *
+   * Two option shapes exist in the catalogue, and they price differently — both
+   * verified against Laravel:
+   *  - food_variations `[{name, values:[{label, optionPrice}]}]` — optionPrice is
+   *    ADDED to the base price (`Helpers::get_varient`, PlaceNewOrder.php:2617-2618).
+   *    Selection payload is `[{name, values:{label:[chosen]}}]`.
+   *  - legacy variations `[{type, price, stock}]` — price REPLACES the base
+   *    (`Helpers::variation_price`). Selection payload is `[chosenOption]`.
+   *
+   * ⚠️ Laravel picks its branch by `module_type == 'food'`, not by which column is
+   * populated, while the card collapses both columns into one `food_variations`
+   * field (search.executor.ts card builder), so we can only pick by SHAPE.
+   * Measured on prod 2026-08-18: 0 items populate both columns, and only 1 food
+   * item + 3 parcel items of 18,415 carry the shape their module will not read —
+   * for those the chat message can disagree with the cart, which recomputes
+   * server-side (CartController::resolveCartPrice) and remains authoritative.
+   * Closing it properly means carrying module_type on the card.
+   *
+   * Deliberately conservative: an option is only selected when the customer NAMED
+   * a size. With no size named we leave `variation: []` exactly as before — the
+   * price charged does not move — and instead list the sizes in the message so the
+   * number on screen is never presented as covering a weight it does not cover.
+   */
+  private resolveVariation(
+    card: CardItem,
+    requested: Measure | null,
+  ): { variation: any[]; label: string | null; price: number; unitUnverified: boolean; sizeOptions: string[] } {
+    const base = this.parsePrice(card.price);
+    const none = { variation: [] as any[], label: null as string | null, price: base, unitUnverified: false, sizeOptions: [] as string[] };
+
+    const groups: any[] = Array.isArray(card.food_variations) ? card.food_variations : [];
+    if (!groups.length) {
+      // No options at all. If the customer named a size, we must not pretend the
+      // flat price covers it.
+      return { ...none, unitUnverified: !!requested };
+    }
+
+    const isFoodShape = groups.some((g) => Array.isArray(g?.values));
+
+    if (isFoodShape) {
+      const group = groups.find((g) => Array.isArray(g?.values) && g.values.length) || null;
+      if (!group) return { ...none, unitUnverified: !!requested };
+      const values: any[] = group.values;
+      const sizeOptions = values.map(
+        (v: any) => `${v.label} - ₹${(base + (parseFloat(String(v.optionPrice)) || 0)).toFixed(0)}`,
+      );
+
+      if (!requested) return { ...none, sizeOptions };
+
+      const chosen = values.find((v: any) => this.labelMatches(v?.label, requested));
+      if (!chosen) return { ...none, unitUnverified: true, sizeOptions };
+
+      return {
+        variation: [{ name: group.name, values: { label: [chosen.label] } }],
+        label: String(chosen.label),
+        price: base + (parseFloat(String(chosen.optionPrice)) || 0),
+        unitUnverified: false,
+        sizeOptions,
+      };
+    }
+
+    // Legacy shape: {type, price, stock} — the option price REPLACES the base.
+    const legacy = groups.filter((g) => g && g.type !== undefined);
+    if (!legacy.length) return { ...none, unitUnverified: !!requested };
+    const sizeOptions = legacy.map((v: any) => `${v.type} - ₹${(parseFloat(String(v.price)) || 0).toFixed(0)}`);
+
+    if (!requested) return { ...none, sizeOptions };
+
+    const chosen = legacy.find((v: any) => this.labelMatches(v?.type, requested));
+    if (!chosen) return { ...none, unitUnverified: true, sizeOptions };
+
+    return {
+      variation: [chosen],
+      label: String(chosen.type),
+      price: parseFloat(String(chosen.price)) || base,
+      unitUnverified: false,
+      sizeOptions,
+    };
+  }
+
+  /** 📏 Does an option label ("1Kg", "500Gm", "1000gm") mean the size the customer asked for? */
+  private labelMatches(label: any, requested: Measure): boolean {
+    const text = String(label ?? '').trim();
+    if (!text) return false;
+    const parsed = this.parseInlineMeasure(text);
+    if (parsed) {
+      return parsed.measure.kind === requested.kind &&
+        Math.abs(parsed.measure.magnitude - requested.magnitude) < 0.001;
+    }
+    // No parseable measure in the label — compare literally, so odd labels like
+    // "Full" simply do not match rather than matching by accident.
+    return text.toLowerCase().replace(/\s+/g, '') === requested.spoken.toLowerCase().replace(/\s+/g, '');
   }
 
   /**
