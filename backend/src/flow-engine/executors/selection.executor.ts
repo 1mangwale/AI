@@ -34,6 +34,7 @@ interface SelectionResult {
   totalPrice: number;
   searchSuggestion?: string; // Items that weren't found - used to trigger re-search
   followUpResponse?: string; // Response for follow-up questions about results
+  unclearAttempts?: number; // Consecutive messages we failed to parse, read back from context
 }
 
 /**
@@ -83,8 +84,18 @@ export class SelectionExecutor implements ActionExecutor {
             `This should have been routed to search via check_resolution_result state. ` +
             `Returning search_items event as safeguard.`
           );
+          // `output` must be set: search_requested_items interpolates
+          // {{selection_result.searchSuggestion}} as its query, and the engine only writes
+          // `result.output` back to the context (state-machine.engine.ts:355). Returning
+          // `data` alone left that query empty, so the safeguard searched for nothing.
           return {
             success: true,
+            output: {
+              selectedItems: [],
+              action: 'search_items',
+              totalPrice: 0,
+              searchSuggestion: userMessage,
+            } as SelectionResult,
             event: 'search_items',
             data: {
               message: "Let me search for that!",
@@ -128,7 +139,34 @@ export class SelectionExecutor implements ActionExecutor {
         // Item has variations (sizes/weights) - prompt user to choose
         event = 'needs_variation';
       } else {
-        event = 'unclear';
+        // Nothing matched. Sending 'unclear' bounces to clarify_selection, whose only exit
+        // is straight back here — so this branch decides whether the user can ever escape.
+        const priorAttempts = Number((context.data.selection_result as SelectionResult)?.unclearAttempts) || 0;
+        result.unclearAttempts = priorAttempts + 1;
+
+        if (cards.length === 0) {
+          // With no cards on screen parseSelection has nothing to match against, so
+          // 'unclear' is guaranteed for EVERY future message - an inescapable loop that
+          // keeps asking the user to click an ADD button on an empty list. Search for
+          // whatever they typed instead; a miss lands on no_results, which offers a way out.
+          this.logger.warn(
+            `🔁 Unclear selection with 0 cards on screen - searching for "${userMessage}" instead of looping on clarify_selection`
+          );
+          result.action = 'search_items';
+          result.searchSuggestion = userMessage;
+          event = 'search_items';
+        } else if (result.unclearAttempts >= 3) {
+          // Cards are on screen but we have misread the user 3 times. Stop repeating the
+          // same prompt and treat the message as a new search.
+          this.logger.warn(
+            `🔁 ${result.unclearAttempts} unclear selections with ${cards.length} cards on screen - falling back to search for "${userMessage}"`
+          );
+          result.action = 'search_items';
+          result.searchSuggestion = userMessage;
+          event = 'search_items';
+        } else {
+          event = 'unclear';
+        }
       }
 
       return {
