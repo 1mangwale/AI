@@ -546,7 +546,6 @@ Hit confirm and I'll place your order! 🚀`,
                 message: '💳 **How would you like to pay?**\n\nOrder Total: ₹{{pricing.total}}',
                 buttons: [
                   { label: '📱 UPI / Online', value: 'online', action: 'pay_online' },
-                  { label: '💵 Cash on Delivery', value: 'cod', action: 'pay_cod' },
                 ],
               },
             },
@@ -616,7 +615,7 @@ Hit confirm and I'll place your order! 🚀`,
         },
       ],
       transitions: {
-        cod: 'set_payment_cod',
+        cod: 'cod_not_available_ecom',
         online: 'set_payment_online',
         default: 'select_payment_method', // Fallback if no valid method
       },
@@ -629,7 +628,7 @@ Hit confirm and I'll place your order! 🚀`,
       onEntry: [],
       transitions: {
         pay_online: 'set_payment_online',
-        pay_cod: 'set_payment_cod',
+        pay_cod: 'cod_not_available_ecom',
         user_message: 'handle_payment_input',
         default: 'handle_payment_input',
       },
@@ -655,7 +654,7 @@ Hit confirm and I'll place your order! 🚀`,
       ],
       transitions: {
         online: 'set_payment_online',
-        cod: 'set_payment_cod',
+        cod: 'cod_not_available_ecom',
         user_cancels: 'cancelled',
         default: 'select_payment_method',
       },
@@ -684,26 +683,28 @@ Hit confirm and I'll place your order! 🚀`,
       },
     },
 
-    // Set COD payment
-    set_payment_cod: {
+    // Cash is parcel-only. Laravel refuses cash for every non-parcel order
+    // before any store/zone check (PlaceNewOrder.php:124-132), so setting COD
+    // here could only ever produce a 403 at place_order. Explain and re-offer.
+    cod_not_available_ecom: {
       type: 'action',
-      description: 'Set payment method to COD and persist to context',
+      description: 'Tell the user cash is not available for shopping orders',
       actions: [
         {
-          id: 'set_cod',
+          id: 'ecom_cod_unavailable',
           executor: 'response',
           config: {
-            message: '💵 Cash on Delivery selected. Processing your order...',
-            saveToContext: {
-              payment_method: 'cash_on_delivery',
-              payment_details: { method: 'COD', id: 'cash_on_delivery' },
-            },
+            message: '💵 Cash on Delivery is not available for shopping orders.\n\nPlease pay online to continue:',
+            buttons: [
+              { label: '📱 UPI / Online', value: 'online', action: 'pay_online' },
+              { label: '❌ Cancel', value: 'cancel', action: 'user_cancels' },
+            ],
           },
           output: '_last_response',
         },
       ],
       transitions: {
-        default: 'check_store_before_order',
+        default: 'await_payment_choice',
       },
     },
 

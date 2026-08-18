@@ -358,6 +358,29 @@ export class StateMachineEngine {
 
         // Handle errors based on strategy
         if (!result.success) {
+          // A failed action that names an explicit business-rule event must be
+          // allowed to reach the transition table. findTriggeredEvent() is the
+          // ONLY reader of result.event and it runs AFTER this loop, so the
+          // throw below discarded the event and every recovery branch keyed on
+          // a failure event was dead code (e.g. cod_not_available). Only
+          // non-retryable failures qualify: a retryable one is a transport
+          // error, not a business rule.
+          if (result.event && result.retryable === false) {
+            this.recordExecutorError(context, {
+              executor: action.executor,
+              action: action.id,
+              state: stateName || 'unknown',
+              message: result.error || 'Executor failed with a business event',
+              recoverable: true,
+              retryable: false,
+              timestamp: new Date(),
+            });
+            this.logger.warn(
+              `Executor ${action.executor} failed with business event '${result.event}' in state ${stateName} — routing through transitions instead of failing the state`
+            );
+            continue;
+          }
+
           const errorHandled = await this.handleExecutorError(
             action,
             result,

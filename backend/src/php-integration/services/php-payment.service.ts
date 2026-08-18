@@ -199,7 +199,7 @@ export class PhpPaymentService extends PhpApiService {
   /**
    * Get available payment methods from config
    */
-  async getPaymentMethods(moduleId?: number, zoneId?: number): Promise<{
+  async getPaymentMethods(moduleId?: number, zoneId?: number, orderType?: string): Promise<{
     success: boolean;
     methods?: Array<{
       id: string;
@@ -212,7 +212,13 @@ export class PhpPaymentService extends PhpApiService {
     message?: string;
   }> {
     try {
-      this.logger.log(`💳 Fetching payment methods from config (Module: ${moduleId}, Zone: ${zoneId})`);
+      this.logger.log(`💳 Fetching payment methods from config (Module: ${moduleId}, Zone: ${zoneId}, OrderType: ${orderType})`);
+
+      // Cash is parcel-only. Laravel refuses cash for every non-parcel order
+      // before any store/zone/global check (PlaceNewOrder.php:124-132), so
+      // handing cash back for food or shopping can only produce a 403 at
+      // placement. Fail closed: the caller must say 'parcel' to get cash.
+      const cashAllowed = orderType === 'parcel';
 
       const headers: any = {};
       if (moduleId) headers['moduleId'] = moduleId.toString();
@@ -223,8 +229,8 @@ export class PhpPaymentService extends PhpApiService {
 
       const methods: Array<{id: string; name: string; type: string; enabled: boolean}> = [];
 
-      // Check if COD is enabled
-      if (response?.cash_on_delivery === true) {
+      // Check if COD is enabled (and permitted for this order type at all)
+      if (response?.cash_on_delivery === true && cashAllowed) {
         methods.push({
           id: 'cash_on_delivery',
           name: 'Cash on Delivery',
@@ -262,16 +268,27 @@ export class PhpPaymentService extends PhpApiService {
       // If no methods found, return defaults
       if (methods.length === 0) {
         this.logger.warn('No payment methods configured, using defaults');
+        // The old default was cash-only, which is the worst possible fallback
+        // for food/shopping: it offers the one method placement always rejects.
         return {
           success: true,
-          methods: [
-            {
-              id: 'cash_on_delivery',
-              name: 'Cash on Delivery',
-              type: 'cash',
-              enabled: true,
-            },
-          ],
+          methods: cashAllowed
+            ? [
+                {
+                  id: 'cash_on_delivery',
+                  name: 'Cash on Delivery',
+                  type: 'cash',
+                  enabled: true,
+                },
+              ]
+            : [
+                {
+                  id: 'digital_payment',
+                  name: '💳 Pay Online',
+                  type: 'digital',
+                  enabled: true,
+                },
+              ],
         };
       }
 

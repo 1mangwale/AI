@@ -552,8 +552,15 @@ export class PhpApiExecutor implements ActionExecutor {
           message: 'Missing required verification parameters',
         };
 
-      case 'get_payment_methods':
-        return this.paymentService.getPaymentMethods();
+      case 'get_payment_methods': {
+        // Was called with no arguments at all, so only the global config flag
+        // was ever read and cash showed up for every module. The flow must now
+        // declare its order type; anything but 'parcel' gets no cash option.
+        const pmModuleId = config.module_id ? Number(config.module_id) : undefined;
+        const pmZoneId = config.zone_id ? Number(config.zone_id) : undefined;
+        const pmOrderType = config.order_type || context.data?.order_type;
+        return this.paymentService.getPaymentMethods(pmModuleId, pmZoneId, pmOrderType);
+      }
 
       case 'get_surge_price': {
         const zoneId = config.zone_id ? Number(config.zone_id) : 0;

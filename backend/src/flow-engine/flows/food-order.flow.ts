@@ -5033,10 +5033,6 @@ Reply "confirm" to book the rider.`,
       description: 'Route to correct payment setter based on saved preference',
       conditions: [
         {
-          expression: `context.data?.pref_payment_data?.preferred_payment_method === 'cash_on_delivery'`,
-          event: 'cod',
-        },
-        {
           expression: `context.data?.pref_payment_data?.preferred_payment_method === 'wallet'`,
           event: 'wallet',
         },
@@ -5046,7 +5042,6 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {
-        cod: 'set_payment_cod',
         wallet: 'check_wallet_balance',   // Wallet always needs balance check
         digital: 'set_payment_digital',
         default: 'collect_payment_method',
@@ -5149,6 +5144,7 @@ Reply "confirm" to book the rider.`,
           executor: 'php_api',
           config: {
             action: 'get_payment_methods',
+            order_type: 'food',
           },
           output: 'payment_methods_response',
         },
@@ -5197,7 +5193,6 @@ Reply "confirm" to book the rider.`,
             buttons: [
               { id: 'btn_wallet', label: '👛 Wallet', value: 'wallet' },
               { id: 'btn_digital', label: '💳 Pay Online', value: 'digital_payment' },
-              { id: 'btn_cod', label: '💵 Cash on Delivery', value: 'cash_on_delivery' },
             ],
             responseType: 'request_payment_method',
           },
@@ -5231,7 +5226,10 @@ Reply "confirm" to book the rider.`,
       ],
       transitions: {
         wallet: 'check_wallet_balance',
-        cod: 'set_payment_cod',
+        // Cash is parcel-only. Laravel refuses cash for every non-parcel order
+        // before any store/zone check (PlaceNewOrder.php:124-132), so a COD
+        // choice here could only ever 403 at place_order. Explain it instead.
+        cod: 'cod_not_available_retry',
         digital: 'set_payment_digital',
         default: 'collect_payment_method',
       },
@@ -5403,7 +5401,6 @@ Reply "confirm" to book the rider.`,
             message: '👛 Your wallet balance is **₹0**. Please choose another payment method:',
             buttons: [
               { id: 'btn_digital', label: '💳 Pay Online', value: 'digital_payment' },
-              { id: 'btn_cod', label: '💵 Cash on Delivery', value: 'cash_on_delivery' },
             ],
           },
           output: '_last_response',
@@ -5415,6 +5412,9 @@ Reply "confirm" to book the rider.`,
       },
     },
 
+    // DEAD since 2026-08-18 — cash is parcel-only (PlaceNewOrder.php:124-132).
+    // Nothing routes here any more. Kept defined rather than deleted so that a
+    // stale reference anywhere cannot resolve to an undefined state.
     set_payment_cod: {
       type: 'action',
       description: 'Set payment method to COD',
@@ -5758,9 +5758,12 @@ Reply "confirm" to book the rider.`,
           executor: 'inventory',
           config: {
             action: 'check_store',
-            storeIdPath: 'store_id', // InventoryExecutor also falls back to restaurant_id
+            storeIdPath: 'cart_store_id', // cart_manager writes cart_store_id; InventoryExecutor falls back to store_id/restaurant_id
           },
           output: 'pre_order_store_check',
+          // Without this the default 'fail' strategy throws out of the engine and the
+          // declared error transition below is unreachable. PHP re-validates at order time.
+          onError: 'continue',
         },
       ],
       transitions: {
@@ -6255,9 +6258,8 @@ Reply "confirm" to book the rider.`,
           id: 'cod_fallback_msg',
           executor: 'response',
           config: {
-            message: '😕 Online payment is not going through.\n\nWould you like to switch to **Cash on Delivery** instead?\n\n💰 Order Total: ₹{{order_result.orderTotal}}',
+            message: '😕 Online payment is not going through.\n\n💰 Order Total: ₹{{order_result.orderTotal}}\n\nCash on Delivery is not available for food orders — you can retry the payment or cancel.',
             buttons: [
-              { label: '💵 Cash on Delivery', value: 'switch_to_cod', action: 'switch_to_cod' },
               { label: '🔄 Try Again', value: 'retry_payment', action: 'retry_payment' },
               { label: '❌ Cancel', value: 'cancel', action: 'cancel_order' },
             ],
@@ -6276,7 +6278,7 @@ Reply "confirm" to book the rider.`,
       description: 'Wait for user decision on COD fallback',
       onEntry: [],
       transitions: {
-        switch_to_cod: 'set_payment_cod',
+        switch_to_cod: 'show_food_payment_gateway',
         retry_payment: 'show_food_payment_gateway',
         cancel_order: 'cancelled',
         user_message: 'handle_cod_fallback_input',
@@ -6303,10 +6305,10 @@ Reply "confirm" to book the rider.`,
         },
       ],
       transitions: {
-        switch_to_cod: 'set_payment_cod',
+        switch_to_cod: 'show_food_payment_gateway',
         retry_payment: 'show_food_payment_gateway',
         cancelled: 'cancelled',
-        default: 'set_payment_cod', // Default to COD since online wasn't working
+        default: 'show_food_payment_gateway', // Cash is parcel-only — retry online
       },
     },
 
@@ -6339,7 +6341,7 @@ Reply "confirm" to book the rider.`,
       description: 'Wait for user decision on food payment retry',
       onEntry: [],
       transitions: {
-        switch_to_cod: 'set_payment_cod',
+        switch_to_cod: 'show_food_payment_gateway',
         retry_payment: 'show_food_payment_gateway',
         cancel_order: 'cancelled',
         user_message: 'handle_food_payment_retry_input',
@@ -6372,7 +6374,7 @@ Reply "confirm" to book the rider.`,
     // Payment timeout
     food_payment_timeout: {
       type: 'action',
-      description: 'Food payment timed out — offer COD, retry, or cancel',
+      description: 'Food payment timed out — offer retry or cancel',
       actions: [
         {
           id: 'timeout_msg',
@@ -6380,7 +6382,6 @@ Reply "confirm" to book the rider.`,
           config: {
             message: '⏰ **Payment Timeout**\n\nPayment session expired. Your order has been saved.\n\nWhat would you like to do?',
             buttons: [
-              { label: '💵 Cash on Delivery', value: 'switch_to_cod', action: 'switch_to_cod' },
               { label: '🔄 Retry Payment', value: 'retry_payment', action: 'retry_payment' },
               { label: '❌ Cancel', value: 'cancel', action: 'cancel_order' },
             ],
@@ -6558,13 +6559,13 @@ Reply "confirm" to book the rider.`,
 
     cod_not_available_retry: {
       type: 'action',
-      description: 'Tell the user this store does not take cash and offer alternatives',
+      description: 'Tell the user cash is not available for food and offer alternatives',
       actions: [
         {
           id: 'cod_unavailable_msg',
           executor: 'response',
           config: {
-            message: '💵 Sorry, this store does not accept Cash on Delivery.\n\nPlease choose another way to pay:',
+            message: '💵 Cash on Delivery is not available for food orders.\n\nPlease choose another way to pay:',
             buttons: [
               { label: '👛 Pay with Wallet', value: 'wallet', action: 'wallet' },
               { label: '💳 Pay Online', value: 'digital_payment', action: 'digital_payment' },
